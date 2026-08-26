@@ -1,4 +1,4 @@
-package io.github.kxng0109.aegisgate.helper;
+package io.github.kxng0109.aegisgate.security;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
