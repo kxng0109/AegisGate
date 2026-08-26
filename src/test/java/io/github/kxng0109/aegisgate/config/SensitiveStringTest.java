@@ -36,9 +36,9 @@ class SensitiveStringTest {
 		SensitiveString secret = new SensitiveString("sk-a");
 
 		assertEquals("sk-a", secret.value());
-		assertEquals(secret, new SensitiveString("sk-a"));
+		assertEquals(new SensitiveString("sk-a"), secret);
 		assertEquals(secret.hashCode(), new SensitiveString("sk-a").hashCode());
-		assertNotEquals(secret, new SensitiveString("sk-b"));
+		assertNotEquals(new SensitiveString("sk-b"), secret);
 
 		assertAll(
 				() -> assertEquals("sk-a", secret.value()),
