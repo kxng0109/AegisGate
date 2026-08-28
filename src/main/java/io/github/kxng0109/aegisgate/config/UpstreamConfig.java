@@ -5,6 +5,8 @@ import jakarta.validation.constraints.Pattern;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
+import java.time.Duration;
+
 /**
  * Configuration for a single upstream LLM provider the gateway routes to.
  *
@@ -24,10 +26,54 @@ public record UpstreamConfig(
 		@NotBlank(message = "Configuration Name required!")
 		String name,
 
-		@NotBlank(message = "Configuration base url required")
+		@NotBlank(message = "Configuration Base Url required!")
 		@Pattern(regexp = "^(http|https)://.*", message = "URL must start with http:// or https://")
 		String baseUrl,
 
-		SensitiveString apiKey
+		SensitiveString apiKey,
+
+		Duration connectTimeout,
+
+		Duration requestTimeout,
+
+		String chatCompletionsPath
 ) {
+
+	public UpstreamConfig {
+		connectTimeout = connectTimeout != null ? connectTimeout : Duration.ofSeconds(60);
+		requestTimeout = requestTimeout != null ? requestTimeout : Duration.ofSeconds(60);
+		chatCompletionsPath = chatCompletionsPath != null ? chatCompletionsPath : "/v1/chat/completions/";
+
+		if (name.isBlank()) {
+			throw new IllegalStateException("Configuration Name required!");
+		}
+
+		if (baseUrl.isBlank()) {
+			throw new IllegalStateException("Configuration Base Url required!");
+		}
+
+		if (!baseUrl.startsWith("https://") && !baseUrl.startsWith("http://")) {
+			throw new IllegalStateException("URL must start with http:// or https://");
+		}
+
+		if (apiKey.value().isBlank()) {
+			throw new IllegalStateException("API Key is required!");
+		}
+
+		if (connectTimeout.isNegative()) {
+			throw new IllegalArgumentException("connectTimeout cannot be negative!");
+		}
+
+		if (requestTimeout.isNegative()) {
+			throw new IllegalArgumentException("requestTimeout cannot be negative!");
+		}
+
+		if (!chatCompletionsPath.startsWith("/")) {
+			throw new IllegalStateException("chatCompletionsPath must start with '/'");
+		}
+
+		if (chatCompletionsPath.isBlank()) {
+			throw new IllegalStateException("chatCompletionsPath must not be blank!");
+		}
+	}
 }

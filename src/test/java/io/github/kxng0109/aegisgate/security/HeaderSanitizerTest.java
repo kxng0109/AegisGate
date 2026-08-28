@@ -5,22 +5,23 @@ import io.github.kxng0109.aegisgate.config.UpstreamConfig;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 class HeaderSanitizerTest {
 
 	private final HeaderSanitizer sanitizer =
 			new HeaderSanitizer(new UpstreamConfig(
-					"openai-primary", "https://api.openai.com/v1", new SensitiveString("sk-live-secret")));
+					"openai-primary",
+					"https://api.openai.com/v1",
+					new SensitiveString("sk-live-secret"),
+					Duration.ofSeconds(60),
+					Duration.ofSeconds(60),
+					"/v1/chat/completions"
+			));
 
 	@Test
 	@DisplayName("strips exact-name deny-list entries regardless of client casing")
@@ -28,7 +29,8 @@ class HeaderSanitizerTest {
 		Map<String, String> sanitized = sanitizer.sanitizeRequestHeaders(Map.of(
 				"authorization", "Bearer client-token",
 				"HOST", "client-host",
-				"cOoKiE", "session=abc"));
+				"cOoKiE", "session=abc"
+		));
 
 		assertFalse(sanitized.containsKey("authorization"));
 		assertFalse(sanitized.containsKey("HOST"));
@@ -60,7 +62,8 @@ class HeaderSanitizerTest {
 	void stripsCompressionAndContentLength() {
 		Map<String, String> sanitized = sanitizer.sanitizeRequestHeaders(Map.of(
 				"Accept-Encoding", "gzip, br",
-				"Content-Length", "1234"));
+				"Content-Length", "1234"
+		));
 
 		assertFalse(sanitized.containsKey("Accept-Encoding"));
 		assertFalse(sanitized.containsKey("Content-Length"));
@@ -75,7 +78,8 @@ class HeaderSanitizerTest {
 				"X-Gateway-Trace", "abc",
 				"X-Internal-Route", "secret-route",
 				"X-Real-IP", "10.0.0.1",
-				"X-Api-Key", "client-api-key"));
+				"X-Api-Key", "client-api-key"
+		));
 
 		assertFalse(sanitized.containsKey("X-Forwarded-For"));
 		assertFalse(sanitized.containsKey("x-forwarded-proto"));
@@ -90,7 +94,8 @@ class HeaderSanitizerTest {
 	void keepsInnocentHeadersContainingDeniedSubstrings() {
 		Map<String, String> sanitized = sanitizer.sanitizeRequestHeaders(Map.of(
 				"X-Database-Host", "db.internal",
-				"User-Agent", "aegisgate-integration-test"));
+				"User-Agent", "aegisgate-integration-test"
+		));
 
 		assertEquals("db.internal", sanitized.get("X-Database-Host"));
 		assertEquals("aegisgate-integration-test", sanitized.get("User-Agent"));
@@ -103,7 +108,8 @@ class HeaderSanitizerTest {
 
 		assertEquals("Bearer sk-live-secret", sanitized.get("Authorization"));
 		assertFalse(sanitized.get("Authorization").contains("****"),
-				"masked value must never be sent upstream");
+		            "masked value must never be sent upstream"
+		);
 	}
 
 	@Test
@@ -162,14 +168,18 @@ class HeaderSanitizerTest {
 		assertEquals("no-cache", downstream.get("Cache-Control"));
 		assertEquals("no", downstream.get("X-Accel-Buffering"));
 		assertFalse(downstream.containsKey("Connection"),
-				"connection management belongs to the servlet container");
+		            "connection management belongs to the servlet container"
+		);
 	}
 
 	@Test
 	@DisplayName("response direction tolerates upstream responses without allowed headers")
 	void responseDirectionToleratesMissingAllowedHeaders() {
-		Map<String, String> downstream = assertDoesNotThrow(() ->
-				sanitizer.sanitizeResponseHeaders(Map.of("Server", "opaque")));
+		Map<String, String> downstream = assertDoesNotThrow(
+				() -> sanitizer.sanitizeResponseHeaders(
+						Map.of("Server", "opaque")
+				)
+		);
 
 		assertNotNull(downstream);
 		assertFalse(downstream.containsKey("Content-Type"));
