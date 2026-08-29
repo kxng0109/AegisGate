@@ -1,4 +1,4 @@
-module.exports = {
+export default {
 	rules: {
 		'type-enum': [2, 'always', [
 			'feat', 'fix', 'docs', 'refactor', 'perf', 'test', 'build', 'ci', 'chore', 'revert'
