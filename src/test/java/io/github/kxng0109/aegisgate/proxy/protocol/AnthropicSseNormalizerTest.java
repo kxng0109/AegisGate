@@ -41,11 +41,11 @@ class AnthropicSseNormalizerTest {
 
 		assertEquals(4, lines.size(), "two content chunks, the final chunk, and DONE");
 		JsonNode first = chunk(lines.get(0));
-		assertEquals("Hello", first.path("choices").get(0).path("delta").path("content").asText());
+		assertEquals("Hello", first.path("choices").get(0).path("delta").path("content").asString());
 		JsonNode second = chunk(lines.get(1));
-		assertEquals(" world", second.path("choices").get(0).path("delta").path("content").asText());
+		assertEquals(" world", second.path("choices").get(0).path("delta").path("content").asString());
 		JsonNode finalChunk = chunk(lines.get(2));
-		assertEquals("stop", finalChunk.path("choices").get(0).path("finish_reason").asText());
+		assertEquals("stop", finalChunk.path("choices").get(0).path("finish_reason").asString());
 		assertEquals("data: [DONE]", lines.get(3));
 
 		assertTrue(normalizer.isDone());

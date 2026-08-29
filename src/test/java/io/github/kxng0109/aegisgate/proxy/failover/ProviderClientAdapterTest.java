@@ -69,7 +69,7 @@ class ProviderClientAdapterTest {
 		assertEquals("application/json", recorded.getHeader("Content-Type"));
 		assertEquals("Bearer sk-test", recorded.getHeader("Authorization"));
 		JsonNode body = new ObjectMapper().readTree(recorded.getBody().readUtf8());
-		assertEquals("gpt-x", body.get("model").asText());
+		assertEquals("gpt-x", body.get("model").asString());
 		assertTrue(
 				body.path("stream_options").path("include_usage").asBoolean(),
 				"the passthrough must always ask the upstream for usage"
@@ -97,7 +97,7 @@ class ProviderClientAdapterTest {
 
 		RecordedRequest recorded = server.takeRequest();
 		JsonNode body = new ObjectMapper().readTree(recorded.getBody().readUtf8());
-		assertEquals("llama3", body.get("model").asText());
+		assertEquals("llama3", body.get("model").asString());
 	}
 
 	@Test

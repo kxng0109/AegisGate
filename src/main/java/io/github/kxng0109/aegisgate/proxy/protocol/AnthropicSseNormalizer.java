@@ -81,7 +81,7 @@ public final class AnthropicSseNormalizer implements SseNormalizer {
 		if (node == null || !node.isObject()) {
 			return List.of();
 		}
-		String type = node.path("type").asText("");
+		String type = node.path("type").asString("");
 		if (!type.isEmpty()) {
 			pendingEvent = type;
 		}
@@ -119,8 +119,8 @@ public final class AnthropicSseNormalizer implements SseNormalizer {
 		JsonNode message = node.get("message");
 		if (message != null && message.isObject()) {
 			JsonNode modelNode = message.get("model");
-			if (modelNode != null && modelNode.isTextual() && !modelNode.asText().isEmpty()) {
-				upstreamModel = modelNode.asText();
+			if (modelNode != null && modelNode.isString() && !modelNode.asString().isEmpty()) {
+				upstreamModel = modelNode.asString();
 			}
 			long tokens = message.path("usage").path("input_tokens").asLong(0);
 			if (tokens > 0 || inputTokens == null) {
@@ -131,11 +131,11 @@ public final class AnthropicSseNormalizer implements SseNormalizer {
 	}
 
 	private List<String> contentDelta(JsonNode node) {
-		String type = node.path("delta").path("type").asText("");
+		String type = node.path("delta").path("type").asString("");
 		if (!"text_delta".equals(type)) {
 			return List.of();
 		}
-		String text = node.path("delta").path("text").asText("");
+		String text = node.path("delta").path("text").asString("");
 		if (text.isEmpty()) {
 			return List.of();
 		}

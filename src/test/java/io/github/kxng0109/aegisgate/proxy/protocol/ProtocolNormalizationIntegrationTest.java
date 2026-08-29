@@ -122,7 +122,7 @@ class ProtocolNormalizationIntegrationTest {
 		assertEquals("sk-ant", recorded.getHeader("x-api-key"));
 		assertEquals(AnthropicAdapter.ANTHROPIC_VERSION, recorded.getHeader("anthropic-version"));
 		JsonNode body = objectMapper.readTree(recorded.getBody().readUtf8());
-		assertEquals("claude-sonnet-5", body.get("model").asText());
+		assertEquals("claude-sonnet-5", body.get("model").asString());
 		assertTrue(body.get("stream").asBoolean());
 		assertEquals(AnthropicAdapter.DEFAULT_MAX_TOKENS, body.get("max_tokens").asInt());
 	}
@@ -140,7 +140,7 @@ class ProtocolNormalizationIntegrationTest {
 		assertEquals("/api/chat", recorded.getPath());
 		assertNull(recorded.getHeader("Authorization"));
 		JsonNode body = objectMapper.readTree(recorded.getBody().readUtf8());
-		assertEquals("llama3.2", body.get("model").asText());
+		assertEquals("llama3.2", body.get("model").asString());
 		assertTrue(body.get("stream").asBoolean());
 		assertEquals(0.4, body.path("options").path("temperature").asDouble());
 	}

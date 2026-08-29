@@ -56,7 +56,7 @@ public final class OpenAiSseNormalizer implements SseNormalizer {
 			String json = trimmed.substring("data:".length()).trim();
 			JsonNode node = parse(json);
 			if (node != null && node.isObject()) {
-				String model = node.path("model").asText("");
+				String model = node.path("model").asString("");
 				if (!model.isEmpty()) {
 					upstreamModel = model;
 				}

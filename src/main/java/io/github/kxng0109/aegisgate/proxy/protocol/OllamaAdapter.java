@@ -103,12 +103,12 @@ public final class OllamaAdapter implements ProtocolAdapter {
 		if (stop == null || stop.isNull()) {
 			return out;
 		}
-		if (stop.isTextual()) {
-			out.add(stop.asText());
+		if (stop.isString()) {
+			out.add(stop.asString());
 		} else if (stop.isArray()) {
 			for (JsonNode entry : stop) {
-				if (entry.isTextual()) {
-					out.add(entry.asText());
+				if (entry.isString()) {
+					out.add(entry.asString());
 				}
 			}
 		}
@@ -119,17 +119,17 @@ public final class OllamaAdapter implements ProtocolAdapter {
 		if (content == null || content.isNull()) {
 			return null;
 		}
-		if (content.isTextual()) {
-			return content.asText();
+		if (content.isString()) {
+			return content.asString();
 		}
 		StringBuilder text = new StringBuilder();
 		if (content.isArray()) {
 			for (JsonNode part : content) {
-				if ("text".equals(part.path("type").asText(""))) {
+				if ("text".equals(part.path("type").asString(""))) {
 					if (!text.isEmpty()) {
 						text.append('\n');
 					}
-					text.append(part.path("text").asText(""));
+					text.append(part.path("text").asString(""));
 				}
 			}
 		}

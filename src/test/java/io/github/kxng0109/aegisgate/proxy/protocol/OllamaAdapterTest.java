@@ -34,16 +34,16 @@ class OllamaAdapterTest {
 
 		JsonNode result = objectMapper.readTree(adapter.buildRequestBody(body, null));
 
-		assertEquals("llama3.2", result.get("model").asText());
+		assertEquals("llama3.2", result.get("model").asString());
 		assertTrue(result.get("stream").asBoolean());
 		JsonNode messages = result.get("messages");
 		assertEquals(2, messages.size());
-		assertEquals("system", messages.get(0).get("role").asText());
-		assertEquals("Why is the sky blue?", messages.get(1).get("content").asText());
+		assertEquals("system", messages.get(0).get("role").asString());
+		assertEquals("Why is the sky blue?", messages.get(1).get("content").asString());
 		JsonNode options = result.get("options");
 		assertEquals(0.4, options.get("temperature").asDouble());
 		assertEquals(0.9, options.get("top_p").asDouble());
-		assertEquals("END", options.get("stop").get(0).asText());
+		assertEquals("END", options.get("stop").get(0).asString());
 		assertEquals(200, options.get("num_predict").asInt());
 	}
 
@@ -52,7 +52,7 @@ class OllamaAdapterTest {
 	void appliesModelOverride() throws Exception {
 		JsonNode result = objectMapper.readTree(
 				adapter.buildRequestBody("{\"model\":\"m\",\"messages\":[]}", "llama3.1:8b"));
-		assertEquals("llama3.1:8b", result.get("model").asText());
+		assertEquals("llama3.1:8b", result.get("model").asString());
 	}
 
 	@Test
@@ -62,7 +62,7 @@ class OllamaAdapterTest {
 				+ "{\"type\":\"text\",\"text\":\"one\"},{\"type\":\"image_url\",\"image_url\":{\"url\":\"x\"}},"
 				+ "{\"type\":\"text\",\"text\":\"two\"}]}]}";
 		JsonNode result = objectMapper.readTree(adapter.buildRequestBody(body, null));
-		assertEquals("one\ntwo", result.get("messages").get(0).get("content").asText());
+		assertEquals("one\ntwo", result.get("messages").get(0).get("content").asString());
 	}
 
 	@Test
@@ -112,7 +112,7 @@ class OllamaAdapterTest {
 		JsonNode result = objectMapper.readTree(
 				adapter.buildRequestBody("{\"model\":\"m\",\"messages\":[],\"stop\":[\"END\",42]}", null));
 		assertEquals(1, result.path("options").get("stop").size());
-		assertEquals("END", result.path("options").get("stop").get(0).asText());
+		assertEquals("END", result.path("options").get("stop").get(0).asString());
 	}
 
 	@Test

@@ -32,8 +32,8 @@ class OpenAiPassthroughAdapterTest {
 
 		JsonNode result = objectMapper.readTree(adapter.buildRequestBody(body, null));
 
-		assertEquals("gpt-5.6-luna", result.get("model").asText());
-		assertEquals("hi", result.path("messages").get(0).path("content").asText());
+		assertEquals("gpt-5.6-luna", result.get("model").asString());
+		assertEquals("hi", result.path("messages").get(0).path("content").asString());
 		assertEquals(0.7, result.path("temperature").asDouble());
 		assertTrue(result.path("stream_options").path("include_usage").asBoolean());
 	}
@@ -54,7 +54,7 @@ class OpenAiPassthroughAdapterTest {
 	void appliesModelOverride() throws Exception {
 		JsonNode result = objectMapper.readTree(
 				adapter.buildRequestBody("{\"model\":\"m\"}", "gpt-5.6-sol"));
-		assertEquals("gpt-5.6-sol", result.get("model").asText());
+		assertEquals("gpt-5.6-sol", result.get("model").asString());
 	}
 
 	@Test

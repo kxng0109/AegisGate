@@ -220,7 +220,7 @@ public class ProxyController {
 				return null;
 			}
 			JsonNode modelNode = root.get("model");
-			return modelNode != null && modelNode.isTextual() ? modelNode.asText() : null;
+			return modelNode != null && modelNode.isString() ? modelNode.asString() : null;
 		} catch (JacksonException ex) {
 			return null;
 		}

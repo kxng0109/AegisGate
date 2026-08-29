@@ -107,8 +107,8 @@ public class PricingSyncService {
 			if (entry == null || !entry.isObject()) {
 				continue;
 			}
-			String provider = entry.path("litellm_provider").asText("");
-			String mode = entry.path("mode").asText("");
+			String provider = entry.path("litellm_provider").asString("");
+			String mode = entry.path("mode").asString("");
 			if (!"chat".equals(mode) && !"ollama".equals(provider)) {
 				continue;
 			}

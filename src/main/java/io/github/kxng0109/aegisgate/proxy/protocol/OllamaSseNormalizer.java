@@ -60,12 +60,12 @@ public final class OllamaSseNormalizer implements SseNormalizer {
 			return List.of();
 		}
 
-		String model = node.path("model").asText("");
+		String model = node.path("model").asString("");
 		if (!model.isEmpty()) {
 			upstreamModel = model;
 		}
 
-		String content = node.path("message").path("content").asText("");
+		String content = node.path("message").path("content").asString("");
 		boolean finished = node.path("done").asBoolean(false);
 
 		List<String> lines = new ArrayList<>();

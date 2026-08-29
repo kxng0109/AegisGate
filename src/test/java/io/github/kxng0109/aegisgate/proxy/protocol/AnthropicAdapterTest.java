@@ -36,14 +36,14 @@ class AnthropicAdapterTest {
 
 		JsonNode result = objectMapper.readTree(adapter.buildRequestBody(body, null));
 
-		assertEquals("claude-sonnet-5", result.get("model").asText());
-		assertEquals("You are helpful", result.get("system").asText());
+		assertEquals("claude-sonnet-5", result.get("model").asString());
+		assertEquals("You are helpful", result.get("system").asString());
 		JsonNode messages = result.get("messages");
 		assertEquals(2, messages.size());
-		assertEquals("user", messages.get(0).get("role").asText());
-		assertEquals("text", messages.get(0).path("content").get(0).get("type").asText());
-		assertEquals("Hello", messages.get(0).path("content").get(0).get("text").asText());
-		assertEquals("assistant", messages.get(1).get("role").asText());
+		assertEquals("user", messages.get(0).get("role").asString());
+		assertEquals("text", messages.get(0).path("content").get(0).get("type").asString());
+		assertEquals("Hello", messages.get(0).path("content").get(0).get("text").asString());
+		assertEquals("assistant", messages.get(1).get("role").asString());
 		assertTrue(result.get("stream").asBoolean());
 	}
 
@@ -81,7 +81,7 @@ class AnthropicAdapterTest {
 		JsonNode result = objectMapper.readTree(adapter.buildRequestBody(body, null));
 		assertEquals(0.9, result.get("top_p").asDouble());
 		assertEquals(2, result.get("stop_sequences").size());
-		assertEquals("END", result.get("stop_sequences").get(0).asText());
+		assertEquals("END", result.get("stop_sequences").get(0).asString());
 	}
 
 	@Test
@@ -107,7 +107,7 @@ class AnthropicAdapterTest {
 				+ "]}";
 		JsonNode result = objectMapper.readTree(adapter.buildRequestBody(body, null));
 		assertEquals(1, result.get("messages").size());
-		assertEquals("user", result.get("messages").get(0).get("role").asText());
+		assertEquals("user", result.get("messages").get(0).get("role").asString());
 		assertEquals(
 				0, result.get("messages").get(0).get("content").size(),
 				"image parts have no Anthropic text equivalent and are dropped"
@@ -119,7 +119,7 @@ class AnthropicAdapterTest {
 	void appliesModelOverride() throws Exception {
 		JsonNode result = objectMapper.readTree(
 				adapter.buildRequestBody("{\"model\":\"m\",\"messages\":[]}", "claude-opus-5"));
-		assertEquals("claude-opus-5", result.get("model").asText());
+		assertEquals("claude-opus-5", result.get("model").asString());
 	}
 
 	@Test
@@ -144,7 +144,7 @@ class AnthropicAdapterTest {
 		JsonNode result = objectMapper.readTree(
 				adapter.buildRequestBody("{\"model\":\"m\",\"messages\":[],\"stop\":\"END\"}", null));
 		assertEquals(1, result.get("stop_sequences").size());
-		assertEquals("END", result.get("stop_sequences").get(0).asText());
+		assertEquals("END", result.get("stop_sequences").get(0).asString());
 	}
 
 	@Test
@@ -204,7 +204,7 @@ class AnthropicAdapterTest {
 				+ "{\"role\":\"system\",\"content\":[{\"type\":\"text\",\"text\":\"second\"}]},"
 				+ "{\"role\":\"user\",\"content\":\"x\"}]}";
 		JsonNode result = objectMapper.readTree(adapter.buildRequestBody(body, null));
-		assertEquals("first\nsecond", result.get("system").asText());
+		assertEquals("first\nsecond", result.get("system").asString());
 	}
 
 	@Test
@@ -226,7 +226,7 @@ class AnthropicAdapterTest {
 				+ "{\"type\":\"text\",\"text\":\"keep\"},{\"type\":\"image_url\",\"image_url\":{\"url\":\"x\"}}]}]}";
 		JsonNode result = objectMapper.readTree(adapter.buildRequestBody(body, null));
 		assertEquals(1, result.get("messages").get(0).get("content").size());
-		assertEquals("keep", result.get("messages").get(0).path("content").get(0).path("text").asText());
+		assertEquals("keep", result.get("messages").get(0).path("content").get(0).path("text").asString());
 	}
 
 	@Test
@@ -267,8 +267,8 @@ class AnthropicAdapterTest {
 						null
 				));
 		assertEquals(2, result.get("stop_sequences").size());
-		assertEquals("END", result.get("stop_sequences").get(0).asText());
-		assertEquals("STOP", result.get("stop_sequences").get(1).asText());
+		assertEquals("END", result.get("stop_sequences").get(0).asString());
+		assertEquals("STOP", result.get("stop_sequences").get(1).asString());
 	}
 
 	@Test

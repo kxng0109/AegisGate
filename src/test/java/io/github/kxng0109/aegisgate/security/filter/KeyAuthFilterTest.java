@@ -126,8 +126,8 @@ class KeyAuthFilterTest {
 		assertEquals(401, response.getStatus());
 		assertTrue(response.getContentType().contains("application/json"));
 		JsonNode body = parse(response);
-		assertEquals("Missing or malformed Authorization header", body.get("error").get("message").asText());
-		assertEquals(RejectionReason.KEY_NOT_FOUND.name(), body.get("error").get("code").asText());
+		assertEquals("Missing or malformed Authorization header", body.get("error").get("message").asString());
+		assertEquals(RejectionReason.KEY_NOT_FOUND.name(), body.get("error").get("code").asString());
 		assertNull(chain.chain().getRequest(), "chain must not run for rejected requests");
 	}
 
@@ -198,7 +198,7 @@ class KeyAuthFilterTest {
 
 		assertEquals(401, response.getStatus());
 		JsonNode body = parse(response);
-		assertEquals("Invalid API key", body.get("error").get("message").asText());
+		assertEquals("Invalid API key", body.get("error").get("message").asString());
 		assertNull(chain.chain().getRequest());
 	}
 
@@ -209,7 +209,7 @@ class KeyAuthFilterTest {
 		MockHttpServletResponse response = invoke(request("Bearer " + VALID_KEY, null), filter);
 		assertEquals(403, response.getStatus());
 		JsonNode body = parse(response);
-		assertEquals(RejectionReason.KEY_DISABLED.name(), body.get("error").get("code").asText());
+		assertEquals(RejectionReason.KEY_DISABLED.name(), body.get("error").get("code").asString());
 	}
 
 	// ---------------------------------------------------------------------
@@ -276,7 +276,7 @@ class KeyAuthFilterTest {
 		assertEquals(403, response.getStatus());
 		assertEquals(
 				RejectionReason.MODEL_NOT_ALLOWED.name(),
-				parse(response).get("error").get("code").asText()
+				parse(response).get("error").get("code").asString()
 		);
 	}
 
@@ -308,7 +308,7 @@ class KeyAuthFilterTest {
 		assertEquals(403, response.getStatus());
 		assertEquals(
 				RejectionReason.MODEL_NOT_ALLOWED.name(),
-				parse(response).get("error").get("code").asText()
+				parse(response).get("error").get("code").asString()
 		);
 	}
 
@@ -458,7 +458,7 @@ class KeyAuthFilterTest {
 		);
 		assertEquals(
 				RejectionReason.RPM_EXCEEDED.name(),
-				parse(response).get("error").get("code").asText()
+				parse(response).get("error").get("code").asString()
 		);
 		assertNull(chain.chain().getRequest(), "chain must not run for rejected requests");
 	}
@@ -474,7 +474,7 @@ class KeyAuthFilterTest {
 		assertEquals("2", response.getHeader("Retry-After"));
 		assertEquals(
 				RejectionReason.TPM_EXCEEDED.name(),
-				parse(response).get("error").get("code").asText()
+				parse(response).get("error").get("code").asString()
 		);
 	}
 

@@ -238,7 +238,7 @@ class RateLimitIntegrationTest {
 	private String errorCode(HttpResponse<String> response) {
 		try {
 			JsonNode root = objectMapper.readTree(response.body());
-			return root.path("error").path("code").asText();
+			return root.path("error").path("code").asString();
 		} catch (JacksonException e) {
 			throw new IllegalStateException("Failed to parse error response", e);
 		}
