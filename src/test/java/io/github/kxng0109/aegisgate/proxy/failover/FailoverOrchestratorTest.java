@@ -2,6 +2,10 @@ package io.github.kxng0109.aegisgate.proxy.failover;
 
 import io.github.kxng0109.aegisgate.config.SensitiveString;
 import io.github.kxng0109.aegisgate.contracts.*;
+import io.github.kxng0109.aegisgate.proxy.protocol.AnthropicAdapter;
+import io.github.kxng0109.aegisgate.proxy.protocol.OllamaAdapter;
+import io.github.kxng0109.aegisgate.proxy.protocol.OpenAiPassthroughAdapter;
+import io.github.kxng0109.aegisgate.proxy.protocol.ProtocolAdapterResolver;
 import io.github.kxng0109.aegisgate.security.SsrfViolationException;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
@@ -414,7 +418,13 @@ class FailoverOrchestratorTest {
 	}
 
 	private ProviderClientAdapter adapter() {
-		return new ProviderClientAdapter(httpClient, new ObjectMapper());
+		ObjectMapper mapper = new ObjectMapper();
+		ProtocolAdapterResolver resolver = new ProtocolAdapterResolver(
+				new OpenAiPassthroughAdapter(mapper),
+				new AnthropicAdapter(mapper),
+				new OllamaAdapter(mapper)
+		);
+		return new ProviderClientAdapter(httpClient, resolver);
 	}
 
 	private GatewayProperties properties() {

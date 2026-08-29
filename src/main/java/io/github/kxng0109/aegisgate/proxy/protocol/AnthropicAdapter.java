@@ -1,0 +1,216 @@
+package io.github.kxng0109.aegisgate.proxy.protocol;
+
+import io.github.kxng0109.aegisgate.contracts.ProviderConfig;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.jspecify.annotations.Nullable;
+import org.springframework.stereotype.Component;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
+
+import java.net.URI;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Translates between the OpenAI chat completions contract and the Anthropic
+ * Messages API.
+ *
+ * <p>Request translation:</p>
+ * <ul>
+ *   <li>the first system role message becomes the top level {@code system}
+ *       parameter, because the Messages API has no system role;</li>
+ *   <li>user and assistant messages become content block arrays;</li>
+ *   <li>{@code temperature} is clamped to the Anthropic range, {@code top_p}
+ *       maps directly, {@code stop} becomes {@code stop_sequences}, and
+ *       {@code max_tokens} (required by Anthropic) comes from the client or a
+ *       sane default;</li>
+ *   <li>parameters Anthropic has no equivalent for (frequency and presence
+ *       penalties, logit bias, {@code n}, {@code seed}) are dropped.</li>
+ * </ul>
+ */
+@Slf4j
+@Component
+@RequiredArgsConstructor
+public final class AnthropicAdapter implements ProtocolAdapter {
+
+	/**
+	 * The Anthropic Messages API path.
+	 */
+	public static final String MESSAGES_PATH = "/v1/messages";
+
+	/**
+	 * The API version pinned by the request header, per the current docs.
+	 */
+	public static final String ANTHROPIC_VERSION = "2023-06-01";
+
+	/**
+	 * Default completion bound when the client supplied none; Anthropic
+	 * requires the field.
+	 */
+	public static final int DEFAULT_MAX_TOKENS = 4096;
+
+	/**
+	 * Upper bound for the temperature, per the Anthropic specification.
+	 */
+	public static final double MAX_TEMPERATURE = 1.0;
+
+	private final ObjectMapper objectMapper;
+
+	@Override
+	public URI buildUpstreamUrl(ProviderConfig config) {
+		String baseUrl = stripTrailingSlash(config.baseUrl().toString());
+		return URI.create(baseUrl + MESSAGES_PATH);
+	}
+
+	@Override
+	public String buildRequestBody(String rawRequestBody, @Nullable String modelOverride) {
+		OpenAiChatRequest request = parse(rawRequestBody);
+		String model = modelOverride != null ? modelOverride : request.model();
+
+		ObjectNode body = objectMapper.createObjectNode();
+		body.put("model", model);
+		body.put("stream", true);
+
+		List<OpenAiChatRequest.Message> messages = new ArrayList<>();
+		StringBuilder system = new StringBuilder();
+		if (request.messages() != null) {
+			for (OpenAiChatRequest.Message message : request.messages()) {
+				if ("system".equals(message.role())) {
+					String text = messageText(message.content());
+					if (text != null && !text.isBlank()) {
+						if (!system.isEmpty()) {
+							system.append('\n');
+						}
+						system.append(text);
+					}
+				} else {
+					messages.add(message);
+				}
+			}
+		}
+		if (!system.isEmpty()) {
+			body.put("system", system.toString());
+		}
+
+		ArrayNode anthropicMessages = body.putArray("messages");
+		for (OpenAiChatRequest.Message message : messages) {
+			String role = message.role();
+			if (!"user".equals(role) && !"assistant".equals(role)) {
+				log.debug("Dropping a message with an unsupported role for Anthropic: {}", role);
+				continue;
+			}
+			ObjectNode out = anthropicMessages.addObject();
+			out.put("role", role);
+			out.putArray("content").addAll(contentBlocks(message.content()));
+		}
+
+		body.put("max_tokens", maxTokens(request));
+
+		Double temperature = request.temperature();
+		if (temperature != null) {
+			body.put("temperature", Math.min(MAX_TEMPERATURE, Math.max(0.0, temperature)));
+		}
+		Double topP = request.topP();
+		if (topP != null) {
+			body.put("top_p", topP);
+		}
+		ArrayNode stopSequences = stopSequences(request.stop());
+		if (!stopSequences.isEmpty()) {
+			body.set("stop_sequences", stopSequences);
+		}
+
+		return objectMapper.writeValueAsString(body);
+	}
+
+	@Override
+	public Map<String, String> buildRequestHeaders(ProviderConfig config) {
+		Map<String, String> headers = new LinkedHashMap<>();
+		headers.put("Content-Type", "application/json");
+		headers.put("x-api-key", config.apiKey() == null ? "" : config.apiKey().value());
+		headers.put("anthropic-version", ANTHROPIC_VERSION);
+		return headers;
+	}
+
+	@Override
+	public SseNormalizer newNormalizer(boolean includeUsageInResponse, String fallbackModel) {
+		return new AnthropicSseNormalizer(objectMapper, fallbackModel, includeUsageInResponse);
+	}
+
+	private OpenAiChatRequest parse(String rawRequestBody) {
+		return objectMapper.readValue(rawRequestBody, OpenAiChatRequest.class);
+	}
+
+	private int maxTokens(OpenAiChatRequest request) {
+		Integer bound = request.effectiveMaxTokens();
+		return bound != null && bound > 0 ? bound : DEFAULT_MAX_TOKENS;
+	}
+
+	private ArrayNode stopSequences(@Nullable JsonNode stop) {
+		ArrayNode out = objectMapper.createArrayNode();
+		if (stop == null || stop.isNull()) {
+			return out;
+		}
+		if (stop.isTextual()) {
+			out.add(stop.asText());
+		} else if (stop.isArray()) {
+			for (JsonNode entry : stop) {
+				if (entry.isTextual()) {
+					out.add(entry.asText());
+				}
+			}
+		}
+		return out;
+	}
+
+	private ArrayNode contentBlocks(@Nullable JsonNode content) {
+		ArrayNode blocks = objectMapper.createArrayNode();
+		if (content == null || content.isNull()) {
+			return blocks;
+		}
+		if (content.isTextual()) {
+			blocks.addObject().put("type", "text").put("text", content.asText());
+			return blocks;
+		}
+		if (content.isArray()) {
+			for (JsonNode part : content) {
+				String type = part.path("type").asText("");
+				if ("text".equals(type)) {
+					blocks.addObject().put("type", "text").put("text", part.path("text").asText(""));
+				} else {
+					log.debug("Dropping a content part Anthropic cannot translate: {}", type);
+				}
+			}
+		}
+		return blocks;
+	}
+
+	private @Nullable String messageText(@Nullable JsonNode content) {
+		if (content == null || content.isNull()) {
+			return null;
+		}
+		if (content.isTextual()) {
+			return content.asText();
+		}
+		StringBuilder text = new StringBuilder();
+		if (content.isArray()) {
+			for (JsonNode part : content) {
+				if ("text".equals(part.path("type").asText(""))) {
+					if (!text.isEmpty()) {
+						text.append('\n');
+					}
+					text.append(part.path("text").asText(""));
+				}
+			}
+		}
+		return text.isEmpty() ? null : text.toString();
+	}
+
+	private static String stripTrailingSlash(String baseUrl) {
+		return baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
+	}
+}

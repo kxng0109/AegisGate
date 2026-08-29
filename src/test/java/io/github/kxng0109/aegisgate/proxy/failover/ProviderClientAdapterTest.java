@@ -3,6 +3,10 @@ package io.github.kxng0109.aegisgate.proxy.failover;
 import io.github.kxng0109.aegisgate.config.SensitiveString;
 import io.github.kxng0109.aegisgate.contracts.ProviderConfig;
 import io.github.kxng0109.aegisgate.contracts.ProviderType;
+import io.github.kxng0109.aegisgate.proxy.protocol.AnthropicAdapter;
+import io.github.kxng0109.aegisgate.proxy.protocol.OllamaAdapter;
+import io.github.kxng0109.aegisgate.proxy.protocol.OpenAiPassthroughAdapter;
+import io.github.kxng0109.aegisgate.proxy.protocol.ProtocolAdapterResolver;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
@@ -38,7 +42,13 @@ class ProviderClientAdapterTest {
 	void setUp() throws Exception {
 		server = new MockWebServer();
 		server.start();
-		adapter = new ProviderClientAdapter(httpClient(), new ObjectMapper());
+		ObjectMapper mapper = new ObjectMapper();
+		ProtocolAdapterResolver resolver = new ProtocolAdapterResolver(
+				new OpenAiPassthroughAdapter(mapper),
+				new AnthropicAdapter(mapper),
+				new OllamaAdapter(mapper)
+		);
+		adapter = new ProviderClientAdapter(httpClient(), resolver);
 	}
 
 	@AfterEach
@@ -59,7 +69,10 @@ class ProviderClientAdapterTest {
 		assertEquals("/v1/chat/completions", recorded.getPath());
 		assertEquals("application/json", recorded.getHeader("Content-Type"));
 		assertEquals("Bearer sk-test", recorded.getHeader("Authorization"));
-		assertEquals("{\"model\":\"gpt-x\"}", recorded.getBody().readUtf8());
+		JsonNode body = new ObjectMapper().readTree(recorded.getBody().readUtf8());
+		assertEquals("gpt-x", body.get("model").asText());
+		assertEquals(true, body.path("stream_options").path("include_usage").asBoolean(),
+				"the passthrough must always ask the upstream for usage");
 	}
 
 	@Test

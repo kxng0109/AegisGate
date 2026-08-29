@@ -1,8 +1,8 @@
 # AegisGate
 
-AegisGate is an AI gateway built in Java 25 on Spring Boot 4.1. It sits between your applications and large language model providers, exposing a single OpenAI compatible chat completions endpoint while handling authentication, rate limiting, and secure upstream forwarding.
+AegisGate is an AI gateway built in Java 25 on Spring Boot 4.1. It sits between your applications and large language model providers, exposing a single OpenAI compatible chat completions endpoint while handling authentication, rate limiting, secure upstream forwarding, protocol normalization, and usage based cost accounting.
 
-The project is developed in phases. Phase 1 delivered a transparent SSE streaming proxy with SSRF defense and header sanitization. Phase 2 added virtual API key authentication and distributed rate limiting backed by Redis. Phase 3 added resilient multi provider failover: every model now maps to a chain of providers with automatic failover, per provider circuit breakers, and an optional race strategy. Later phases add protocol normalization and an async usage ledger, following the architectural master plan.
+The project is developed in phases. Phase 1 delivered a transparent SSE streaming proxy with SSRF defense and header sanitization. Phase 2 added virtual API key authentication and distributed rate limiting backed by Redis. Phase 3 added resilient multi provider failover: every model now maps to a chain of providers with automatic failover, per provider circuit breakers, and an optional race strategy. Phase 4 added protocol normalization and an asynchronous usage and cost ledger. The gateway now serves OpenAI shaped SSE to your client no matter which provider dialect answers the request, and it records the tokens and estimated cost of every completed stream in PostgreSQL with prices refreshed daily from the LiteLLM catalog, following the architectural master plan.
 
 ## What it does
 
@@ -17,6 +17,9 @@ The project is developed in phases. Phase 1 delivered a transparent SSE streamin
 - Validates upstream URLs against private, loopback, link local, multicast, and cloud metadata ranges before any connection is attempted.
 - Strips client supplied identity and authorization headers and injects the configured upstream key.
 - Never logs key material. Every sensitive value is wrapped so that its string representation is masked.
+- Normalizes every provider dialect to the OpenAI SSE contract, so one client endpoint works with OpenAI compatible, Anthropic, and Ollama upstreams. See `proxy/protocol`.
+- Records the token usage and estimated cost of every completed stream into a PostgreSQL ledger. Recording runs asynchronously on its own executor, so billing can never slow a response.
+- Keeps prices current without manual edits. The gateway syncs the LiteLLM model pricing catalog into the database once a day, and the price table is seeded at first migration.
 
 ## How a request flows
 
@@ -26,7 +29,7 @@ An incoming request to `/v1/chat/completions` passes through several stages:
 
 2. `KeyAuthFilter` authenticates the bearer token, checks the model allow list, estimates the token cost of the request, and consults the rate limiter. It sets the `X-RateLimit` response headers and either continues the chain or answers with 401, 403, 429, or 503. See `security/filter/KeyAuthFilter.java`.
 
-3. `ProxyController` resolves the requested model to a `ModelAlias` and asks `FailoverOrchestrator` to pick a winning provider. The orchestrator walks the chain, applies the circuit breakers, and returns the winning provider's streaming response. The controller relays that response line by line with zero buffering. See `proxy/ProxyController.java` and `proxy/failover/FailoverOrchestrator.java`.
+3. `ProxyController` resolves the requested model to a `ModelAlias` and asks `FailoverOrchestrator` to pick a winning provider. The orchestrator walks the chain, applies the circuit breakers, and returns the winning provider's streaming response. The controller runs each upstream line through the provider's `SseNormalizer`, so the client always sees OpenAI shaped SSE, and relays it with zero buffering. When a stream finishes with token usage, the controller publishes a `TokenUsageEvent` for the ledger. See `proxy/ProxyController.java`, `proxy/failover/FailoverOrchestrator.java`, and `proxy/protocol`.
 
 Filter registration and ordering are defined in `security/filter/SecurityFilterConfig.java`.
 
@@ -49,28 +52,49 @@ gateway:
       api-key: ${OPENROUTER_API_KEY:}
       connect-timeout: 5s
       request-timeout: 60s
+    anthropic:
+      type: ANTHROPIC
+      base-url: https://api.anthropic.com
+      api-key: ${ANTHROPIC_API_KEY:}
+      connect-timeout: 5s
+      request-timeout: 60s
+    ollama:
+      type: OLLAMA
+      base-url: http://localhost:11434
+      api-key: ""
+      connect-timeout: 3s
+      request-timeout: 120s
   aliases:
-    gpt-5.6-luna:
+    gpt-56-sol:
       chain:
         - provider-name: openai
+          model-override: gpt-5.6-sol
+      strategy: SEQUENTIAL
+    claude-sonnet-5:
+      chain:
+        - provider-name: anthropic
+      strategy: SEQUENTIAL
+    local-llama:
+      chain:
+        - provider-name: ollama
+          model-override: llama3.2
       strategy: SEQUENTIAL
     fast:
       chain:
         - provider-name: openai
+          model-override: gpt-5.6-luna
         - provider-name: openrouter
+          model-override: gpt-5.6-luna
+        - provider-name: ollama
+          model-override: llama3.2
       strategy: SEQUENTIAL
-    race-demo:
-      chain:
-        - provider-name: openai
-        - provider-name: openrouter
-      strategy: RACE
 ```
 
-The `type` field selects the protocol dialect. Today every configured provider speaks the OpenAI compatible protocol (`OPENAI`), which covers OpenAI itself, OpenRouter, Groq, DeepSeek, Mistral, Together, vLLM, and most local servers. Anthropic and Ollama dialects are planned for the protocol normalization phase.
+The `type` field selects the protocol dialect. `OPENAI` covers OpenAI itself, OpenRouter, Groq, DeepSeek, Mistral, Together, vLLM, and most local servers. `ANTHROPIC` speaks the Anthropic Messages API, and `OLLAMA` speaks the native Ollama chat API. The full set of shipped providers and aliases lives in `src/main/resources/application.yml`. The `model-override` on a chain step pins the concrete upstream model for that provider, which is how a client facing name maps to a provider specific id.
 
 The behavior of a chain is decided by the classification rules in `FailoverOrchestrator`:
 
-- A 200 response with an event stream content type is a success.
+- A 200 response with a streaming content type, either an event stream or newline delimited JSON, is a success.
 - A 429 or any 5xx is transient and fails over to the next provider.
 - A 401, 403, or 400 is non transient and is returned to the client as is.
 - Timeouts and connection failures are transient and fail over.
@@ -79,6 +103,26 @@ The behavior of a chain is decided by the classification rules in `FailoverOrche
 Each provider has a `ProviderCircuitBreaker`. It starts closed, opens after three consecutive failures, stays open for thirty seconds, then admits a single probe. A successful probe closes the circuit; a failed probe reopens it. See `proxy/failover/ProviderCircuitBreaker.java`.
 
 When every provider fails, the client sees a clean error: 502 when providers returned errors, 503 when nothing usable was reachable, 504 when the chain timed out. See `proxy/failover/GatewayExceptionHandler.java`.
+
+## Protocol normalization
+
+AegisGate keeps one client contract, the OpenAI chat completions shape, and translates each provider's native protocol behind it. The `type` field on a provider selects the dialect:
+
+- `OPENAI` speaks the OpenAI chat completions protocol directly. This covers OpenAI itself, OpenRouter, Groq, DeepSeek, Mistral, Together, vLLM, and most local servers.
+- `ANTHROPIC` speaks the Anthropic Messages API. Requests are translated to `v1/messages` with the pinned API version, and the Anthropic stream is rewritten into OpenAI shaped chunks.
+- `OLLAMA` speaks the native Ollama chat API, which streams newline delimited JSON. The stream is normalized into the same OpenAI SSE shape.
+
+The translation lives in `proxy/protocol`. `ProtocolAdapterResolver` picks the adapter for a provider type. Each adapter builds the native URL, headers, and request body, and each normalizer rewrites the upstream stream back to the client contract. A normalizer is created fresh per stream and captures the token counts plus the model the provider reports, which feed the ledger. See `proxy/protocol/AnthropicAdapter.java`, `proxy/protocol/OllamaAdapter.java`, `proxy/protocol/OpenAiPassthroughAdapter.java`, and the matching `SseNormalizer` implementations.
+
+Cost is attributed against the model the provider reports, falling back to the requested model when the provider never reports one. On the OpenAI compatible path the gateway always asks the upstream for usage so it can bill, but the usage chunk is only relayed to a client that explicitly asked for it.
+
+## Usage and cost ledger
+
+Every completed stream that carries token usage is written to a PostgreSQL ledger. After the last byte is flushed, `ProxyController` publishes a `TokenUsageEvent`. `UsageLedgerListener` consumes it asynchronously on a dedicated bounded executor, so billing work can never delay a response. Duplicate request ids are skipped, and a database outage is logged with the record appended to a dead letter file rather than lost. See `ledger/UsageLedgerListener.java` and `ledger/LedgerConfig.java`.
+
+The schema is owned by Flyway migrations under `src/main/resources/db/migration`. The gateway does not require PostgreSQL at startup. Boot's Flyway autoconfiguration is disabled, Hibernate never creates or validates the schema, and `config/DatabaseMigrator.java` applies the migrations once the database is reachable, retrying on a schedule. While the database is down, ledger writes degrade to a warning and the dead letter file, and the proxy hot path keeps working.
+
+Costs come from a pricing catalog. `ledger/PricingSyncService.java` fetches the LiteLLM model pricing file (the URL is configurable and can be pinned to a tag or commit), keeps the chat oriented entries, and upserts them into `model_pricing`. It runs at startup and then daily at 03:00. `ledger/ModelPriceCatalog.java` serves lookups from a short lived cache with exact id, provider composite, and longest prefix matching, and `ledger/CostCalculator.java` computes cost in micro dollars with `BigDecimal`. The sync is strictly best effort. A failed fetch leaves the previous rows in place, and the seed rows in `V2__model_pricing.sql` cover the shipped aliases from the first migration.
 
 ## Project layout
 
@@ -89,17 +133,20 @@ The code is organized by responsibility under `src/main/java/io/github/kxng0109/
 - `security/filter` contains the servlet filter pipeline: the replayable body wrapper, the authentication filter, and the registration configuration.
 - `security/ratelimit` contains the distributed limiter: `RateLimitEngine`, `RateLimitScriptConfig`, `KeyManagementService`, and `BootstrapKeySeeder`.
 - `proxy/failover` contains the Phase 3 routing layer: `FailoverOrchestrator`, `ProviderCircuitBreaker`, `ProviderClientAdapter`, `ProviderResponse`, `UpstreamUnavailableException`, and `GatewayExceptionHandler`.
+- `proxy/protocol` contains the Phase 4 dialect layer: `ProtocolAdapterResolver`, the request adapters, and the SSE normalizers for the OpenAI, Anthropic, and Ollama dialects.
+- `ledger` contains the Phase 4 usage and cost ledger: `UsageLedgerListener`, `UsageLedgerRepository`, `CostCalculator`, `ModelPriceCatalog`, `ModelPricingRepository`, and `PricingSyncService`.
 - `proxy` contains the controller and the shared `HttpClient` bean in `proxy/config/HttpClientConfig.java`.
-- `config` contains the `SensitiveString` value wrapper.
+- `config` contains the `SensitiveString` value wrapper and the retrying `DatabaseMigrator`.
 
-The Lua script that implements the atomic RPM and TPM counters lives in `src/main/resources/rate_limit.lua`. Runtime configuration lives in `src/main/resources/application.yml`.
+The Lua script that implements the atomic RPM and TPM counters lives in `src/main/resources/rate_limit.lua`. Runtime configuration lives in `src/main/resources/application.yml`, and the database schema is defined by the Flyway migrations under `src/main/resources/db/migration`.
 
 ## Technology stack
 
 - Java 25 LTS with virtual threads enabled
 - Spring Boot 4.1 and Spring MVC
 - Redis via Spring Data Redis and Lettuce, with a connection pool
-- Caffeine for the short lived key lookup cache
+- PostgreSQL via Spring Data JPA and Hibernate, with Flyway owning the schema
+- Caffeine for the short lived key lookup cache and the pricing catalog
 - JSpecify nullness annotations at package level
 - JUnit Jupiter, Mockito, and Testcontainers for testing
 - JaCoCo with a strict coverage gate
@@ -110,22 +157,28 @@ Dependency versions are managed by the Spring Boot 4.1 BOM. See `pom.xml`.
 
 - JDK 25
 - Redis 7 or newer, reachable at `localhost:6379` by default
+- PostgreSQL, reachable at `localhost:5432` by default. The gateway starts without it, but the ledger and pricing table need it.
 - Docker, only if you want to run the Testcontainers integration tests
 
 The Maven wrapper is included, so no separate Maven installation is needed.
 
 ## Getting started
 
-Start Redis. On a development machine the fastest option is a container:
+Start Redis and PostgreSQL. On a development machine the fastest option is a container for each:
 
 ```bash
 docker run -d --name aegisgate-redis -p 6379:6379 redis:7-alpine
+docker run -d --name aegisgate-postgres -p 5432:5432 -e POSTGRES_USER=aegisgate -e POSTGRES_PASSWORD=<your-password> -e POSTGRES_DB=aegisgate postgres:16-alpine
 ```
 
-Provide a provider key and, optionally, a bootstrap key for local testing:
+Provide your provider keys and, optionally, a bootstrap key for local testing:
 
 ```bash
 export OPENAI_API_KEY=your-provider-key
+export ANTHROPIC_API_KEY=your-provider-key
+export POSTGRES_URL=jdbc:postgresql://localhost:5432/aegisgate
+export POSTGRES_USER=aegisgate
+export POSTGRES_PASSWORD=<your-password>
 export GATEWAY_BOOTSTRAPKEYS_0_OWNERID=local
 export GATEWAY_BOOTSTRAPKEYS_0_NAME=local-dev
 export GATEWAY_BOOTSTRAPKEYS_0_PLAINTEXTKEY=gw-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
@@ -147,8 +200,12 @@ The service listens on port 8080.
 All configuration lives in `src/main/resources/application.yml`. The most important settings:
 
 - `gateway.providers` describes every upstream provider with its dialect, URL, key, and per request timeout.
-- `gateway.aliases` maps each client facing model name to a provider chain and a strategy.
+- `gateway.aliases` maps each client facing model name to a provider chain and a strategy. A step can pin its upstream model with `model-override`.
 - `spring.data.redis.*` controls the Redis connection and the Lettuce pool.
+- `spring.datasource.*` controls the PostgreSQL connection that backs the usage ledger and pricing catalog.
+- `gateway.pricing.source-url` and `gateway.pricing.refresh-cron` control where the LiteLLM pricing file is fetched from and how often. The default is a daily sync at 03:00.
+- `gateway.ledger.dead-letter-path` is where ledger records go when the database is unavailable.
+- `gateway.database-migrate-enabled` and `gateway.database-migrate-interval` control the non fatal migration retry.
 - `gateway.bootstrap-keys-seed-interval` controls how often key seeding is retried if Redis was unavailable at startup.
 
 The per provider `request-timeout` bounds the time to the first byte of the response for that attempt. It is the failover timer; it does not limit a long lived SSE stream. Per provider `connect-timeout` bounds connection establishment. The shared `HttpClient` in `proxy/config/HttpClientConfig.java` applies a conservative connect timeout and never follows redirects.
@@ -167,7 +224,7 @@ Authentication uses the `Authorization` header:
 curl -N http://localhost:8080/v1/chat/completions \
   -H "Authorization: Bearer gw-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" \
   -H "Content-Type: application/json" \
-  -d '{"model":"gpt-5.6-luna","messages":[{"role":"user","content":"Hello"}]}'
+  -d '{"model":"gpt-56-luna","messages":[{"role":"user","content":"Hello"}]}'
 ```
 
 Status codes:
@@ -203,12 +260,16 @@ Run the full suite with coverage and the packaging step:
 ./mvnw clean verify
 ```
 
-The suite currently has 247 tests:
+The suite currently has 381 tests:
 
 - Unit tests for hashing, key management, the rate limit engine, both filters, the body wrapper, the circuit breaker, the provider adapter, the orchestrator, the error handler, and the Phase 1 security components.
+- Unit tests for the protocol layer in `proxy/protocol`: request translation, header construction, and stream normalization for the OpenAI, Anthropic, and Ollama dialects, including malformed input tolerance.
+- Unit tests for the ledger in `ledger`: cost calculation, catalog matching, the pricing sync, and the dead letter fallback.
 - MockWebServer based tests in `proxy/failover/FailoverOrchestratorTest` that stand in for real providers and verify failover on 500 and 429, no failover on 401 and 400, circuit opening and recovery, timeout behavior, and the RACE strategy.
+- A MockWebServer based integration test in `proxy/protocol/ProtocolNormalizationIntegrationTest.java` that drives the real orchestrator, adapters, and normalizers against fake Anthropic and Ollama upstreams.
 - A Testcontainers integration test in `security/ratelimit/RateLimitIntegrationTest.java` that runs the whole application against a real Redis container and exercises authentication, both limits, the model allow list, the failover path, and the fail closed behavior.
-- A context load test that verifies the application starts without a live Redis.
+- A Testcontainers integration test in `ledger/UsageLedgerIntegrationTest.java` that runs the ledger against a real PostgreSQL container and verifies async persistence, duplicate request handling, the seeded prices, and a pricing refresh.
+- A context load test that verifies the application starts without a live Redis or PostgreSQL.
 
 JaCoCo enforces a minimum coverage of 95 percent on every counter at the bundle level. The circuit breaker and orchestrator retry and race coordination branches are excluded from the gate because they cannot be reached deterministically; the state transitions and failover semantics themselves are fully covered. The Mockito inline mock maker is attached as a Java agent through the `argLine` Maven property, so the suite is future proof against the JDK restriction on self attachment.
 
@@ -221,3 +282,11 @@ The rate limiter uses a fixed window per key. Redis documents this as the simple
 The circuit breaker follows the canonical pattern described by Fowler and the microservices community: closed, open, and half open states with a cooldown and a single probe. State lives in an atomic reference with compare and set transitions, so the hot path is lock free. No background thread or timer exists; transitions out of open happen lazily on the next attempt. See `proxy/failover/ProviderCircuitBreaker.java`.
 
 Failover happens only before the first byte. The orchestrator returns a response whose status and content type are already known, so the controller never begins streaming before a winner exists. In the RACE strategy every losing attempt is cancelled at the socket level, which also stops the upstream provider from generating and billing further tokens.
+
+Protocol normalization happens on two sides of the hop. The request adapters translate the client contract into the winning provider's native dialect before the attempt is sent, and the stream normalizer translates the response back as it flows. Each normalizer is a small state machine per stream, which keeps the mapping deterministic and lets the gateway capture exact token counts without buffering the body.
+
+The ledger is deliberately asynchronous and decoupled. The streaming thread publishes a plain record after the last byte, and a bounded executor writes it to PostgreSQL. A failure to persist is logged and sent to a dead letter file, never thrown, because an exception from an asynchronous listener would be silently swallowed and the usage record lost. The database itself is optional at startup: migrations run from `DatabaseMigrator` on a retry schedule, so a gateway deployed before the database is provisioned comes up and starts serving immediately.
+
+## Maintainer
+
+AegisGate is maintained by Joshua Ike.

@@ -4,6 +4,7 @@ import io.github.kxng0109.aegisgate.contracts.SHA256Hash;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
 class SHA256HashTest {
@@ -42,5 +43,12 @@ class SHA256HashTest {
 		SHA256Hash hash = SHA256Hash.fromRawKey("gw-x");
 		assertNotEquals(null, hash);
 		assertNotEquals("not-a-hash", hash);
+	}
+
+	@Test
+	void equalsInvokedDirectlyRejectsNullAndForeignTypes() {
+		SHA256Hash hash = SHA256Hash.fromRawKey("gw-x");
+		assertFalse(hash.equals(null));
+		assertFalse(hash.equals("not-a-hash"));
 	}
 }

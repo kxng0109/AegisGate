@@ -337,7 +337,7 @@ public class FailoverOrchestrator {
 
 	private AttemptOutcome classify(HttpResponse<Stream<String>> response) {
 		int status = response.statusCode();
-		if (status == 200 && isEventStream(response)) {
+		if (status == 200 && isStreaming(response)) {
 			return AttemptOutcome.SUCCESS;
 		}
 		if (status == 429 || status >= 500) {
@@ -346,9 +346,11 @@ public class FailoverOrchestrator {
 		return AttemptOutcome.NON_TRANSIENT;
 	}
 
-	private boolean isEventStream(HttpResponse<Stream<String>> response) {
+	private boolean isStreaming(HttpResponse<Stream<String>> response) {
 		return response.headers().firstValue("Content-Type")
-		               .map(value -> value.toLowerCase().contains("text/event-stream"))
+		               .map(value -> value.toLowerCase()
+		                                  .contains("text/event-stream")
+				                  || value.toLowerCase().contains("application/x-ndjson"))
 		               .orElse(false);
 	}
 

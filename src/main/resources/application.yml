@@ -15,6 +15,31 @@ spring:
           max-idle: 10
           min-idle: 2
           max-wait: 2s
+  datasource:
+    url: ${POSTGRES_URL:jdbc:postgresql://localhost:5432/aegisgate}
+    username: ${POSTGRES_USER:aegisgate}
+    password: ${POSTGRES_PASSWORD:}
+    hikari:
+      # The gateway starts without PostgreSQL. The pool initializes lazily,
+      # the retrying DatabaseMigrator applies the schema when the database is
+      # reachable, and ledger writes degrade to warnings and the dead letter
+      # file in the meantime. The hot path never depends on the database.
+      initialization-fail-timeout: -1
+      connection-timeout: 3000
+  jpa:
+    hibernate:
+      # Flyway owns the schema (see DatabaseMigrator); Hibernate never creates
+      # or validates it, so boot does not require a live database. The dialect
+      # is pinned because auto detection would need a live connection.
+      ddl-auto: none
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  flyway:
+    # Automatic Flyway is disabled; DatabaseMigrator runs the same migrations
+    # non-fatally and retries until the database is reachable.
+    enabled: false
 
 gateway:
   providers:
@@ -30,8 +55,14 @@ gateway:
       api-key: ${OPENROUTER_API_KEY:}
       connect-timeout: 5s
       request-timeout: 60s
+    anthropic:
+      type: ANTHROPIC
+      base-url: https://api.anthropic.com
+      api-key: ${ANTHROPIC_API_KEY:}
+      connect-timeout: 5s
+      request-timeout: 60s
     ollama:
-      type: OPENAI
+      type: OLLAMA
       base-url: http://localhost:11434
       api-key: ""
       connect-timeout: 3s
@@ -40,25 +71,50 @@ gateway:
     gpt-56-luna:
       chain:
         - provider-name: openai
+          model-override: gpt-5.6-luna
       strategy: SEQUENTIAL
     gpt-56-terra:
       chain:
         - provider-name: openai
+          model-override: gpt-5.6-terra
       strategy: SEQUENTIAL
     gpt-56-sol:
       chain:
         - provider-name: openai
+          model-override: gpt-5.6-sol
+      strategy: SEQUENTIAL
+    claude-sonnet-5:
+      chain:
+        - provider-name: anthropic
+      strategy: SEQUENTIAL
+    claude-opus-5:
+      chain:
+        - provider-name: anthropic
+      strategy: SEQUENTIAL
+    claude-haiku-4-5:
+      chain:
+        - provider-name: anthropic
+      strategy: SEQUENTIAL
+    local-llama:
+      chain:
+        - provider-name: ollama
+          model-override: llama3.2
       strategy: SEQUENTIAL
     fast:
       chain:
         - provider-name: openai
+          model-override: gpt-5.6-luna
         - provider-name: openrouter
+          model-override: gpt-5.6-luna
         - provider-name: ollama
+          model-override: llama3.2
       strategy: SEQUENTIAL
     race-demo:
       chain:
         - provider-name: openai
+          model-override: gpt-5.6-luna
         - provider-name: openrouter
+          model-override: gpt-5.6-luna
       strategy: RACE
   bootstrap-keys:
   # Bootstrap keys are provisioned exclusively through environment variables.
@@ -71,3 +127,10 @@ gateway:
   #   GATEWAY_BOOTSTRAPKEYS_0_ALLOWEDMODELS=
   #   GATEWAY_BOOTSTRAPKEYS_0_ALLOWEDPROVIDERS=
   bootstrap-keys-seed-interval: 30s
+  database-migrate-enabled: ${GATEWAY_DATABASE_MIGRATE_ENABLED:true}
+  database-migrate-interval: ${GATEWAY_DATABASE_MIGRATE_INTERVAL:30s}
+  pricing:
+    source-url: ${GATEWAY_PRICING_URL:https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json}
+    refresh-cron: ${GATEWAY_PRICING_REFRESH_CRON:0 0 3 * * *}
+  ledger:
+    dead-letter-path: ${GATEWAY_LEDGER_DEAD_LETTER_PATH:logs/ledger-deadletter.log}
