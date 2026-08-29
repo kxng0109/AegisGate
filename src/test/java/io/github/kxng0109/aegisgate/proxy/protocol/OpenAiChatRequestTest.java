@@ -16,7 +16,7 @@ class OpenAiChatRequestTest {
 
 	@Test
 	@DisplayName("unknown fields are ignored during parsing")
-	void ignoresUnknownFields() throws Exception {
+	void ignoresUnknownFields() {
 		OpenAiChatRequest request = objectMapper.readValue(
 				"{\"model\":\"m\",\"messages\":[],\"brand_new_field\":123}", OpenAiChatRequest.class);
 		assertEquals("m", request.model());
@@ -25,7 +25,7 @@ class OpenAiChatRequestTest {
 
 	@Test
 	@DisplayName("reports whether the client asked for usage")
-	void reportsUsageRequest() throws Exception {
+	void reportsUsageRequest() {
 		assertTrue(parse("{\"model\":\"m\",\"stream_options\":{\"include_usage\":true}}").requestsUsage());
 		assertFalse(parse("{\"model\":\"m\",\"stream_options\":{\"include_usage\":false}}").requestsUsage());
 		assertFalse(parse("{\"model\":\"m\"}").requestsUsage());
@@ -34,7 +34,7 @@ class OpenAiChatRequestTest {
 
 	@Test
 	@DisplayName("prefers max_completion_tokens as the effective bound")
-	void effectiveMaxTokens() throws Exception {
+	void effectiveMaxTokens() {
 		assertEquals(
 				250,
 				parse("{\"model\":\"m\",\"max_tokens\":100,\"max_completion_tokens\":250}").effectiveMaxTokens()
@@ -43,7 +43,7 @@ class OpenAiChatRequestTest {
 		assertNull(parse("{\"model\":\"m\"}").effectiveMaxTokens());
 	}
 
-	private static OpenAiChatRequest parse(String body) throws Exception {
+	private static OpenAiChatRequest parse(String body) {
 		return new ObjectMapper().readValue(body, OpenAiChatRequest.class);
 	}
 }

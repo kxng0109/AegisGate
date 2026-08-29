@@ -17,6 +17,7 @@ public record SensitiveString(
 		@NotBlank(message = "Value required!")
 		String value
 ) {
+	@Override
 	public String toString() {
 		return "****";
 	}

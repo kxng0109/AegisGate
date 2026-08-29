@@ -21,7 +21,7 @@ class AnthropicSseNormalizerTest {
 
 	@Test
 	@DisplayName("rewrites a full Anthropic stream into OpenAI chunks")
-	void rewritesFullStream() throws Exception {
+	void rewritesFullStream() {
 		AnthropicSseNormalizer normalizer = new AnthropicSseNormalizer(objectMapper, "fallback", false);
 
 		List<String> lines = new ArrayList<>();
@@ -58,7 +58,7 @@ class AnthropicSseNormalizerTest {
 
 	@Test
 	@DisplayName("emits the usage chunk before DONE when the client asked for it")
-	void emitsUsageWhenRequested() throws Exception {
+	void emitsUsageWhenRequested() {
 		AnthropicSseNormalizer normalizer = new AnthropicSseNormalizer(objectMapper, "fallback", true);
 
 		List<String> lines = new ArrayList<>();
@@ -70,7 +70,7 @@ class AnthropicSseNormalizerTest {
 		lines.addAll(normalizer.normalizeLine("data: {\"type\":\"message_stop\"}"));
 
 		assertEquals(3, lines.size(), "usage chunk, final chunk, and DONE");
-		JsonNode usage = chunk(lines.get(0));
+		JsonNode usage = chunk(lines.getFirst());
 		assertEquals(0, usage.get("choices").size());
 		assertEquals(25, usage.path("usage").path("prompt_tokens").asLong());
 		assertEquals(7, usage.path("usage").path("completion_tokens").asLong());
@@ -126,18 +126,17 @@ class AnthropicSseNormalizerTest {
 
 	@Test
 	@DisplayName("message start without usage reports zero prompt tokens")
-	void messageStartWithoutUsage() throws Exception {
+	void messageStartWithoutUsage() {
 		AnthropicSseNormalizer normalizer = new AnthropicSseNormalizer(objectMapper, "m", false);
 
-		List<String> lines = new ArrayList<>();
-		lines.addAll(normalizer.normalizeLine("event: message_start"));
-		lines.addAll(normalizer.normalizeLine(
-				"data: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-sonnet-5\"}}"));
-		lines.addAll(normalizer.normalizeLine("event: message_delta"));
-		lines.addAll(normalizer.normalizeLine(
-				"data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}"));
-		lines.addAll(normalizer.normalizeLine("event: message_stop"));
-		lines.addAll(normalizer.normalizeLine("data: {\"type\":\"message_stop\"}"));
+		normalizer.normalizeLine("event: message_start");
+		normalizer.normalizeLine(
+				"data: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-sonnet-5\"}}");
+		normalizer.normalizeLine("event: message_delta");
+		normalizer.normalizeLine(
+				"data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}");
+		normalizer.normalizeLine("event: message_stop");
+		normalizer.normalizeLine("data: {\"type\":\"message_stop\"}");
 
 		assertTrue(normalizer.isDone());
 		SseNormalizer.UsageInfo usage = normalizer.usage();
@@ -148,7 +147,7 @@ class AnthropicSseNormalizerTest {
 
 	@Test
 	@DisplayName("no usage chunk is emitted when usage is unknown even if requested")
-	void noUsageChunkWhenUnknown() throws Exception {
+	void noUsageChunkWhenUnknown() {
 		AnthropicSseNormalizer normalizer = new AnthropicSseNormalizer(objectMapper, "m", true);
 
 		List<String> lines = new ArrayList<>();
@@ -196,14 +195,13 @@ class AnthropicSseNormalizerTest {
 
 	@Test
 	@DisplayName("message start with a non textual model keeps the fallback")
-	void messageStartWithoutModelText() throws Exception {
+	void messageStartWithoutModelText() {
 		AnthropicSseNormalizer normalizer = new AnthropicSseNormalizer(objectMapper, "fallback", false);
 
-		List<String> lines = new ArrayList<>();
-		lines.addAll(normalizer.normalizeLine("event: message_start"));
-		lines.addAll(normalizer.normalizeLine("data: {\"type\":\"message_start\",\"message\":{\"model\":123}}"));
-		lines.addAll(normalizer.normalizeLine("event: message_stop"));
-		lines.addAll(normalizer.normalizeLine("data: {\"type\":\"message_stop\"}"));
+		normalizer.normalizeLine("event: message_start");
+		normalizer.normalizeLine("data: {\"type\":\"message_start\",\"message\":{\"model\":123}}");
+		normalizer.normalizeLine("event: message_stop");
+		normalizer.normalizeLine("data: {\"type\":\"message_stop\"}");
 
 		assertEquals("fallback", normalizer.upstreamModel());
 		assertTrue(normalizer.isDone());
@@ -211,16 +209,15 @@ class AnthropicSseNormalizerTest {
 
 	@Test
 	@DisplayName("a second message start cannot lower the input count")
-	void secondMessageStartKeepsCount() throws Exception {
+	void secondMessageStartKeepsCount() {
 		AnthropicSseNormalizer normalizer = new AnthropicSseNormalizer(objectMapper, "m", false);
 
-		List<String> lines = new ArrayList<>();
-		lines.addAll(normalizer.normalizeLine("event: message_start"));
-		lines.addAll(normalizer.normalizeLine(messageStart()));
-		lines.addAll(normalizer.normalizeLine("event: message_start"));
-		lines.addAll(normalizer.normalizeLine("data: {\"type\":\"message_start\",\"message\":{}}"));
-		lines.addAll(normalizer.normalizeLine("event: message_stop"));
-		lines.addAll(normalizer.normalizeLine("data: {\"type\":\"message_stop\"}"));
+		normalizer.normalizeLine("event: message_start");
+		normalizer.normalizeLine(messageStart());
+		normalizer.normalizeLine("event: message_start");
+		normalizer.normalizeLine("data: {\"type\":\"message_start\",\"message\":{}}");
+		normalizer.normalizeLine("event: message_stop");
+		normalizer.normalizeLine("data: {\"type\":\"message_stop\"}");
 
 		SseNormalizer.UsageInfo usage = normalizer.usage();
 		assertNotNull(usage);
@@ -248,7 +245,7 @@ class AnthropicSseNormalizerTest {
 
 	@Test
 	@DisplayName("an empty text model keeps the fallback")
-	void emptyTextModelKeepsFallback() throws Exception {
+	void emptyTextModelKeepsFallback() {
 		AnthropicSseNormalizer normalizer = new AnthropicSseNormalizer(objectMapper, "fallback", false);
 
 		normalizer.normalizeLine("event: message_start");
@@ -260,7 +257,7 @@ class AnthropicSseNormalizerTest {
 
 	@Test
 	@DisplayName("a message delta with a malformed usage field is ignored")
-	void malformedMessageDeltaIgnored() throws Exception {
+	void malformedMessageDeltaIgnored() {
 		AnthropicSseNormalizer normalizer = new AnthropicSseNormalizer(objectMapper, "m", false);
 
 		normalizer.normalizeLine("event: message_delta");
@@ -271,7 +268,7 @@ class AnthropicSseNormalizerTest {
 
 	@Test
 	@DisplayName("output only streams report zero input tokens")
-	void outputOnlyStream() throws Exception {
+	void outputOnlyStream() {
 		AnthropicSseNormalizer normalizer = new AnthropicSseNormalizer(objectMapper, "m", false);
 
 		normalizer.normalizeLine("event: message_delta");
@@ -301,7 +298,7 @@ class AnthropicSseNormalizerTest {
 				+ "\"usage\":{\"output_tokens\":" + outputTokens + "}}";
 	}
 
-	private static JsonNode chunk(String line) throws Exception {
+	private static JsonNode chunk(String line) {
 		assertTrue(line.startsWith("data: "));
 		return new ObjectMapper().readTree(line.substring("data: ".length()));
 	}

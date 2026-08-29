@@ -131,7 +131,7 @@ public class PricingSyncService {
 		return kept;
 	}
 
-	private JsonNode fetchCatalog() throws Exception {
+	private JsonNode fetchCatalog() throws java.io.IOException, InterruptedException {
 		HttpRequest request = HttpRequest.newBuilder(URI.create(sourceUrl))
 		                                 .timeout(FETCH_TIMEOUT)
 		                                 .GET()

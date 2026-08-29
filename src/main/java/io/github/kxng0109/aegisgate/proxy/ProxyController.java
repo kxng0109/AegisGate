@@ -200,16 +200,17 @@ public class ProxyController {
 			));
 		}
 	}
-
-	private void relayRaw(ProviderResponse providerResponse, OutputStream out) throws IOException {
+private void relayRaw(ProviderResponse providerResponse, OutputStream out) {
 		try (var lines = providerResponse.response().body()) {
 			for (String line : (Iterable<String>) lines::iterator) {
 				out.write(line.getBytes(StandardCharsets.UTF_8));
 				out.write('\n');
 			}
-		} catch (IOException ex) {
+		}
+		catch (IOException ex) {
 			// The downstream client went away; the upstream stream is closed by
 			// the try with resources, so nothing leaks and nothing is recorded.
+			log.debug("Client disconnected while relaying the upstream error body");
 		}
 	}
 

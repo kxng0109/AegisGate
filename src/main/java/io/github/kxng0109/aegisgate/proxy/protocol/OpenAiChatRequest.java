@@ -38,6 +38,16 @@ public record OpenAiChatRequest(
 ) {
 
 	/**
+	 * Stores defensive copies of the mutable components so a parsed request
+	 * cannot be altered by the caller that produced the raw body.
+	 */
+	public OpenAiChatRequest {
+		messages = messages == null ? List.of() : List.copyOf(messages);
+		stop = stop == null ? null : stop.deepCopy();
+		streamOptions = streamOptions == null ? null : streamOptions.deepCopy();
+	}
+
+	/**
 	 * Whether the client asked for the usage chunk to be streamed back.
 	 *
 	 * @return {@code true} when {@code stream_options.include_usage} is set

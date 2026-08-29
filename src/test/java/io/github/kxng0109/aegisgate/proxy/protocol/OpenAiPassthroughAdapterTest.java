@@ -26,7 +26,7 @@ class OpenAiPassthroughAdapterTest {
 
 	@Test
 	@DisplayName("injects include_usage while keeping the body intact")
-	void injectsUsageReporting() throws Exception {
+	void injectsUsageReporting() {
 		String body = "{\"model\":\"gpt-5.6-luna\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],"
 				+ "\"temperature\":0.7}";
 
@@ -40,7 +40,7 @@ class OpenAiPassthroughAdapterTest {
 
 	@Test
 	@DisplayName("keeps client stream options and forces include_usage")
-	void preservesStreamOptions() throws Exception {
+	void preservesStreamOptions() {
 		String body = "{\"model\":\"m\",\"stream_options\":{\"include_obfuscation\":false}}";
 
 		JsonNode result = objectMapper.readTree(adapter.buildRequestBody(body, null));
@@ -51,7 +51,7 @@ class OpenAiPassthroughAdapterTest {
 
 	@Test
 	@DisplayName("applies the model override")
-	void appliesModelOverride() throws Exception {
+	void appliesModelOverride() {
 		JsonNode result = objectMapper.readTree(
 				adapter.buildRequestBody("{\"model\":\"m\"}", "gpt-5.6-sol"));
 		assertEquals("gpt-5.6-sol", result.get("model").asString());
@@ -92,7 +92,7 @@ class OpenAiPassthroughAdapterTest {
 
 	@Test
 	@DisplayName("a non object stream_options field is replaced")
-	void malformedStreamOptionsReplaced() throws Exception {
+	void malformedStreamOptionsReplaced() {
 		JsonNode result = objectMapper.readTree(
 				adapter.buildRequestBody("{\"model\":\"m\",\"stream_options\":\"bad\"}", null));
 		assertTrue(result.path("stream_options").isObject());

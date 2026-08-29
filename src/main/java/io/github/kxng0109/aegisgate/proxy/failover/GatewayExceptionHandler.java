@@ -42,7 +42,7 @@ public class GatewayExceptionHandler {
 				"Upstream request failed with mapped status {}: {}",
 				status.value(), exception.getMessage()
 		);
-		return ResponseEntity.status(status).body(errorBody(messageFor(status, exception)));
+		return ResponseEntity.status(status).body(errorBody(messageFor(status)));
 	}
 
 	private HttpStatus resolveStatus(UpstreamUnavailableException exception) {
@@ -59,7 +59,7 @@ public class GatewayExceptionHandler {
 		return HttpStatus.BAD_GATEWAY;
 	}
 
-	private String messageFor(HttpStatus status, UpstreamUnavailableException exception) {
+	private String messageFor(HttpStatus status) {
 		if (status == HttpStatus.BAD_GATEWAY) {
 			return "no upstream provider could serve this request";
 		}

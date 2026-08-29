@@ -25,7 +25,7 @@ class OllamaAdapterTest {
 
 	@Test
 	@DisplayName("maps messages and options into the native body")
-	void mapsMessagesAndOptions() throws Exception {
+	void mapsMessagesAndOptions() {
 		String body = """
 				{"model":"llama3.2","messages":[
 				  {"role":"system","content":"Be brief"},
@@ -49,7 +49,7 @@ class OllamaAdapterTest {
 
 	@Test
 	@DisplayName("applies the model override")
-	void appliesModelOverride() throws Exception {
+	void appliesModelOverride() {
 		JsonNode result = objectMapper.readTree(
 				adapter.buildRequestBody("{\"model\":\"m\",\"messages\":[]}", "llama3.1:8b"));
 		assertEquals("llama3.1:8b", result.get("model").asString());
@@ -57,7 +57,7 @@ class OllamaAdapterTest {
 
 	@Test
 	@DisplayName("joins text content parts into a single string")
-	void joinsContentParts() throws Exception {
+	void joinsContentParts() {
 		String body = "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":["
 				+ "{\"type\":\"text\",\"text\":\"one\"},{\"type\":\"image_url\",\"image_url\":{\"url\":\"x\"}},"
 				+ "{\"type\":\"text\",\"text\":\"two\"}]}]}";
@@ -67,7 +67,7 @@ class OllamaAdapterTest {
 
 	@Test
 	@DisplayName("messages with missing roles or content are skipped")
-	void skipsEmptyMessages() throws Exception {
+	void skipsEmptyMessages() {
 		String body = "{\"model\":\"m\",\"messages\":["
 				+ "{\"role\":\"   \",\"content\":\"x\"},"
 				+ "{\"role\":\"user\"},"
@@ -80,7 +80,7 @@ class OllamaAdapterTest {
 
 	@Test
 	@DisplayName("no options are emitted when the client sent none")
-	void noOptionsWhenAbsent() throws Exception {
+	void noOptionsWhenAbsent() {
 		JsonNode result = objectMapper.readTree(
 				adapter.buildRequestBody(
 						"{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"x\"}]}",
@@ -92,7 +92,7 @@ class OllamaAdapterTest {
 
 	@Test
 	@DisplayName("a single string stop becomes a one element options array")
-	void singleStringStop() throws Exception {
+	void singleStringStop() {
 		JsonNode result = objectMapper.readTree(
 				adapter.buildRequestBody("{\"model\":\"m\",\"messages\":[],\"stop\":\"END\"}", null));
 		assertEquals(1, result.path("options").get("stop").size());
@@ -100,7 +100,7 @@ class OllamaAdapterTest {
 
 	@Test
 	@DisplayName("a malformed stop value is dropped")
-	void malformedStopDropped() throws Exception {
+	void malformedStopDropped() {
 		JsonNode result = objectMapper.readTree(
 				adapter.buildRequestBody("{\"model\":\"m\",\"messages\":[],\"stop\":42}", null));
 		assertFalse(result.path("options").has("stop"));
@@ -108,7 +108,7 @@ class OllamaAdapterTest {
 
 	@Test
 	@DisplayName("a stop array with non text entries keeps only the text ones")
-	void stopArrayFiltersNonText() throws Exception {
+	void stopArrayFiltersNonText() {
 		JsonNode result = objectMapper.readTree(
 				adapter.buildRequestBody("{\"model\":\"m\",\"messages\":[],\"stop\":[\"END\",42]}", null));
 		assertEquals(1, result.path("options").get("stop").size());
@@ -117,7 +117,7 @@ class OllamaAdapterTest {
 
 	@Test
 	@DisplayName("a message with null content is skipped")
-	void nullContentSkipped() throws Exception {
+	void nullContentSkipped() {
 		JsonNode result = objectMapper.readTree(
 				adapter.buildRequestBody(
 						"{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":null}]}",
@@ -128,7 +128,7 @@ class OllamaAdapterTest {
 
 	@Test
 	@DisplayName("a body without messages translates cleanly")
-	void noMessages() throws Exception {
+	void noMessages() {
 		JsonNode result = objectMapper.readTree(adapter.buildRequestBody("{\"model\":\"m\"}", null));
 		assertEquals(0, result.get("messages").size());
 		assertEquals(0, result.get("options").size());

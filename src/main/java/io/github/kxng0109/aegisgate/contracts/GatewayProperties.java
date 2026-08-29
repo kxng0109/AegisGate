@@ -3,6 +3,7 @@ package io.github.kxng0109.aegisgate.contracts;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,7 +43,9 @@ public class GatewayProperties {
 	 * @param providers providers to serve
 	 */
 	public void setProviders(Map<String, ProviderConfig> providers) {
-		this.providers = providers;
+		this.providers = providers == null
+				? Map.of()
+				: Collections.unmodifiableMap(new LinkedHashMap<>(providers));
 	}
 
 	/**
@@ -56,7 +59,9 @@ public class GatewayProperties {
 	 * @param aliases aliases to serve
 	 */
 	public void setAliases(Map<String, ModelAlias> aliases) {
-		this.aliases = aliases;
+		this.aliases = aliases == null
+				? Map.of()
+				: Collections.unmodifiableMap(new LinkedHashMap<>(aliases));
 	}
 
 	/**
@@ -70,6 +75,8 @@ public class GatewayProperties {
 	 * @param bootstrapKeys bootstrap keys to seed at startup
 	 */
 	public void setBootstrapKeys(List<BootstrapKey> bootstrapKeys) {
-		this.bootstrapKeys = bootstrapKeys;
+		this.bootstrapKeys = bootstrapKeys == null
+				? List.of()
+				: Collections.unmodifiableList(new ArrayList<>(bootstrapKeys));
 	}
 }

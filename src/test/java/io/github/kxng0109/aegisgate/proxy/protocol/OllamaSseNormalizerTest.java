@@ -21,7 +21,7 @@ class OllamaSseNormalizerTest {
 
 	@Test
 	@DisplayName("rewrites a full Ollama NDJSON stream into OpenAI chunks")
-	void rewritesFullStream() throws Exception {
+	void rewritesFullStream() {
 		OllamaSseNormalizer normalizer = new OllamaSseNormalizer(objectMapper, "fallback", false);
 
 		List<String> lines = new ArrayList<>();
@@ -48,7 +48,7 @@ class OllamaSseNormalizerTest {
 
 	@Test
 	@DisplayName("emits the usage chunk before DONE when the client asked for it")
-	void emitsUsageWhenRequested() throws Exception {
+	void emitsUsageWhenRequested() {
 		OllamaSseNormalizer normalizer = new OllamaSseNormalizer(objectMapper, "fallback", true);
 
 		List<String> lines = new ArrayList<>();
@@ -65,7 +65,7 @@ class OllamaSseNormalizerTest {
 
 	@Test
 	@DisplayName("ignores empty content fragments and unparseable lines")
-	void ignoresEmptyFragments() throws Exception {
+	void ignoresEmptyFragments() {
 		OllamaSseNormalizer normalizer = new OllamaSseNormalizer(objectMapper, "m", false);
 
 		List<String> lines = new ArrayList<>();
@@ -124,7 +124,7 @@ class OllamaSseNormalizerTest {
 				+ ",\"eval_count\":" + eval + ",\"eval_duration\":1}";
 	}
 
-	private static JsonNode chunk(String line) throws Exception {
+	private static JsonNode chunk(String line) {
 		assertTrue(line.startsWith("data: "));
 		return new ObjectMapper().readTree(line.substring("data: ".length()));
 	}

@@ -11,6 +11,7 @@ import java.net.http.HttpTimeoutException;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
@@ -234,9 +235,9 @@ public class FailoverOrchestrator {
 
 		AtomicInteger remaining = new AtomicInteger(attempts.size());
 		for (ProviderAttempt attempt : attempts) {
-			attempt.response().whenComplete((response, error) -> {
-				boolean winner = false;
-				try {
+attempt.response().whenComplete((response, error) -> {
+			boolean winner;
+			try {
 					if (error != null) {
 						Throwable cause = unwrap(error);
 						if (!(cause instanceof CancellationException)) {
@@ -351,10 +352,10 @@ public class FailoverOrchestrator {
 	}
 
 	private boolean isStreaming(HttpResponse<Stream<String>> response) {
-		return response.headers().firstValue("Content-Type")
-		               .map(value -> value.toLowerCase()
+return response.headers().firstValue("Content-Type")
+		               .map(value -> value.toLowerCase(Locale.ROOT)
 		                                  .contains("text/event-stream")
-				               || value.toLowerCase().contains("application/x-ndjson"))
+			               || value.toLowerCase(Locale.ROOT).contains("application/x-ndjson"))
 		               .orElse(false);
 	}
 

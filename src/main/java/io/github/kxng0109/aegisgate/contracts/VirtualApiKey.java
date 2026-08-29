@@ -32,4 +32,12 @@ public record VirtualApiKey(
 		boolean enabled,
 		Instant createdAt
 ) {
+	/**
+	 * Stores immutable copies of the allow lists so callers cannot mutate the
+	 * key metadata after it is resolved.
+	 */
+	public VirtualApiKey {
+		allowedModels = allowedModels == null ? Set.of() : Set.copyOf(allowedModels);
+		allowedProviders = allowedProviders == null ? Set.of() : Set.copyOf(allowedProviders);
+	}
 }

@@ -102,7 +102,7 @@ class ProviderClientAdapterTest {
 
 	@Test
 	@DisplayName("streams the response body as lines")
-	void streamsResponseLines() throws Exception {
+	void streamsResponseLines() {
 		server.enqueue(sseResponse("data: {\"a\":1}\n\ndata: [DONE]"));
 		ProviderConfig config = providerConfig(server, "sk-test", Duration.ofSeconds(5));
 

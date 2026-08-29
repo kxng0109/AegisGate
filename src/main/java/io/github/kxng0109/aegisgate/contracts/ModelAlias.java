@@ -17,4 +17,11 @@ public record ModelAlias(
 		List<ProviderRef> chain,
 		FailoverStrategy strategy
 ) {
+	/**
+	 * Stores an immutable copy of the chain so callers cannot mutate the alias
+	 * after it is bound.
+	 */
+	public ModelAlias {
+		chain = chain == null ? List.of() : List.copyOf(chain);
+	}
 }

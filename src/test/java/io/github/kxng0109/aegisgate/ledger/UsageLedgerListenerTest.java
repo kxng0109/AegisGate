@@ -72,7 +72,7 @@ class UsageLedgerListenerTest {
 
 	@Test
 	@DisplayName("a failure without a message still writes the dead letter")
-	void failureWithoutMessage() throws Exception {
+	void failureWithoutMessage() {
 		UsageLedgerRepository repository = mock(UsageLedgerRepository.class);
 		when(repository.save(any(UsageLedgerEntry.class)))
 				.thenThrow(new DataAccessResourceFailureException(null));

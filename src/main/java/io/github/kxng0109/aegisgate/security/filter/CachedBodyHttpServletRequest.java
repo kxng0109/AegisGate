@@ -75,11 +75,11 @@ public final class CachedBodyHttpServletRequest extends HttpServletRequestWrappe
 			if (declared == -1) {
 				return readUnknownLength(in, maxBodyBytes);
 			}
-			return readFixedLength(in, declared, maxBodyBytes);
+			return readFixedLength(in, declared);
 		}
 	}
 
-	private static byte[] readFixedLength(InputStream in, long declared, int maxBodyBytes) throws IOException {
+	private static byte[] readFixedLength(InputStream in, long declared) throws IOException {
 		int expected = (int) Math.min(declared, Integer.MAX_VALUE);
 		byte[] buffer = new byte[expected];
 		int offset = 0;

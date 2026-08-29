@@ -95,7 +95,7 @@ class ProxyControllerTest {
 
 	@Test
 	@DisplayName("a body without a model is rejected with 400")
-	void missingModelRejected() throws Exception {
+	void missingModelRejected() {
 		ResponseEntity<StreamingResponseBody> response = controller.proxyChatCompletions(
 				"{\"messages\":[]}",
 				request()
@@ -106,7 +106,7 @@ class ProxyControllerTest {
 
 	@Test
 	@DisplayName("an unknown model is rejected with 404")
-	void unknownModelRejected() throws Exception {
+	void unknownModelRejected() {
 		ResponseEntity<StreamingResponseBody> response = controller.proxyChatCompletions(
 				"{\"model\":\"nope\"}",
 				request()
@@ -118,7 +118,7 @@ class ProxyControllerTest {
 
 	@Test
 	@DisplayName("the orchestrator is called with the resolved alias and the raw body")
-	void orchestratorReceivesAliasAndBody() throws Exception {
+	void orchestratorReceivesAliasAndBody() {
 		ProviderResponse response = providerResponse(
 				"openai", 200, sseHeaders(),
 				Stream.of("data: {\"a\":1}", "data: [DONE]")
@@ -245,7 +245,7 @@ class ProxyControllerTest {
 
 	@Test
 	@DisplayName("a null body is rejected with 400")
-	void nullBodyRejected() throws Exception {
+	void nullBodyRejected() {
 		ResponseEntity<StreamingResponseBody> response = controller.proxyChatCompletions(null, request());
 
 		assertEquals(400, response.getStatusCode().value());
@@ -254,7 +254,7 @@ class ProxyControllerTest {
 
 	@Test
 	@DisplayName("a non object body is rejected with 400")
-	void nonObjectBodyRejected() throws Exception {
+	void nonObjectBodyRejected() {
 		ResponseEntity<StreamingResponseBody> response = controller.proxyChatCompletions("[1,2,3]", request());
 
 		assertEquals(400, response.getStatusCode().value());
@@ -262,7 +262,7 @@ class ProxyControllerTest {
 
 	@Test
 	@DisplayName("a non textual model is rejected with 400")
-	void nonTextualModelRejected() throws Exception {
+	void nonTextualModelRejected() {
 		ResponseEntity<StreamingResponseBody> response = controller.proxyChatCompletions("{\"model\":123}", request());
 
 		assertEquals(400, response.getStatusCode().value());
@@ -363,7 +363,7 @@ class ProxyControllerTest {
 
 	@Test
 	@DisplayName("no event is published when the stream carried no usage")
-	void noEventWithoutUsage() throws Exception {
+	void noEventWithoutUsage() {
 		ProviderResponse response = providerResponse(
 				"openai", 200, sseHeaders(),
 				Stream.of("data: {\"content\":\"hello\"}", "data: [DONE]")
@@ -378,7 +378,7 @@ class ProxyControllerTest {
 
 	@Test
 	@DisplayName("a model node that is an array is rejected")
-	void arrayModelRejected() throws Exception {
+	void arrayModelRejected() {
 		ResponseEntity<StreamingResponseBody> response = controller.proxyChatCompletions(
 				"{\"model\":[\"a\"]}",
 				request()
@@ -388,7 +388,7 @@ class ProxyControllerTest {
 
 	@Test
 	@DisplayName("a non streaming body with a model passes validation")
-	void nonStreamingBodyAccepted() throws Exception {
+	void nonStreamingBodyAccepted() {
 		ProviderResponse response = providerResponse(
 				"openai", 200, sseHeaders(),
 				Stream.of("data: [DONE]")

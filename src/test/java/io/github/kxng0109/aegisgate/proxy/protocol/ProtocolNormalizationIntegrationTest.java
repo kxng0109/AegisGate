@@ -66,7 +66,7 @@ class ProtocolNormalizationIntegrationTest {
 
 	@Test
 	@DisplayName("an Anthropic stream is normalized to OpenAI chunks")
-	void anthropicStreamNormalized() throws Exception {
+	void anthropicStreamNormalized() {
 		anthropicServer.enqueue(new MockResponse().setResponseCode(200)
 		                                          .addHeader("Content-Type", "text/event-stream")
 		                                          .setBody(anthropicStream()));
@@ -77,12 +77,12 @@ class ProtocolNormalizationIntegrationTest {
 		List<String> lines = relay(winner, new AnthropicAdapter(objectMapper).newNormalizer(false, "claude-sonnet-5"));
 		assertTrue(lines.stream().anyMatch(line -> line.contains("\"delta\":{\"content\":\"Hello\"}")));
 		assertTrue(lines.stream().anyMatch(line -> line.contains("\"finish_reason\":\"stop\"")));
-		assertEquals("data: [DONE]", lines.get(lines.size() - 1));
+		assertEquals("data: [DONE]", lines.getLast());
 	}
 
 	@Test
 	@DisplayName("an Ollama NDJSON stream is normalized to OpenAI chunks")
-	void ollamaStreamNormalized() throws Exception {
+	void ollamaStreamNormalized() {
 		ollamaServer.enqueue(new MockResponse().setResponseCode(200)
 		                                       .addHeader("Content-Type", "application/x-ndjson")
 		                                       .setBody(ollamaStream()));
@@ -93,12 +93,12 @@ class ProtocolNormalizationIntegrationTest {
 		List<String> lines = relay(winner, new OllamaAdapter(objectMapper).newNormalizer(false, "llama3.2"));
 		assertTrue(lines.stream().anyMatch(line -> line.contains("\"delta\":{\"content\":\"Hello\"}")));
 		assertTrue(lines.stream().anyMatch(line -> line.contains("\"finish_reason\":\"stop\"")));
-		assertEquals("data: [DONE]", lines.get(lines.size() - 1));
+		assertEquals("data: [DONE]", lines.getLast());
 	}
 
 	@Test
 	@DisplayName("the orchestrator accepts the Ollama NDJSON content type as a success")
-	void ollamaContentTypeClassifiedAsSuccess() throws Exception {
+	void ollamaContentTypeClassifiedAsSuccess() {
 		ollamaServer.enqueue(new MockResponse().setResponseCode(200)
 		                                       .addHeader("Content-Type", "application/x-ndjson")
 		                                       .setBody(ollamaStream()));
@@ -110,7 +110,7 @@ class ProtocolNormalizationIntegrationTest {
 
 	@Test
 	@DisplayName("the Anthropic request carries the native path and headers")
-	void anthropicRequestShape() throws Exception {
+	void anthropicRequestShape() throws InterruptedException {
 		anthropicServer.enqueue(new MockResponse().setResponseCode(200)
 		                                          .addHeader("Content-Type", "text/event-stream")
 		                                          .setBody(anthropicStream()));
@@ -129,7 +129,7 @@ class ProtocolNormalizationIntegrationTest {
 
 	@Test
 	@DisplayName("the Ollama request carries the native path and options")
-	void ollamaRequestShape() throws Exception {
+	void ollamaRequestShape() throws InterruptedException {
 		ollamaServer.enqueue(new MockResponse().setResponseCode(200)
 		                                       .addHeader("Content-Type", "application/x-ndjson")
 		                                       .setBody(ollamaStream()));

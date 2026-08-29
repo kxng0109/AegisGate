@@ -24,4 +24,12 @@ public record BootstrapKey(
 		Set<String> allowedModels,
 		Set<String> allowedProviders
 ) {
+	/**
+	 * Stores immutable copies of the allow lists so callers cannot mutate the
+	 * key after it is bound.
+	 */
+	public BootstrapKey {
+		allowedModels = allowedModels == null ? Set.of() : Set.copyOf(allowedModels);
+		allowedProviders = allowedProviders == null ? Set.of() : Set.copyOf(allowedProviders);
+	}
 }

@@ -69,7 +69,7 @@ class FailoverOrchestratorTest {
 
 	@Test
 	@DisplayName("the first successful provider wins")
-	void firstSuccessWins() throws Exception {
+	void firstSuccessWins() {
 		FailoverOrchestrator orchestrator = orchestrator(allowAll());
 		serverA.enqueue(sse("data: hello from A\n\ndata: [DONE]"));
 
@@ -83,7 +83,7 @@ class FailoverOrchestratorTest {
 
 	@Test
 	@DisplayName("a 500 fails over to the next provider")
-	void failsOverOn500() throws Exception {
+	void failsOverOn500() {
 		FailoverOrchestrator orchestrator = orchestrator(allowAll());
 		serverA.enqueue(error(500));
 		serverB.enqueue(sse("data: hello from B\n\ndata: [DONE]"));
@@ -97,7 +97,7 @@ class FailoverOrchestratorTest {
 
 	@Test
 	@DisplayName("a 429 fails over to the next provider")
-	void failsOverOn429() throws Exception {
+	void failsOverOn429() {
 		FailoverOrchestrator orchestrator = orchestrator(allowAll());
 		serverA.enqueue(new MockResponse().setResponseCode(429).addHeader("Retry-After", "60"));
 		serverB.enqueue(sse("data: hello from B\n\ndata: [DONE]"));
@@ -156,7 +156,7 @@ class FailoverOrchestratorTest {
 
 	@Test
 	@DisplayName("a hung primary times out and the backup wins")
-	void timeoutFailsOver() throws Exception {
+	void timeoutFailsOver() {
 		FailoverOrchestrator orchestrator = orchestrator(allowAll());
 		serverB.enqueue(sse("data: hello from B\n\ndata: [DONE]"));
 
@@ -184,7 +184,7 @@ class FailoverOrchestratorTest {
 
 	@Test
 	@DisplayName("the circuit opens after repeated failures and skips the provider")
-	void circuitOpensAndSkips() throws Exception {
+	void circuitOpensAndSkips() {
 		FailoverOrchestrator orchestrator = orchestrator(allowAll());
 		for (int i = 0; i < 3; i++) {
 			serverA.enqueue(error(500));
@@ -217,7 +217,7 @@ class FailoverOrchestratorTest {
 
 	@Test
 	@DisplayName("the validator runs only once per provider")
-	void validatorRunsOncePerProvider() throws Exception {
+	void validatorRunsOncePerProvider() {
 		AtomicInteger validationCount = new AtomicInteger();
 		FailoverOrchestrator orchestrator = orchestrator(url -> validationCount.incrementAndGet());
 
@@ -235,7 +235,7 @@ class FailoverOrchestratorTest {
 
 	@Test
 	@DisplayName("RACE returns the first successful response")
-	void raceFirstSuccessWins() throws Exception {
+	void raceFirstSuccessWins() {
 		FailoverOrchestrator orchestrator = orchestrator(allowAll());
 		serverA.enqueue(sse("data: race A\n\ndata: [DONE]"));
 		serverB.enqueue(sse("data: race B\n\ndata: [DONE]"));
@@ -248,7 +248,7 @@ class FailoverOrchestratorTest {
 
 	@Test
 	@DisplayName("RACE with a hung provider still completes through the other")
-	void raceSurvivesHungProvider() throws Exception {
+	void raceSurvivesHungProvider() {
 		FailoverOrchestrator orchestrator = orchestrator(allowAll());
 		serverA.enqueue(sse("data: fast\n\ndata: [DONE]"));
 
@@ -349,7 +349,7 @@ class FailoverOrchestratorTest {
 
 	@Test
 	@DisplayName("RACE cancels the losing attempt when the winner completes")
-	void raceCancelsLosers() throws Exception {
+	void raceCancelsLosers() {
 		FailoverOrchestrator orchestrator = orchestrator(allowAll());
 		serverA.enqueue(sse("data: winner\n\ndata: [DONE]"));
 		// provider B is never enqueued; the fast winner makes B's future cancel
@@ -360,7 +360,7 @@ class FailoverOrchestratorTest {
 
 	@Test
 	@DisplayName("RACE with a non transient rejection on one leg still completes")
-	void raceWithNonTransientLeg() throws Exception {
+	void raceWithNonTransientLeg() {
 		FailoverOrchestrator orchestrator = orchestrator(allowAll());
 		serverA.enqueue(new MockResponse().setResponseCode(401).setBody("{\"error\":\"bad key\"}"));
 		serverB.enqueue(sse("data: survivor\n\ndata: [DONE]"));
@@ -372,7 +372,7 @@ class FailoverOrchestratorTest {
 
 	@Test
 	@DisplayName("RACE with a transient 500 on one leg still completes through the other")
-	void raceWithTransientLeg() throws Exception {
+	void raceWithTransientLeg() {
 		FailoverOrchestrator orchestrator = orchestrator(allowAll());
 		serverA.enqueue(error(500));
 		serverB.enqueue(sse("data: survivor\n\ndata: [DONE]"));
