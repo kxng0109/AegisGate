@@ -6,18 +6,16 @@ import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Pass-through normalizer for OpenAI compatible providers.
  *
  * <p>The upstream already speaks the client contract, so every line is relayed
- * untouched. The only exception is the usage chunk: the gateway always asks
- * the upstream for usage (see {@link OpenAiPassthroughAdapter}) so it can
- * bill, but the usage chunk is only forwarded to the client when the client
- * requested {@code stream_options.include_usage}. When the client did not ask
- * for it, the chunk is consumed for accounting and then dropped.</p>
+ * untouched. The only exception is the usage chunk: the gateway always asks the upstream for usage (see
+ * {@link OpenAiPassthroughAdapter}) so it can bill, but the usage chunk is only forwarded to the client when the client
+ * requested {@code stream_options.include_usage}. When the client did not ask for it, the chunk is consumed for
+ * accounting and then dropped.</p>
  */
 @Slf4j
 public final class OpenAiSseNormalizer implements SseNormalizer {
@@ -32,10 +30,8 @@ public final class OpenAiSseNormalizer implements SseNormalizer {
 
 	/**
 	 * @param objectMapper           parses each data line
-	 * @param fallbackModel          model to attribute cost against when the
-	 *                               provider never reports one
-	 * @param includeUsageInResponse whether the usage chunk is relayed to the
-	 *                               client (the client asked for it)
+	 * @param fallbackModel          model to attribute cost against when the provider never reports one
+	 * @param includeUsageInResponse whether the usage chunk is relayed to the client (the client asked for it)
 	 */
 	public OpenAiSseNormalizer(ObjectMapper objectMapper, String fallbackModel, boolean includeUsageInResponse) {
 		this.objectMapper = objectMapper;
@@ -68,8 +64,10 @@ public final class OpenAiSseNormalizer implements SseNormalizer {
 				JsonNode choices = node.get("choices");
 				if (usageNode != null && usageNode.isObject()
 						&& choices != null && choices.isArray() && choices.isEmpty()) {
-					usage = new UsageInfo(usageNode.path("prompt_tokens").asLong(0),
-					                      usageNode.path("completion_tokens").asLong(0));
+					usage = new UsageInfo(
+							usageNode.path("prompt_tokens").asLong(0),
+							usageNode.path("completion_tokens").asLong(0)
+					);
 					if (includeUsageInResponse) {
 						return List.of(rawLine);
 					}

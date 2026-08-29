@@ -35,7 +35,10 @@ class OpenAiChatRequestTest {
 	@Test
 	@DisplayName("prefers max_completion_tokens as the effective bound")
 	void effectiveMaxTokens() throws Exception {
-		assertEquals(250, parse("{\"model\":\"m\",\"max_tokens\":100,\"max_completion_tokens\":250}").effectiveMaxTokens());
+		assertEquals(
+				250,
+				parse("{\"model\":\"m\",\"max_tokens\":100,\"max_completion_tokens\":250}").effectiveMaxTokens()
+		);
 		assertEquals(100, parse("{\"model\":\"m\",\"max_tokens\":100}").effectiveMaxTokens());
 		assertNull(parse("{\"model\":\"m\"}").effectiveMaxTokens());
 	}

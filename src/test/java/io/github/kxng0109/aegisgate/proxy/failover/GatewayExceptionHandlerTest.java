@@ -9,10 +9,9 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * Unit tests for {@link GatewayExceptionHandler}: the mapping of the
- * failover exception to 502, 503, 504, and the passthrough of a specific
- * upstream status, always with generic client safe messages inside the
- * standard error envelope.
+ * Unit tests for {@link GatewayExceptionHandler}: the mapping of the failover exception to 502, 503, 504, and the
+ * passthrough of a specific upstream status, always with generic client safe messages inside the standard error
+ * envelope.
  */
 @DisplayName("GatewayExceptionHandler")
 class GatewayExceptionHandlerTest {

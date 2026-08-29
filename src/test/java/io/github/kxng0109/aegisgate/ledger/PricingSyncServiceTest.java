@@ -9,19 +9,17 @@ import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
 
 import java.math.BigDecimal;
-import java.net.URI;
 import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.concurrent.Executors;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Unit tests for {@link PricingSyncService}: parsing a sample catalog,
- * filtering to chat oriented entries, upserting, and the non fatal handling
- * of a failed fetch.
+ * Unit tests for {@link PricingSyncService}: parsing a sample catalog, filtering to chat oriented entries, upserting,
+ * and the non fatal handling of a failed fetch.
  */
 @DisplayName("PricingSyncService")
 class PricingSyncServiceTest {
@@ -94,8 +92,10 @@ class PricingSyncServiceTest {
 		                                  .executor(Executors.newVirtualThreadPerTaskExecutor())
 		                                  .followRedirects(HttpClient.Redirect.NEVER)
 		                                  .build();
-		service = new PricingSyncService(httpClient, new ObjectMapper(), repository, priceCatalog,
-		                                server.url("/prices.json").toString());
+		service = new PricingSyncService(
+				httpClient, new ObjectMapper(), repository, priceCatalog,
+				server.url("/prices.json").toString()
+		);
 	}
 
 	@AfterEach
@@ -110,29 +110,43 @@ class PricingSyncServiceTest {
 
 		service.refresh();
 
-		verify(repository).upsert(eq("gpt-5.6-sol"), eq("openai"), eq("chat"),
-		                          argThat(value -> value.compareTo(new BigDecimal("0.000004")) == 0),
-		                          argThat(value -> value.compareTo(new BigDecimal("0.00002")) == 0),
-		                          eq(BigDecimal.ZERO), eq(BigDecimal.ZERO), eq(922000L), eq(128000L), anyString());
-		verify(repository).upsert(eq("claude-sonnet-5"), eq("anthropic"), eq("chat"),
-		                          any(), any(), eq(BigDecimal.ZERO), eq(BigDecimal.ZERO),
-		                          eq(1000000L), eq(128000L), anyString());
-		verify(repository).upsert(eq("ollama/llama3.2"), eq("ollama"), eq("completion"),
-		                          any(), any(), eq(BigDecimal.ZERO), eq(BigDecimal.ZERO),
-		                          eq(0L), eq(0L), anyString());
-		verify(repository).upsert(eq("edge-model"), eq("unknown"), eq("chat"),
-		                          argThat(value -> value.compareTo(new BigDecimal("0.000001")) == 0),
-		                          argThat(value -> value.compareTo(new BigDecimal("0.000001")) == 0),
-		                          argThat(value -> value.compareTo(new BigDecimal("0.00000002")) == 0),
-		                          argThat(value -> value.compareTo(new BigDecimal("0.00000001")) == 0),
-		                          eq(0L), eq(0L), anyString());
-		verify(repository).upsert(eq("mode-less"), eq("ollama"), eq("chat"),
-		                          any(), any(), eq(BigDecimal.ZERO), eq(BigDecimal.ZERO),
-		                          eq(0L), eq(0L), anyString());
-		verify(repository, never()).upsert(eq("odd-model"), anyString(), anyString(),
-		                                   any(), any(), any(), any(), any(), any(), anyString());
-		verify(repository, times(5)).upsert(anyString(), anyString(), anyString(),
-		                                    any(), any(), any(), any(), any(), any(), anyString());
+		verify(repository).upsert(
+				eq("gpt-5.6-sol"), eq("openai"), eq("chat"),
+				argThat(value -> value.compareTo(new BigDecimal("0.000004")) == 0),
+				argThat(value -> value.compareTo(new BigDecimal("0.00002")) == 0),
+				eq(BigDecimal.ZERO), eq(BigDecimal.ZERO), eq(922000L), eq(128000L), anyString()
+		);
+		verify(repository).upsert(
+				eq("claude-sonnet-5"), eq("anthropic"), eq("chat"),
+				any(), any(), eq(BigDecimal.ZERO), eq(BigDecimal.ZERO),
+				eq(1000000L), eq(128000L), anyString()
+		);
+		verify(repository).upsert(
+				eq("ollama/llama3.2"), eq("ollama"), eq("completion"),
+				any(), any(), eq(BigDecimal.ZERO), eq(BigDecimal.ZERO),
+				eq(0L), eq(0L), anyString()
+		);
+		verify(repository).upsert(
+				eq("edge-model"), eq("unknown"), eq("chat"),
+				argThat(value -> value.compareTo(new BigDecimal("0.000001")) == 0),
+				argThat(value -> value.compareTo(new BigDecimal("0.000001")) == 0),
+				argThat(value -> value.compareTo(new BigDecimal("0.00000002")) == 0),
+				argThat(value -> value.compareTo(new BigDecimal("0.00000001")) == 0),
+				eq(0L), eq(0L), anyString()
+		);
+		verify(repository).upsert(
+				eq("mode-less"), eq("ollama"), eq("chat"),
+				any(), any(), eq(BigDecimal.ZERO), eq(BigDecimal.ZERO),
+				eq(0L), eq(0L), anyString()
+		);
+		verify(repository, never()).upsert(
+				eq("odd-model"), anyString(), anyString(),
+				any(), any(), any(), any(), any(), any(), anyString()
+		);
+		verify(repository, times(5)).upsert(
+				anyString(), anyString(), anyString(),
+				any(), any(), any(), any(), any(), any(), anyString()
+		);
 	}
 
 	@Test
@@ -151,8 +165,10 @@ class PricingSyncServiceTest {
 		server.enqueue(new MockResponse().setResponseCode(503).setBody("boom"));
 
 		assertDoesNotThrow(service::refresh);
-		verify(repository, never()).upsert(anyString(), anyString(), anyString(),
-		                                   any(), any(), any(), any(), any(), any(), anyString());
+		verify(repository, never()).upsert(
+				anyString(), anyString(), anyString(),
+				any(), any(), any(), any(), any(), any(), anyString()
+		);
 	}
 
 	@Test
@@ -161,23 +177,27 @@ class PricingSyncServiceTest {
 		server.enqueue(new MockResponse().setResponseCode(200).setBody("not json"));
 
 		assertDoesNotThrow(service::refresh);
-		verify(repository, never()).upsert(anyString(), anyString(), anyString(),
-		                                   any(), any(), any(), any(), any(), any(), anyString());
+		verify(repository, never()).upsert(
+				anyString(), anyString(), anyString(),
+				any(), any(), any(), any(), any(), any(), anyString()
+		);
 	}
 
 	@Test
 	@DisplayName("non numeric cost strings are treated as zero")
 	void nonNumericCostsAreZero() {
 		server.enqueue(new MockResponse().setResponseCode(200).setBody("""
-				{"string-cost":{"input_cost_per_token":"0.5","output_cost_per_token":1e-05,
-				"litellm_provider":"openai","mode":"chat"}}"""));
+				                                                               {"string-cost":{"input_cost_per_token":"0.5","output_cost_per_token":1e-05,
+				                                                               "litellm_provider":"openai","mode":"chat"}}"""));
 
 		service.refresh();
 
-		verify(repository).upsert(eq("string-cost"), eq("openai"), eq("chat"),
-		                          eq(BigDecimal.ZERO),
-		                          argThat(value -> value.compareTo(new BigDecimal("0.00001")) == 0),
-		                          eq(BigDecimal.ZERO), eq(BigDecimal.ZERO),
-		                          eq(0L), eq(0L), anyString());
+		verify(repository).upsert(
+				eq("string-cost"), eq("openai"), eq("chat"),
+				eq(BigDecimal.ZERO),
+				argThat(value -> value.compareTo(new BigDecimal("0.00001")) == 0),
+				eq(BigDecimal.ZERO), eq(BigDecimal.ZERO),
+				eq(0L), eq(0L), anyString()
+		);
 	}
 }

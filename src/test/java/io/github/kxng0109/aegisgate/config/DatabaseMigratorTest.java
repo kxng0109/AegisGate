@@ -7,12 +7,12 @@ import javax.sql.DataSource;
 import java.lang.reflect.Field;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.mockito.Mockito.mock;
 
 /**
- * Unit tests for {@link DatabaseMigrator}: the disabled switch and the retry
- * guard both short circuit without touching the database.
+ * Unit tests for {@link DatabaseMigrator}: the disabled switch and the retry guard both short circuit without touching
+ * the database.
  */
 @DisplayName("DatabaseMigrator")
 class DatabaseMigratorTest {

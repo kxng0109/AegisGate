@@ -29,9 +29,8 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.*;
 
 /**
- * Unit tests for {@link KeyAuthFilter}: authentication format gates, key
- * states, fail-closed Redis outages, model allow-list, token estimation, and
- * rate-limit decision header mapping.
+ * Unit tests for {@link KeyAuthFilter}: authentication format gates, key states, fail-closed Redis outages, model
+ * allow-list, token estimation, and rate-limit decision header mapping.
  */
 @DisplayName("KeyAuthFilter")
 class KeyAuthFilterTest {
@@ -275,8 +274,9 @@ class KeyAuthFilterTest {
 		MockHttpServletResponse response = invoke(
 				request("Bearer " + VALID_KEY, "{\"model\":\"gpt-b\"}"), filter);
 		assertEquals(403, response.getStatus());
-		assertEquals(RejectionReason.MODEL_NOT_ALLOWED.name(),
-		             parse(response).get("error").get("code").asText()
+		assertEquals(
+				RejectionReason.MODEL_NOT_ALLOWED.name(),
+				parse(response).get("error").get("code").asText()
 		);
 	}
 
@@ -306,8 +306,9 @@ class KeyAuthFilterTest {
 		when(kms.findByHash(any())).thenReturn(Optional.of(key(10, 1000, Set.of("gpt-a"), true)));
 		MockHttpServletResponse response = invoke(request("Bearer " + VALID_KEY, "{not json"), filter);
 		assertEquals(403, response.getStatus());
-		assertEquals(RejectionReason.MODEL_NOT_ALLOWED.name(),
-		             parse(response).get("error").get("code").asText()
+		assertEquals(
+				RejectionReason.MODEL_NOT_ALLOWED.name(),
+				parse(response).get("error").get("code").asText()
 		);
 	}
 
@@ -451,11 +452,13 @@ class KeyAuthFilterTest {
 		assertEquals("1000", response.getHeader(KeyAuthFilter.HEADER_LIMIT_TPM));
 		assertEquals("0", response.getHeader(KeyAuthFilter.HEADER_REMAINING_TPM));
 		long reset = Long.parseLong(response.getHeader(KeyAuthFilter.HEADER_RESET_RPM));
-		assertTrue(reset >= before + 45 && reset <= after + 45 + 1,
-		           "reset must be ~now+45s, was " + reset
+		assertTrue(
+				reset >= before + 45 && reset <= after + 45 + 1,
+				"reset must be ~now+45s, was " + reset
 		);
-		assertEquals(RejectionReason.RPM_EXCEEDED.name(),
-		             parse(response).get("error").get("code").asText()
+		assertEquals(
+				RejectionReason.RPM_EXCEEDED.name(),
+				parse(response).get("error").get("code").asText()
 		);
 		assertNull(chain.chain().getRequest(), "chain must not run for rejected requests");
 	}
@@ -469,8 +472,9 @@ class KeyAuthFilterTest {
 		MockHttpServletResponse response = invoke(request("Bearer " + VALID_KEY, null), filter);
 		assertEquals(429, response.getStatus());
 		assertEquals("2", response.getHeader("Retry-After"));
-		assertEquals(RejectionReason.TPM_EXCEEDED.name(),
-		             parse(response).get("error").get("code").asText()
+		assertEquals(
+				RejectionReason.TPM_EXCEEDED.name(),
+				parse(response).get("error").get("code").asText()
 		);
 	}
 
@@ -561,8 +565,9 @@ class KeyAuthFilterTest {
 		filter.doFilterInternal(raw, response, chain.chain());
 
 		assertEquals(200, response.getStatus());
-		assertEquals(KeyAuthFilter.DEFAULT_ESTIMATED_TOKENS, captor.getValue(),
-		             "unwrapped request must be treated as empty body"
+		assertEquals(
+				KeyAuthFilter.DEFAULT_ESTIMATED_TOKENS, captor.getValue(),
+				"unwrapped request must be treated as empty body"
 		);
 		assertSame(raw, chain.chain().getRequest(), "accepted requests must continue down the chain");
 	}
@@ -591,16 +596,19 @@ class KeyAuthFilterTest {
 	@Test
 	@DisplayName("rejection messages are defined for every rejection reason")
 	void rejectionMessagesForAllReasons() {
-		assertEquals("Request rate limit exceeded. Retry after the indicated period.",
-		             KeyAuthFilter.rejectionMessage(RejectionReason.RPM_EXCEEDED)
+		assertEquals(
+				"Request rate limit exceeded. Retry after the indicated period.",
+				KeyAuthFilter.rejectionMessage(RejectionReason.RPM_EXCEEDED)
 		);
-		assertEquals("Token rate limit exceeded. Retry after the indicated period.",
-		             KeyAuthFilter.rejectionMessage(RejectionReason.TPM_EXCEEDED)
+		assertEquals(
+				"Token rate limit exceeded. Retry after the indicated period.",
+				KeyAuthFilter.rejectionMessage(RejectionReason.TPM_EXCEEDED)
 		);
 		assertEquals("API key is disabled.", KeyAuthFilter.rejectionMessage(RejectionReason.KEY_DISABLED));
 		assertEquals("API key not found.", KeyAuthFilter.rejectionMessage(RejectionReason.KEY_NOT_FOUND));
-		assertEquals("Model not allowed for this key.",
-		             KeyAuthFilter.rejectionMessage(RejectionReason.MODEL_NOT_ALLOWED)
+		assertEquals(
+				"Model not allowed for this key.",
+				KeyAuthFilter.rejectionMessage(RejectionReason.MODEL_NOT_ALLOWED)
 		);
 	}
 

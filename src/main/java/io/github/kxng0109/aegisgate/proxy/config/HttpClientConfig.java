@@ -11,14 +11,13 @@ import java.util.concurrent.Executors;
  * Configuration for the shared upstream {@link HttpClient} bean.
  *
  * <p>One client serves every provider so TCP connections and HTTP/2 sessions
- * are pooled and reused. Redirects are never followed, which is a core SSRF
- * control. Virtual threads carry the asynchronous work.</p>
+ * are pooled and reused. Redirects are never followed, which is a core SSRF control. Virtual threads carry the
+ * asynchronous work.</p>
  *
  * <p>The connect timeout is a fixed conservative default because the JDK
- * client applies connect timeouts per client rather than per request.
- * Per provider responsiveness is enforced per request through
- * {@code HttpRequest.Builder.timeout}, which bounds the time to the first
- * byte including the connection establishment.</p>
+ * client applies connect timeouts per client rather than per request. Per provider responsiveness is enforced per
+ * request through {@code HttpRequest.Builder.timeout}, which bounds the time to the first byte including the connection
+ * establishment.</p>
  */
 @Configuration
 public class HttpClientConfig {

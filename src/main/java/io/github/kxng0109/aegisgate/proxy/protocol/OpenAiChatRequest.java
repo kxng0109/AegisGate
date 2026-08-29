@@ -11,9 +11,8 @@ import java.util.List;
  * Parsed form of an OpenAI shaped chat completion request body.
  *
  * <p>The gateway accepts one client contract, the OpenAI chat completions
- * shape, and translates it to the native protocol of whichever provider wins
- * the failover. This type carries the fields the translators care about;
- * unknown fields are ignored so newer client payloads never break parsing.</p>
+ * shape, and translates it to the native protocol of whichever provider wins the failover. This type carries the fields
+ * the translators care about; unknown fields are ignored so newer client payloads never break parsing.</p>
  *
  * @param model               requested model name
  * @param messages            conversation messages

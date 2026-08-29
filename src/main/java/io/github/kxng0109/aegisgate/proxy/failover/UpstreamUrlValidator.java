@@ -6,9 +6,8 @@ import java.net.URI;
  * Validates an upstream URL before the gateway connects to it.
  *
  * <p>The production implementation delegates to the SSRF control; tests and
- * in process mock servers use a permissive implementation. Validation is
- * deliberately testable through this seam so that no test is forced onto the
- * real network or the blocked loopback ranges.</p>
+ * in process mock servers use a permissive implementation. Validation is deliberately testable through this seam so
+ * that no test is forced onto the real network or the blocked loopback ranges.</p>
  */
 @FunctionalInterface
 public interface UpstreamUrlValidator {

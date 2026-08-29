@@ -16,12 +16,10 @@ import java.nio.file.StandardOpenOption;
  * Writes {@link TokenUsageEvent} records to the ledger database.
  *
  * <p>The listener runs on the dedicated {@code ledgerExecutor} because of the
- * {@code @Async} annotation, so the streaming thread that published the event
- * never waits on a database write. The whole body is guarded: a database
- * outage is logged and the record is appended to a dead letter file instead
- * of being rethrown, because an exception from an asynchronous listener would
- * be silently swallowed anyway and the usage record would be lost entirely.
- * The gateway's hot path never depends on this listener succeeding.</p>
+ * {@code @Async} annotation, so the streaming thread that published the event never waits on a database write. The
+ * whole body is guarded: a database outage is logged and the record is appended to a dead letter file instead of being
+ * rethrown, because an exception from an asynchronous listener would be silently swallowed anyway and the usage record
+ * would be lost entirely. The gateway's hot path never depends on this listener succeeding.</p>
  */
 @Slf4j
 @Component
@@ -89,11 +87,15 @@ public class UsageLedgerListener {
 					+ ",\"completionTokens\":" + event.completionTokens()
 					+ ",\"costUsdMicros\":" + event.costUsdMicros()
 					+ ",\"error\":\"" + (cause.getMessage() == null ? "unknown" : cause.getMessage()) + "\"}\n";
-			Files.writeString(path, line, StandardCharsets.UTF_8,
-			                  StandardOpenOption.CREATE, StandardOpenOption.APPEND, StandardOpenOption.WRITE);
+			Files.writeString(
+					path, line, StandardCharsets.UTF_8,
+					StandardOpenOption.CREATE, StandardOpenOption.APPEND, StandardOpenOption.WRITE
+			);
 		} catch (IOException writeFailure) {
-			log.error("Could not write the usage record to the dead letter file {}: {}",
-			          deadLetterPath, writeFailure.getMessage());
+			log.error(
+					"Could not write the usage record to the dead letter file {}: {}",
+					deadLetterPath, writeFailure.getMessage()
+			);
 		}
 	}
 

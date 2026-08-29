@@ -23,13 +23,11 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * End-to-end test of the ledger and pricing layers against a real PostgreSQL
- * instance (Testcontainers, wired through {@link ServiceConnection}): the
- * retrying migrator applies the Flyway schema, a published usage event lands
- * in the ledger, duplicate request ids cannot create duplicate rows, the cost
- * calculator reads the seeded pricing table, and a catalog refresh upserts
- * new rows. The pricing catalog URL is pointed at an in process server so the
- * startup sync never touches the network.</p>
+ * End-to-end test of the ledger and pricing layers against a real PostgreSQL instance (Testcontainers, wired through
+ * {@link ServiceConnection}): the retrying migrator applies the Flyway schema, a published usage event lands in the
+ * ledger, duplicate request ids cannot create duplicate rows, the cost calculator reads the seeded pricing table, and a
+ * catalog refresh upserts new rows. The pricing catalog URL is pointed at an in process server so the startup sync
+ * never touches the network.</p>
  */
 @Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
@@ -89,7 +87,8 @@ class UsageLedgerIntegrationTest {
 		UUID requestId = UUID.randomUUID();
 		TokenUsageEvent event = new TokenUsageEvent(
 				requestId, "owner-1", "openai", "gpt-5.6-sol",
-				1000, 500, 1500, 250, 14_000, Instant.now());
+				1000, 500, 1500, 250, 14_000, Instant.now()
+		);
 
 		eventPublisher.publishEvent(event);
 
@@ -111,14 +110,15 @@ class UsageLedgerIntegrationTest {
 		UUID requestId = UUID.randomUUID();
 		TokenUsageEvent event = new TokenUsageEvent(
 				requestId, "owner-1", "openai", "gpt-5.6-sol",
-				10, 5, 15, 50, 140, Instant.now());
+				10, 5, 15, 50, 140, Instant.now()
+		);
 
 		eventPublisher.publishEvent(event);
 		awaitEntry(requestId);
 		eventPublisher.publishEvent(event);
 
 		assertThat(usageLedgerRepository.findAll().stream()
-				.filter(entry -> entry.getRequestId().equals(requestId)).count())
+		                                .filter(entry -> entry.getRequestId().equals(requestId)).count())
 				.isEqualTo(1);
 	}
 

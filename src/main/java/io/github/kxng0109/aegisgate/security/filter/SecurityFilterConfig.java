@@ -12,11 +12,9 @@ import tools.jackson.databind.ObjectMapper;
  * Registers the gateway servlet filters with an explicit, documented order.
  *
  * <p>Ordering rationale: the Boot reference states a filter that wraps the
- * servlet request must be registered at an order {@code <=}
- * {@code OrderedFilter.REQUEST_WRAPPER_FILTER_MAX_ORDER} (0) so it runs after
- * the character-encoding filter  -  registering a request-wrapping filter at
- * {@code Ordered.HIGHEST_PRECEDENCE} would tie arbitrarily with
- * {@code OrderedCharacterEncodingFilter}. Hence:</p>
+ * servlet request must be registered at an order {@code <=} {@code OrderedFilter.REQUEST_WRAPPER_FILTER_MAX_ORDER} (0)
+ * so it runs after the character-encoding filter  -  registering a request-wrapping filter at
+ * {@code Ordered.HIGHEST_PRECEDENCE} would tie arbitrarily with {@code OrderedCharacterEncodingFilter}. Hence:</p>
  * <ol>
  *   <li>{@link RequestBodyCachingFilter} at 0  -  wraps the request so the body
  *       can be read repeatedly.</li>

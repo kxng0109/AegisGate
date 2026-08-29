@@ -28,9 +28,8 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Unit tests for {@link ProviderClientAdapter} against an in process
- * {@link MockWebServer}: request shape, headers, key handling, the model
- * override rewrite, and response streaming.
+ * Unit tests for {@link ProviderClientAdapter} against an in process {@link MockWebServer}: request shape, headers, key
+ * handling, the model override rewrite, and response streaming.
  */
 @DisplayName("ProviderClientAdapter")
 class ProviderClientAdapterTest {
@@ -71,8 +70,10 @@ class ProviderClientAdapterTest {
 		assertEquals("Bearer sk-test", recorded.getHeader("Authorization"));
 		JsonNode body = new ObjectMapper().readTree(recorded.getBody().readUtf8());
 		assertEquals("gpt-x", body.get("model").asText());
-		assertEquals(true, body.path("stream_options").path("include_usage").asBoolean(),
-				"the passthrough must always ask the upstream for usage");
+		assertTrue(
+				body.path("stream_options").path("include_usage").asBoolean(),
+				"the passthrough must always ask the upstream for usage"
+		);
 	}
 
 	@Test

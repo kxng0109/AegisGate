@@ -33,20 +33,17 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * End-to-end integration test of the Phase 2 security pipeline against a real
- * Redis instance (Testcontainers): virtual-key authentication, the distributed
- * RPM/TPM rate limiter, model allow-list enforcement, and fail-closed behavior
- * when Redis becomes unavailable.
+ * End-to-end integration test of the Phase 2 security pipeline against a real Redis instance (Testcontainers):
+ * virtual-key authentication, the distributed RPM/TPM rate limiter, model allow-list enforcement, and fail-closed
+ * behavior when Redis becomes unavailable.
  *
  * <p>The upstream provider is pointed at a non-routable TEST-NET address so
- * that requests which pass authentication never reach an external service: an
- * allowed request fails fast with 502/504, which is the signal that the auth
- * and rate-limit layers admitted it.</p>
+ * that requests which pass authentication never reach an external service: an allowed request fails fast with 502/504,
+ * which is the signal that the auth and rate-limit layers admitted it.</p>
  *
  * <p>Redis connection details are injected via {@link DynamicPropertySource}
- * (the canonical Spring testing mechanism) rather than {@code @ServiceConnection},
- * which in Spring Boot 4.x requires a separate per-database connection-details
- * factory module. Requests are issued with the JDK {@link HttpClient} so the
+ * (the canonical Spring testing mechanism) rather than {@code @ServiceConnection}, which in Spring Boot 4.x requires a
+ * separate per-database connection-details factory module. Requests are issued with the JDK {@link HttpClient} so the
  * test needs no additional test-client dependency.</p>
  */
 @Testcontainers
@@ -228,8 +225,9 @@ class RateLimitIntegrationTest {
 		HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create("http://localhost:" + port + PATH))
 		                                         .timeout(Duration.ofSeconds(10))
 		                                         .header("Content-Type", "application/json")
-		                                         .POST(HttpRequest.BodyPublishers.ofString(jsonBody,
-		                                                                                   StandardCharsets.UTF_8
+		                                         .POST(HttpRequest.BodyPublishers.ofString(
+				                                         jsonBody,
+				                                         StandardCharsets.UTF_8
 		                                         ));
 		if (bearerKey != null) {
 			builder.header("Authorization", "Bearer " + bearerKey);

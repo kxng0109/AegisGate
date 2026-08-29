@@ -10,11 +10,9 @@ import java.util.Map;
  * The wire dialect spoken with one upstream provider.
  *
  * <p>The client always speaks OpenAI format. Each adapter owns the details of
- * one native protocol: where to send the request, how to translate the OpenAI
- * body, which headers to attach, and how to normalize the streaming response
- * back to OpenAI shape. {@link OpenAiPassthroughAdapter} needs no translation;
- * {@link AnthropicAdapter} and {@link OllamaAdapter} translate in both
- * directions.</p>
+ * one native protocol: where to send the request, how to translate the OpenAI body, which headers to attach, and how to
+ * normalize the streaming response back to OpenAI shape. {@link OpenAiPassthroughAdapter} needs no translation;
+ * {@link AnthropicAdapter} and {@link OllamaAdapter} translate in both directions.</p>
  *
  * <p>Adapters are stateless singletons. Normalizers carry per stream state, so
  * {@link #newNormalizer(boolean)} hands out a fresh instance per response.</p>
@@ -45,10 +43,8 @@ public sealed interface ProtocolAdapter permits OpenAiPassthroughAdapter, Anthro
 	/**
 	 * Creates a fresh streaming normalizer for one response.
 	 *
-	 * @param includeUsageInResponse whether the usage chunk is relayed to the
-	 *                               client (the client asked for it)
-	 * @param fallbackModel          client requested model, used for cost
-	 *                               attribution when the provider never reports
+	 * @param includeUsageInResponse whether the usage chunk is relayed to the client (the client asked for it)
+	 * @param fallbackModel          client requested model, used for cost attribution when the provider never reports
 	 *                               its own model id
 	 * @return a new normalizer instance
 	 */

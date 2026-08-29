@@ -1,6 +1,5 @@
 package io.github.kxng0109.aegisgate.proxy.protocol;
 
-import io.github.kxng0109.aegisgate.config.SensitiveString;
 import io.github.kxng0109.aegisgate.contracts.ProviderConfig;
 import io.github.kxng0109.aegisgate.contracts.ProviderType;
 import org.junit.jupiter.api.DisplayName;
@@ -15,8 +14,8 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Unit tests for {@link OllamaAdapter}: message mapping, options translation,
- * the completion bound as num_predict, and the keyless header set.
+ * Unit tests for {@link OllamaAdapter}: message mapping, options translation, the completion bound as num_predict, and
+ * the keyless header set.
  */
 @DisplayName("OllamaAdapter")
 class OllamaAdapterTest {
@@ -36,7 +35,7 @@ class OllamaAdapterTest {
 		JsonNode result = objectMapper.readTree(adapter.buildRequestBody(body, null));
 
 		assertEquals("llama3.2", result.get("model").asText());
-		assertEquals(true, result.get("stream").asBoolean());
+		assertTrue(result.get("stream").asBoolean());
 		JsonNode messages = result.get("messages");
 		assertEquals(2, messages.size());
 		assertEquals("system", messages.get(0).get("role").asText());
@@ -83,7 +82,10 @@ class OllamaAdapterTest {
 	@DisplayName("no options are emitted when the client sent none")
 	void noOptionsWhenAbsent() throws Exception {
 		JsonNode result = objectMapper.readTree(
-				adapter.buildRequestBody("{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"x\"}]}", null));
+				adapter.buildRequestBody(
+						"{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"x\"}]}",
+						null
+				));
 		JsonNode options = result.get("options");
 		assertEquals(0, options.size());
 	}
@@ -117,7 +119,10 @@ class OllamaAdapterTest {
 	@DisplayName("a message with null content is skipped")
 	void nullContentSkipped() throws Exception {
 		JsonNode result = objectMapper.readTree(
-				adapter.buildRequestBody("{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":null}]}", null));
+				adapter.buildRequestBody(
+						"{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":null}]}",
+						null
+				));
 		assertEquals(0, result.get("messages").size());
 	}
 
@@ -134,7 +139,8 @@ class OllamaAdapterTest {
 	void buildsUrlAndHeaders() {
 		ProviderConfig config = new ProviderConfig(
 				"p", ProviderType.OLLAMA, URI.create("http://localhost:11434"), null,
-				Duration.ofSeconds(3), Duration.ofSeconds(120));
+				Duration.ofSeconds(3), Duration.ofSeconds(120)
+		);
 		assertEquals("http://localhost:11434/api/chat", adapter.buildUpstreamUrl(config).toString());
 		Map<String, String> headers = adapter.buildRequestHeaders(config);
 		assertEquals("application/json", headers.get("Content-Type"));

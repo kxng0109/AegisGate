@@ -3,8 +3,8 @@ package io.github.kxng0109.aegisgate.proxy.failover;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Signals that no provider could serve a request, or that a provider rejected
- * the request in a way that must be surfaced to the client as is.
+ * Signals that no provider could serve a request, or that a provider rejected the request in a way that must be
+ * surfaced to the client as is.
  *
  * <p>Carries just enough structure for the error mapping layer to choose the
  * right HTTP status without leaking internal details:</p>
@@ -50,8 +50,7 @@ public class UpstreamUnavailableException extends RuntimeException {
 	 * @param cause              the underlying cause, may be {@code null}
 	 * @param serviceUnavailable whether the client should receive 503
 	 * @param timedOut           whether the client should receive 504
-	 * @param upstreamStatus     the upstream status to surface to the client,
-	 *                           or {@code 0} when there is none
+	 * @param upstreamStatus     the upstream status to surface to the client, or {@code 0} when there is none
 	 */
 	public UpstreamUnavailableException(
 			String message,

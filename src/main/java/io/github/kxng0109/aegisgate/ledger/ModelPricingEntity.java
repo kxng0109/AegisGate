@@ -14,10 +14,9 @@ import java.time.Instant;
  * One row of the pricing catalog: the cost of one model at one provider.
  *
  * <p>Prices are USD per token, kept as fixed point decimals because money must
- * never flow through floating point arithmetic. The table is populated by
- * {@link PricingSyncService} from the LiteLLM catalog on a daily schedule and
- * seeded at migration time, so cost accounting works from the first boot even
- * before any network fetch succeeds.</p>
+ * never flow through floating point arithmetic. The table is populated by {@link PricingSyncService} from the LiteLLM
+ * catalog on a daily schedule and seeded at migration time, so cost accounting works from the first boot even before
+ * any network fetch succeeds.</p>
  */
 @Entity
 @Table(name = "model_pricing")
@@ -65,17 +64,17 @@ public class ModelPricingEntity {
 	}
 
 	/**
-	 * @param modelId                    exact model id in the pricing catalog
-	 * @param provider                   litellm provider name (openai, anthropic, ollama)
-	 * @param mode                       catalog mode (chat, completion, and so on)
-	 * @param inputCostPerToken          USD per input token
-	 * @param outputCostPerToken         USD per output token
-	 * @param cacheReadInputTokenCost    USD per cache read token, may be {@code null}
+	 * @param modelId                     exact model id in the pricing catalog
+	 * @param provider                    litellm provider name (openai, anthropic, ollama)
+	 * @param mode                        catalog mode (chat, completion, and so on)
+	 * @param inputCostPerToken           USD per input token
+	 * @param outputCostPerToken          USD per output token
+	 * @param cacheReadInputTokenCost     USD per cache read token, may be {@code null}
 	 * @param cacheCreationInputTokenCost USD per cache write token, may be {@code null}
-	 * @param maxInputTokens             catalog context window, may be {@code null}
-	 * @param maxOutputTokens            catalog completion bound, may be {@code null}
-	 * @param sourceUrl                  where the prices were fetched from
-	 * @param updatedAt                  when the row was written
+	 * @param maxInputTokens              catalog context window, may be {@code null}
+	 * @param maxOutputTokens             catalog completion bound, may be {@code null}
+	 * @param sourceUrl                   where the prices were fetched from
+	 * @param updatedAt                   when the row was written
 	 */
 	public ModelPricingEntity(
 			String modelId,

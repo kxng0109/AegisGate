@@ -7,8 +7,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * A per provider trip switch that stops the gateway from wasting time and
- * connection slots on a provider that is clearly failing.
+ * A per provider trip switch that stops the gateway from wasting time and connection slots on a provider that is
+ * clearly failing.
  *
  * <p>The state machine follows the canonical circuit breaker pattern:</p>
  * <ul>
@@ -98,14 +98,12 @@ public final class ProviderCircuitBreaker {
 	}
 
 	/**
-	 * Creates a breaker with explicit tuning and clock. Intended for tests and
-	 * operator tuning; the defaults are documented on
-	 * {@link #DEFAULT_FAILURE_THRESHOLD} and {@link #DEFAULT_COOLDOWN}.
+	 * Creates a breaker with explicit tuning and clock. Intended for tests and operator tuning; the defaults are
+	 * documented on {@link #DEFAULT_FAILURE_THRESHOLD} and {@link #DEFAULT_COOLDOWN}.
 	 *
 	 * @param providerName     label used for logging
 	 * @param clock            time source used for the cooldown
-	 * @param failureThreshold consecutive failures before the circuit opens,
-	 *                         must be positive
+	 * @param failureThreshold consecutive failures before the circuit opens, must be positive
 	 * @param cooldown         how long the circuit stays open, must not be negative
 	 * @throws IllegalArgumentException when the tuning values are invalid
 	 */
@@ -137,10 +135,9 @@ public final class ProviderCircuitBreaker {
 	 * Asks whether a call may proceed right now.
 	 *
 	 * <p>Returns {@code true} when the circuit is CLOSED, or when this caller
-	 * wins the single probe slot in HALF_OPEN. Returns {@code false} when the
-	 * circuit is OPEN and the cooldown has not elapsed, when the cooldown just
-	 * elapsed but another caller already took the probe, or when a probe is
-	 * already in flight.</p>
+	 * wins the single probe slot in HALF_OPEN. Returns {@code false} when the circuit is OPEN and the cooldown has not
+	 * elapsed, when the cooldown just elapsed but another caller already took the probe, or when a probe is already in
+	 * flight.</p>
 	 *
 	 * @return {@code true} when the caller is permitted to attempt the call
 	 */
@@ -193,8 +190,7 @@ public final class ProviderCircuitBreaker {
 	 * Records a transient failure.
 	 *
 	 * <p>In CLOSED the failure count is incremented and the circuit opens when
-	 * it reaches the threshold. In HALF_OPEN the circuit reopens and the
-	 * cooldown restarts. No effect in OPEN.</p>
+	 * it reaches the threshold. In HALF_OPEN the circuit reopens and the cooldown restarts. No effect in OPEN.</p>
 	 */
 	public void recordFailure() {
 		while (true) {

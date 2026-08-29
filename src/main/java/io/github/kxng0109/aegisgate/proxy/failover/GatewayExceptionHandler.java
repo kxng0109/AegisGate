@@ -38,8 +38,9 @@ public class GatewayExceptionHandler {
 	@ExceptionHandler(UpstreamUnavailableException.class)
 	public ResponseEntity<Map<String, Object>> handleUpstreamUnavailable(UpstreamUnavailableException exception) {
 		HttpStatus status = resolveStatus(exception);
-		log.warn("Upstream request failed with mapped status {}: {}",
-		         status.value(), exception.getMessage()
+		log.warn(
+				"Upstream request failed with mapped status {}: {}",
+				status.value(), exception.getMessage()
 		);
 		return ResponseEntity.status(status).body(errorBody(messageFor(status, exception)));
 	}

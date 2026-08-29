@@ -12,19 +12,15 @@ import javax.sql.DataSource;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Applies Flyway migrations without coupling the gateway's startup to the
- * availability of PostgreSQL.
+ * Applies Flyway migrations without coupling the gateway's startup to the availability of PostgreSQL.
  *
  * <p>Spring Boot's own Flyway auto configuration fails startup when the
- * database is unreachable, which would take the whole gateway down because
- * the ledger database is unavailable. The gateway's contract is the reverse:
- * the proxy, authentication, and rate limiting never touch the database, so a
- * database outage must not stop them. This component disables the automatic
- * migration (see {@code spring.flyway.enabled=false}) and runs the same
- * migrations itself, once when the application is ready and then on a retry
- * schedule until they succeed, mirroring the bootstrap key seeding pattern.
- * While the database is down, ledger writes degrade to warnings and the dead
- * letter file.</p>
+ * database is unreachable, which would take the whole gateway down because the ledger database is unavailable. The
+ * gateway's contract is the reverse: the proxy, authentication, and rate limiting never touch the database, so a
+ * database outage must not stop them. This component disables the automatic migration (see
+ * {@code spring.flyway.enabled=false}) and runs the same migrations itself, once when the application is ready and then
+ * on a retry schedule until they succeed, mirroring the bootstrap key seeding pattern. While the database is down,
+ * ledger writes degrade to warnings and the dead letter file.</p>
  */
 @Slf4j
 @Component

@@ -13,19 +13,15 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Wraps eligible {@code POST /v1/chat/completions} requests in a
- * {@link CachedBodyHttpServletRequest} so the body can be read multiple times:
- * once by the auth/rate-limit filter and again by the controller's
- * {@code @RequestBody}.
+ * Wraps eligible {@code POST /v1/chat/completions} requests in a {@link CachedBodyHttpServletRequest} so the body can
+ * be read multiple times: once by the auth/rate-limit filter and again by the controller's {@code @RequestBody}.
  *
  * <p>The response is deliberately never touched: SSE streaming downstream must
- * remain zero-buffer. Bodies larger than the configured cap are rejected with
- * HTTP {@code 413 Payload Too Large}.</p>
+ * remain zero-buffer. Bodies larger than the configured cap are rejected with HTTP {@code 413 Payload Too Large}.</p>
  *
  * <p>Registered at {@link #ORDER} (0), the maximum order allowed for a
- * request-wrapping filter (see the Boot reference: wrapping filters must be
- * ordered {@code <= OrderedFilter.REQUEST_WRAPPER_FILTER_MAX_ORDER} so they run
- * after the character-encoding filter).</p>
+ * request-wrapping filter (see the Boot reference: wrapping filters must be ordered
+ * {@code <= OrderedFilter.REQUEST_WRAPPER_FILTER_MAX_ORDER} so they run after the character-encoding filter).</p>
  */
 public class RequestBodyCachingFilter extends OncePerRequestFilter {
 

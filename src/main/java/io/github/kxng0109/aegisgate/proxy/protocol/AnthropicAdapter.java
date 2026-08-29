@@ -17,8 +17,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Translates between the OpenAI chat completions contract and the Anthropic
- * Messages API.
+ * Translates between the OpenAI chat completions contract and the Anthropic Messages API.
  *
  * <p>Request translation:</p>
  * <ul>
@@ -49,8 +48,7 @@ public final class AnthropicAdapter implements ProtocolAdapter {
 	public static final String ANTHROPIC_VERSION = "2023-06-01";
 
 	/**
-	 * Default completion bound when the client supplied none; Anthropic
-	 * requires the field.
+	 * Default completion bound when the client supplied none; Anthropic requires the field.
 	 */
 	public static final int DEFAULT_MAX_TOKENS = 4096;
 

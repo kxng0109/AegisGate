@@ -15,18 +15,15 @@ import java.util.List;
  * Distributed, atomic RPM + TPM rate limiter backed by Redis.
  *
  * <p>Each check executes a single Lua script ({@code rate_limit.lua}) that
- * atomically increments the request and token counters for the key in one
- * round-trip, eliminating the race conditions of read-check-write sequences.
- * The script returns the raw counts, the remaining budgets, and the counter
- * TTLs as exactly six integers; this engine maps them onto the
- * {@link RateLimitDecision} contract consumed by the filter layer.</p>
+ * atomically increments the request and token counters for the key in one round-trip, eliminating the race conditions
+ * of read-check-write sequences. The script returns the raw counts, the remaining budgets, and the counter TTLs as
+ * exactly six integers; this engine maps them onto the {@link RateLimitDecision} contract consumed by the filter
+ * layer.</p>
  *
  * <p>Fail-closed: any Redis backend failure ({@link DataAccessException} or
- * {@link PoolException}) or malformed result raises
- * {@link RateLimitUnavailableException} so callers reject the request instead
- * of letting it through unthrottled. The script is executed via Spring Data
- * Redis {@link DefaultRedisScript}, which performs the EVALSHA call with a
- * transparent NOSCRIPT fallback to EVAL.</p>
+ * {@link PoolException}) or malformed result raises {@link RateLimitUnavailableException} so callers reject the request
+ * instead of letting it through unthrottled. The script is executed via Spring Data Redis {@link DefaultRedisScript},
+ * which performs the EVALSHA call with a transparent NOSCRIPT fallback to EVAL.</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -60,9 +57,8 @@ public class RateLimitEngine {
 	 * Parses one element of the Lua result list.
 	 *
 	 * <p>The elements arrive as {@link String} values when the connection uses
-	 * the {@code StringRedisTemplate} serializer or as {@link Long} values with
-	 * a native serializer; both are tolerated by normalizing through
-	 * {@link String#valueOf(Object)} before parsing.</p>
+	 * the {@code StringRedisTemplate} serializer or as {@link Long} values with a native serializer; both are tolerated
+	 * by normalizing through {@link String#valueOf(Object)} before parsing.</p>
 	 *
 	 * @param value raw element from the script result list
 	 * @return the numeric value of the element
@@ -73,12 +69,11 @@ public class RateLimitEngine {
 	}
 
 	/**
-	 * Converts a remaining-budget {@code long} to {@code int}, defensively
-	 * clamping out-of-range values.
+	 * Converts a remaining-budget {@code long} to {@code int}, defensively clamping out-of-range values.
 	 *
 	 * <p>The script already clamps remaining budgets into {@code [0, limit]}, so
-	 * a value outside {@code [0, Integer.MAX_VALUE]} can only appear from
-	 * corrupted backend data; it is normalized to the nearest bound.</p>
+	 * a value outside {@code [0, Integer.MAX_VALUE]} can only appear from corrupted backend data; it is normalized to
+	 * the nearest bound.</p>
 	 *
 	 * @param value remaining-budget value returned by the script
 	 * @return the value clamped into {@code [0, Integer.MAX_VALUE]}
@@ -91,22 +86,20 @@ public class RateLimitEngine {
 	}
 
 	/**
-	 * Checks the RPM and TPM budgets for a key, consuming {@code estimatedTokens}
-	 * from the token budget.
+	 * Checks the RPM and TPM budgets for a key, consuming {@code estimatedTokens} from the token budget.
 	 *
 	 * <p>{@code estimatedTokens} is clamped to
-	 * {@link #MIN_ESTIMATED_TOKENS}..{@link #MAX_ESTIMATED_TOKENS} before it
-	 * reaches Redis, so a hostile or broken caller cannot under- or over-charge
-	 * the token counter. The Redis keys are derived from the key hash only; no
-	 * key material or hash value is ever included in messages or logs.</p>
+	 * {@link #MIN_ESTIMATED_TOKENS}..{@link #MAX_ESTIMATED_TOKENS} before it reaches Redis, so a hostile or broken
+	 * caller cannot under- or over-charge the token counter. The Redis keys are derived from the key hash only; no key
+	 * material or hash value is ever included in messages or logs.</p>
 	 *
 	 * @param keyHash         SHA-256 of the plaintext API key; derives the Redis counter keys
 	 * @param key             resolved virtual API key carrying the configured limits
 	 * @param estimatedTokens caller estimate of tokens this request consumes; clamped
-	 * @return {@link RateLimitDecision.Allowed} with the post-check state, or
-	 * {@link RateLimitDecision.Rejected} with the retry-after period
-	 * @throws RateLimitUnavailableException if the Redis backend is unreachable
-	 *                                       or returns a malformed result (fail-closed)
+	 * @return {@link RateLimitDecision.Allowed} with the post-check state, or {@link RateLimitDecision.Rejected} with
+	 * the retry-after period
+	 * @throws RateLimitUnavailableException if the Redis backend is unreachable or returns a malformed result
+	 *                                       (fail-closed)
 	 */
 	public RateLimitDecision checkRateLimit(SHA256Hash keyHash, VirtualApiKey key, int estimatedTokens) {
 		int clampedTokens = Math.max(MIN_ESTIMATED_TOKENS, Math.min(estimatedTokens, MAX_ESTIMATED_TOKENS));

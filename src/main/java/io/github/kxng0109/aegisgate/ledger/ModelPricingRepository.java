@@ -16,16 +16,16 @@ public interface ModelPricingRepository extends JpaRepository<ModelPricingEntity
 	/**
 	 * Inserts or refreshes one pricing row atomically.
 	 *
-	 * @param modelId                    exact model id
-	 * @param provider                   litellm provider name
-	 * @param mode                       catalog mode
-	 * @param inputCostPerToken          USD per input token
-	 * @param outputCostPerToken         USD per output token
-	 * @param cacheReadInputTokenCost    USD per cache read token
+	 * @param modelId                     exact model id
+	 * @param provider                    litellm provider name
+	 * @param mode                        catalog mode
+	 * @param inputCostPerToken           USD per input token
+	 * @param outputCostPerToken          USD per output token
+	 * @param cacheReadInputTokenCost     USD per cache read token
 	 * @param cacheCreationInputTokenCost USD per cache write token
-	 * @param maxInputTokens             context window
-	 * @param maxOutputTokens            completion bound
-	 * @param sourceUrl                  where the prices came from
+	 * @param maxInputTokens              context window
+	 * @param maxOutputTokens             completion bound
+	 * @param sourceUrl                   where the prices came from
 	 */
 	@Modifying
 	@Transactional

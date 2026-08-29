@@ -1,12 +1,7 @@
 package io.github.kxng0109.aegisgate.proxy;
 
 import io.github.kxng0109.aegisgate.config.SensitiveString;
-import io.github.kxng0109.aegisgate.contracts.FailoverStrategy;
-import io.github.kxng0109.aegisgate.contracts.GatewayProperties;
-import io.github.kxng0109.aegisgate.contracts.ModelAlias;
-import io.github.kxng0109.aegisgate.contracts.ProviderConfig;
-import io.github.kxng0109.aegisgate.contracts.ProviderRef;
-import io.github.kxng0109.aegisgate.contracts.ProviderType;
+import io.github.kxng0109.aegisgate.contracts.*;
 import io.github.kxng0109.aegisgate.ledger.CostCalculator;
 import io.github.kxng0109.aegisgate.ledger.TokenUsageEvent;
 import io.github.kxng0109.aegisgate.proxy.failover.FailoverOrchestrator;
@@ -46,10 +41,9 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 /**
- * Unit tests for {@link ProxyController}: request validation, alias
- * resolution, streaming of the winning provider's SSE response, upstream
- * error passthrough, exception mapping, and the usage event published to the
- * asynchronous ledger after a completed stream.
+ * Unit tests for {@link ProxyController}: request validation, alias resolution, streaming of the winning provider's SSE
+ * response, upstream error passthrough, exception mapping, and the usage event published to the asynchronous ledger
+ * after a completed stream.
  */
 @DisplayName("ProxyController")
 class ProxyControllerTest {
@@ -75,15 +69,18 @@ class ProxyControllerTest {
 		gatewayProperties.setProviders(Map.of(
 				"openai", new ProviderConfig(
 						"openai", ProviderType.OPENAI, URI.create("https://api.openai.com"),
-						new SensitiveString("sk-test"), Duration.ofSeconds(3), Duration.ofSeconds(30))
+						new SensitiveString("sk-test"), Duration.ofSeconds(3), Duration.ofSeconds(30)
+				)
 		));
 		ProtocolAdapterResolver resolver = new ProtocolAdapterResolver(
 				new OpenAiPassthroughAdapter(objectMapper),
 				new AnthropicAdapter(objectMapper),
 				new OllamaAdapter(objectMapper)
 		);
-		controller = new ProxyController(orchestrator, gatewayProperties, objectMapper,
-		                                 resolver, costCalculator, eventPublisher);
+		controller = new ProxyController(
+				orchestrator, gatewayProperties, objectMapper,
+				resolver, costCalculator, eventPublisher
+		);
 	}
 
 	@Test
@@ -99,7 +96,10 @@ class ProxyControllerTest {
 	@Test
 	@DisplayName("a body without a model is rejected with 400")
 	void missingModelRejected() throws Exception {
-		ResponseEntity<StreamingResponseBody> response = controller.proxyChatCompletions("{\"messages\":[]}", request());
+		ResponseEntity<StreamingResponseBody> response = controller.proxyChatCompletions(
+				"{\"messages\":[]}",
+				request()
+		);
 
 		assertEquals(400, response.getStatusCode().value());
 	}
@@ -107,7 +107,10 @@ class ProxyControllerTest {
 	@Test
 	@DisplayName("an unknown model is rejected with 404")
 	void unknownModelRejected() throws Exception {
-		ResponseEntity<StreamingResponseBody> response = controller.proxyChatCompletions("{\"model\":\"nope\"}", request());
+		ResponseEntity<StreamingResponseBody> response = controller.proxyChatCompletions(
+				"{\"model\":\"nope\"}",
+				request()
+		);
 
 		assertEquals(404, response.getStatusCode().value());
 		verify(orchestrator, never()).execute(any(), anyString());
@@ -116,8 +119,9 @@ class ProxyControllerTest {
 	@Test
 	@DisplayName("the orchestrator is called with the resolved alias and the raw body")
 	void orchestratorReceivesAliasAndBody() throws Exception {
-		ProviderResponse response = providerResponse("openai", 200, sseHeaders(),
-		                                             Stream.of("data: {\"a\":1}", "data: [DONE]")
+		ProviderResponse response = providerResponse(
+				"openai", 200, sseHeaders(),
+				Stream.of("data: {\"a\":1}", "data: [DONE]")
 		);
 		when(orchestrator.execute(any(), anyString()))
 				.thenReturn(CompletableFuture.completedFuture(response));
@@ -132,8 +136,9 @@ class ProxyControllerTest {
 	@Test
 	@DisplayName("the winning SSE stream is relayed with event stream headers")
 	void streamsWinningResponse() throws Exception {
-		ProviderResponse response = providerResponse("openai", 200, sseHeaders(),
-		                                             Stream.of("data: {\"content\":\"hello\"}", "data: [DONE]")
+		ProviderResponse response = providerResponse(
+				"openai", 200, sseHeaders(),
+				Stream.of("data: {\"content\":\"hello\"}", "data: [DONE]")
 		);
 		when(orchestrator.execute(any(), anyString()))
 				.thenReturn(CompletableFuture.completedFuture(response));
@@ -151,8 +156,9 @@ class ProxyControllerTest {
 	@Test
 	@DisplayName("a non 200 upstream response is passed through with its status")
 	void passthroughNon200() throws Exception {
-		ProviderResponse response = providerResponse("openai", 429, jsonHeaders(),
-		                                             Stream.of("{\"error\":{\"message\":\"rate limited\"}}")
+		ProviderResponse response = providerResponse(
+				"openai", 429, jsonHeaders(),
+				Stream.of("{\"error\":{\"message\":\"rate limited\"}}")
 		);
 		when(orchestrator.execute(any(), anyString()))
 				.thenReturn(CompletableFuture.completedFuture(response));
@@ -170,8 +176,9 @@ class ProxyControllerTest {
 				.thenReturn(CompletableFuture.failedFuture(
 						new UpstreamUnavailableException("all failed", null, false, false, 401)));
 
-		assertThrows(UpstreamUnavailableException.class,
-		             () -> controller.proxyChatCompletions(PATH_BODY, request())
+		assertThrows(
+				UpstreamUnavailableException.class,
+				() -> controller.proxyChatCompletions(PATH_BODY, request())
 		);
 	}
 
@@ -181,8 +188,9 @@ class ProxyControllerTest {
 		when(orchestrator.execute(any(), anyString()))
 				.thenReturn(CompletableFuture.failedFuture(new IllegalStateException("boom")));
 
-		UpstreamUnavailableException failure = assertThrows(UpstreamUnavailableException.class,
-		                                                    () -> controller.proxyChatCompletions(PATH_BODY, request())
+		UpstreamUnavailableException failure = assertThrows(
+				UpstreamUnavailableException.class,
+				() -> controller.proxyChatCompletions(PATH_BODY, request())
 		);
 
 		assertInstanceOf(IllegalStateException.class, failure.getCause());
@@ -194,8 +202,9 @@ class ProxyControllerTest {
 		when(orchestrator.execute(any(), anyString()))
 				.thenReturn(CompletableFuture.failedFuture(new CompletionException(null)));
 
-		UpstreamUnavailableException failure = assertThrows(UpstreamUnavailableException.class,
-		                                                    () -> controller.proxyChatCompletions(PATH_BODY, request())
+		UpstreamUnavailableException failure = assertThrows(
+				UpstreamUnavailableException.class,
+				() -> controller.proxyChatCompletions(PATH_BODY, request())
 		);
 
 		assertNull(failure.getCause());
@@ -204,8 +213,10 @@ class ProxyControllerTest {
 	@Test
 	@DisplayName("an unknown winning provider defaults to the OpenAI protocol")
 	void unknownProviderDefaultsToOpenAi() throws Exception {
-		ProviderResponse response = providerResponse("ghost", 200, sseHeaders(),
-		                                             Stream.of("data: {\"content\":\"hi\"}", "data: [DONE]"));
+		ProviderResponse response = providerResponse(
+				"ghost", 200, sseHeaders(),
+				Stream.of("data: {\"content\":\"hi\"}", "data: [DONE]")
+		);
 		when(orchestrator.execute(any(), anyString()))
 				.thenReturn(CompletableFuture.completedFuture(response));
 
@@ -218,8 +229,10 @@ class ProxyControllerTest {
 	@Test
 	@DisplayName("a stream that never signals done still relays its lines")
 	void streamWithoutDoneStillRelays() throws Exception {
-		ProviderResponse response = providerResponse("openai", 200, sseHeaders(),
-		                                             Stream.of("data: {\"content\":\"hello\"}", "data: {\"content\":\" world\"}"));
+		ProviderResponse response = providerResponse(
+				"openai", 200, sseHeaders(),
+				Stream.of("data: {\"content\":\"hello\"}", "data: {\"content\":\" world\"}")
+		);
 		when(orchestrator.execute(any(), anyString()))
 				.thenReturn(CompletableFuture.completedFuture(response));
 
@@ -258,8 +271,9 @@ class ProxyControllerTest {
 	@Test
 	@DisplayName("a downstream write failure is swallowed so the stream closes cleanly")
 	void downstreamFailureIsSwallowed() throws Exception {
-		ProviderResponse response = providerResponse("openai", 200, sseHeaders(),
-		                                             Stream.of("data: {\"content\":\"hello\"}", "data: [DONE]")
+		ProviderResponse response = providerResponse(
+				"openai", 200, sseHeaders(),
+				Stream.of("data: {\"content\":\"hello\"}", "data: [DONE]")
 		);
 		when(orchestrator.execute(any(), anyString()))
 				.thenReturn(CompletableFuture.completedFuture(response));
@@ -278,8 +292,10 @@ class ProxyControllerTest {
 	@Test
 	@DisplayName("a downstream write failure in relaySse is swallowed")
 	void downstreamSseWriteFailureSwallowed() throws Exception {
-		ProviderResponse response = providerResponse("openai", 200, sseHeaders(),
-				Stream.of("data: {\"content\":\"hello\"}", "data: [DONE]"));
+		ProviderResponse response = providerResponse(
+				"openai", 200, sseHeaders(),
+				Stream.of("data: {\"content\":\"hello\"}", "data: [DONE]")
+		);
 		when(orchestrator.execute(any(), anyString()))
 				.thenReturn(CompletableFuture.completedFuture(response));
 
@@ -297,8 +313,10 @@ class ProxyControllerTest {
 	@Test
 	@DisplayName("a downstream write failure in relayRaw is swallowed")
 	void downstreamRawWriteFailureSwallowed() throws Exception {
-		ProviderResponse response = providerResponse("openai", 429, jsonHeaders(),
-				Stream.of("{\"error\":{\"message\":\"rate limited\"}}"));
+		ProviderResponse response = providerResponse(
+				"openai", 429, jsonHeaders(),
+				Stream.of("{\"error\":{\"message\":\"rate limited\"}}")
+		);
 		when(orchestrator.execute(any(), anyString()))
 				.thenReturn(CompletableFuture.completedFuture(response));
 
@@ -316,12 +334,13 @@ class ProxyControllerTest {
 	@Test
 	@DisplayName("usage captured at the end of a stream is published once to the ledger")
 	void publishesUsageEventAfterStream() throws Exception {
-		ProviderResponse response = providerResponse("openai", 200, sseHeaders(),
-		                                             Stream.of(
-				                                             "data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-5.6-luna\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"},\"finish_reason\":null}]}",
-				                                             "data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-5.6-luna\",\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}",
-				                                             "data: [DONE]"
-		                                             )
+		ProviderResponse response = providerResponse(
+				"openai", 200, sseHeaders(),
+				Stream.of(
+						"data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-5.6-luna\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"},\"finish_reason\":null}]}",
+						"data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-5.6-luna\",\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}",
+						"data: [DONE]"
+				)
 		);
 		when(orchestrator.execute(any(), anyString()))
 				.thenReturn(CompletableFuture.completedFuture(response));
@@ -345,8 +364,9 @@ class ProxyControllerTest {
 	@Test
 	@DisplayName("no event is published when the stream carried no usage")
 	void noEventWithoutUsage() throws Exception {
-		ProviderResponse response = providerResponse("openai", 200, sseHeaders(),
-		                                             Stream.of("data: {\"content\":\"hello\"}", "data: [DONE]")
+		ProviderResponse response = providerResponse(
+				"openai", 200, sseHeaders(),
+				Stream.of("data: {\"content\":\"hello\"}", "data: [DONE]")
 		);
 		when(orchestrator.execute(any(), anyString()))
 				.thenReturn(CompletableFuture.completedFuture(response));
@@ -359,15 +379,19 @@ class ProxyControllerTest {
 	@Test
 	@DisplayName("a model node that is an array is rejected")
 	void arrayModelRejected() throws Exception {
-		ResponseEntity<StreamingResponseBody> response = controller.proxyChatCompletions("{\"model\":[\"a\"]}", request());
+		ResponseEntity<StreamingResponseBody> response = controller.proxyChatCompletions(
+				"{\"model\":[\"a\"]}",
+				request()
+		);
 		assertEquals(400, response.getStatusCode().value());
 	}
 
 	@Test
 	@DisplayName("a non streaming body with a model passes validation")
 	void nonStreamingBodyAccepted() throws Exception {
-		ProviderResponse response = providerResponse("openai", 200, sseHeaders(),
-		                                             Stream.of("data: [DONE]")
+		ProviderResponse response = providerResponse(
+				"openai", 200, sseHeaders(),
+				Stream.of("data: [DONE]")
 		);
 		when(orchestrator.execute(any(), anyString()))
 				.thenReturn(CompletableFuture.completedFuture(response));
@@ -382,8 +406,9 @@ class ProxyControllerTest {
 	@Test
 	@DisplayName("an unparseable stream options field does not break the request")
 	void unparseableStreamOptionsIgnored() throws Exception {
-		ProviderResponse response = providerResponse("openai", 200, sseHeaders(),
-		                                             Stream.of("data: {\"content\":\"hello\"}", "data: [DONE]")
+		ProviderResponse response = providerResponse(
+				"openai", 200, sseHeaders(),
+				Stream.of("data: {\"content\":\"hello\"}", "data: [DONE]")
 		);
 		when(orchestrator.execute(any(), anyString()))
 				.thenReturn(CompletableFuture.completedFuture(response));
@@ -399,11 +424,12 @@ class ProxyControllerTest {
 	@Test
 	@DisplayName("usage falls back to the requested model when the chunk carries none")
 	void usageFallsBackToRequestedModel() throws Exception {
-		ProviderResponse response = providerResponse("openai", 200, sseHeaders(),
-		                                             Stream.of(
-				                                             "data: {\"id\":\"x\",\"object\":\"chat.completion.chunk\",\"choices\":[],\"usage\":{\"prompt_tokens\":2,\"completion_tokens\":3,\"total_tokens\":5}}",
-				                                             "data: [DONE]"
-		                                             )
+		ProviderResponse response = providerResponse(
+				"openai", 200, sseHeaders(),
+				Stream.of(
+						"data: {\"id\":\"x\",\"object\":\"chat.completion.chunk\",\"choices\":[],\"usage\":{\"prompt_tokens\":2,\"completion_tokens\":3,\"total_tokens\":5}}",
+						"data: [DONE]"
+				)
 		);
 		when(orchestrator.execute(any(), anyString()))
 				.thenReturn(CompletableFuture.completedFuture(response));
@@ -419,12 +445,13 @@ class ProxyControllerTest {
 	@Test
 	@DisplayName("the usage chunk stays internal when the client did not ask for it")
 	void usageChunkNotForwardedWhenNotRequested() throws Exception {
-		ProviderResponse response = providerResponse("openai", 200, sseHeaders(),
-		                                             Stream.of(
-				                                             "data: {\"id\":\"x\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-5.6-luna\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"},\"finish_reason\":null}]}",
-				                                             "data: {\"id\":\"x\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-5.6-luna\",\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}",
-				                                             "data: [DONE]"
-		                                             )
+		ProviderResponse response = providerResponse(
+				"openai", 200, sseHeaders(),
+				Stream.of(
+						"data: {\"id\":\"x\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-5.6-luna\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"},\"finish_reason\":null}]}",
+						"data: {\"id\":\"x\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-5.6-luna\",\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}",
+						"data: [DONE]"
+				)
 		);
 		when(orchestrator.execute(any(), anyString()))
 				.thenReturn(CompletableFuture.completedFuture(response));
@@ -439,11 +466,12 @@ class ProxyControllerTest {
 	@Test
 	@DisplayName("a missing owner id is carried through as null")
 	void missingOwnerId() throws Exception {
-		ProviderResponse response = providerResponse("openai", 200, sseHeaders(),
-		                                             Stream.of(
-				                                             "data: {\"id\":\"x\",\"object\":\"chat.completion.chunk\",\"choices\":[],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1,\"total_tokens\":2}}",
-				                                             "data: [DONE]"
-		                                             )
+		ProviderResponse response = providerResponse(
+				"openai", 200, sseHeaders(),
+				Stream.of(
+						"data: {\"id\":\"x\",\"object\":\"chat.completion.chunk\",\"choices\":[],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1,\"total_tokens\":2}}",
+						"data: [DONE]"
+				)
 		);
 		when(orchestrator.execute(any(), anyString()))
 				.thenReturn(CompletableFuture.completedFuture(response));

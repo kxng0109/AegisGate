@@ -30,10 +30,9 @@ import java.util.stream.Collectors;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Integration style tests for {@link FailoverOrchestrator} using two in
- * process mock providers: sequential failover, transient and non transient
- * classification, circuit breaker interaction, timeout handling, RACE
- * behaviour, and the resulting exception semantics.
+ * Integration style tests for {@link FailoverOrchestrator} using two in process mock providers: sequential failover,
+ * transient and non transient classification, circuit breaker interaction, timeout handling, RACE behaviour, and the
+ * resulting exception semantics.
  */
 @DisplayName("FailoverOrchestrator")
 class FailoverOrchestratorTest {
@@ -51,11 +50,11 @@ class FailoverOrchestratorTest {
 		serverB = new MockWebServer();
 		serverB.start();
 		httpClient = HttpClient.newBuilder()
-				.version(HttpClient.Version.HTTP_2)
-				.connectTimeout(Duration.ofSeconds(5))
-				.executor(Executors.newVirtualThreadPerTaskExecutor())
-				.followRedirects(HttpClient.Redirect.NEVER)
-				.build();
+		                       .version(HttpClient.Version.HTTP_2)
+		                       .connectTimeout(Duration.ofSeconds(5))
+		                       .executor(Executors.newVirtualThreadPerTaskExecutor())
+		                       .followRedirects(HttpClient.Redirect.NEVER)
+		                       .build();
 	}
 
 	@AfterEach
@@ -114,8 +113,10 @@ class FailoverOrchestratorTest {
 		FailoverOrchestrator orchestrator = orchestrator(allowAll());
 		serverA.enqueue(new MockResponse().setResponseCode(401).setBody("{\"error\":\"bad key\"}"));
 
-		UpstreamUnavailableException failure = assertThrows(UpstreamUnavailableException.class,
-				() -> join(orchestrator.execute(alias("a", "b"), MODELS)));
+		UpstreamUnavailableException failure = assertThrows(
+				UpstreamUnavailableException.class,
+				() -> join(orchestrator.execute(alias("a", "b"), MODELS))
+		);
 
 		assertEquals(401, failure.getUpstreamStatus());
 		assertEquals(0, serverB.getRequestCount(), "the backup must not be contacted on 401");
@@ -127,8 +128,10 @@ class FailoverOrchestratorTest {
 		FailoverOrchestrator orchestrator = orchestrator(allowAll());
 		serverA.enqueue(error(400));
 
-		UpstreamUnavailableException failure = assertThrows(UpstreamUnavailableException.class,
-				() -> join(orchestrator.execute(alias("a", "b"), MODELS)));
+		UpstreamUnavailableException failure = assertThrows(
+				UpstreamUnavailableException.class,
+				() -> join(orchestrator.execute(alias("a", "b"), MODELS))
+		);
 
 		assertEquals(400, failure.getUpstreamStatus());
 		assertEquals(0, serverB.getRequestCount());
@@ -141,8 +144,10 @@ class FailoverOrchestratorTest {
 		serverA.enqueue(error(500));
 		serverB.enqueue(error(503));
 
-		UpstreamUnavailableException failure = assertThrows(UpstreamUnavailableException.class,
-				() -> join(orchestrator.execute(alias("a", "b"), MODELS)));
+		UpstreamUnavailableException failure = assertThrows(
+				UpstreamUnavailableException.class,
+				() -> join(orchestrator.execute(alias("a", "b"), MODELS))
+		);
 
 		assertFalse(failure.isServiceUnavailable());
 		assertFalse(failure.isTimedOut());
@@ -165,8 +170,10 @@ class FailoverOrchestratorTest {
 	void allTimeoutsAcrossChain() {
 		FailoverOrchestrator orchestrator = orchestrator(allowAll());
 
-		UpstreamUnavailableException failure = assertThrows(UpstreamUnavailableException.class,
-				() -> join(orchestrator.execute(alias("a", "b"), MODELS)));
+		UpstreamUnavailableException failure = assertThrows(
+				UpstreamUnavailableException.class,
+				() -> join(orchestrator.execute(alias("a", "b"), MODELS))
+		);
 
 		assertTrue(failure.isTimedOut(), "a hung chain must map to a timed out failure");
 	}
@@ -199,8 +206,10 @@ class FailoverOrchestratorTest {
 			throw new SsrfViolationException("blocked for tests");
 		});
 
-		UpstreamUnavailableException failure = assertThrows(UpstreamUnavailableException.class,
-				() -> join(orchestrator.execute(alias("a"), MODELS)));
+		UpstreamUnavailableException failure = assertThrows(
+				UpstreamUnavailableException.class,
+				() -> join(orchestrator.execute(alias("a"), MODELS))
+		);
 
 		assertTrue(failure.isServiceUnavailable(), "nothing was callable, so 503");
 		assertEquals(0, serverA.getRequestCount(), "a blocked provider must never be contacted");
@@ -255,8 +264,10 @@ class FailoverOrchestratorTest {
 		serverA.enqueue(error(500));
 		serverB.enqueue(error(500));
 
-		UpstreamUnavailableException failure = assertThrows(UpstreamUnavailableException.class,
-				() -> join(orchestrator.execute(raceAlias("a", "b"), MODELS)));
+		UpstreamUnavailableException failure = assertThrows(
+				UpstreamUnavailableException.class,
+				() -> join(orchestrator.execute(raceAlias("a", "b"), MODELS))
+		);
 
 		assertFalse(failure.isTimedOut());
 		assertFalse(failure.isServiceUnavailable());
@@ -268,8 +279,10 @@ class FailoverOrchestratorTest {
 		FailoverOrchestrator orchestrator = orchestrator(allowAll());
 		serverA.enqueue(new MockResponse().setResponseCode(200).setBody("{\"error\":\"not sse\"}"));
 
-		UpstreamUnavailableException failure = assertThrows(UpstreamUnavailableException.class,
-				() -> join(orchestrator.execute(alias("a", "b"), MODELS)));
+		UpstreamUnavailableException failure = assertThrows(
+				UpstreamUnavailableException.class,
+				() -> join(orchestrator.execute(alias("a", "b"), MODELS))
+		);
 
 		assertEquals(200, failure.getUpstreamStatus());
 	}
@@ -279,9 +292,11 @@ class FailoverOrchestratorTest {
 	void emptyChainIsUnavailable() {
 		FailoverOrchestrator orchestrator = orchestrator(allowAll());
 
-		UpstreamUnavailableException failure = assertThrows(UpstreamUnavailableException.class,
+		UpstreamUnavailableException failure = assertThrows(
+				UpstreamUnavailableException.class,
 				() -> join(orchestrator.execute(
-						new ModelAlias(List.of(), FailoverStrategy.SEQUENTIAL), MODELS)));
+						new ModelAlias(List.of(), FailoverStrategy.SEQUENTIAL), MODELS))
+		);
 
 		assertTrue(failure.isServiceUnavailable());
 	}
@@ -311,8 +326,10 @@ class FailoverOrchestratorTest {
 		serverA.enqueue(new MockResponse().setResponseCode(401).setBody("{\"error\":\"bad key\"}"));
 		serverB.enqueue(new MockResponse().setResponseCode(401).setBody("{\"error\":\"bad key\"}"));
 
-		UpstreamUnavailableException failure = assertThrows(UpstreamUnavailableException.class,
-				() -> join(orchestrator.execute(raceAlias("a", "b"), MODELS)));
+		UpstreamUnavailableException failure = assertThrows(
+				UpstreamUnavailableException.class,
+				() -> join(orchestrator.execute(raceAlias("a", "b"), MODELS))
+		);
 
 		assertEquals(401, failure.getUpstreamStatus());
 	}
@@ -322,8 +339,10 @@ class FailoverOrchestratorTest {
 	void raceAllTimeout() {
 		FailoverOrchestrator orchestrator = orchestrator(allowAll());
 
-		UpstreamUnavailableException failure = assertThrows(UpstreamUnavailableException.class,
-				() -> join(orchestrator.execute(raceAlias("a", "b"), MODELS)));
+		UpstreamUnavailableException failure = assertThrows(
+				UpstreamUnavailableException.class,
+				() -> join(orchestrator.execute(raceAlias("a", "b"), MODELS))
+		);
 
 		assertTrue(failure.isTimedOut());
 	}
@@ -369,11 +388,15 @@ class FailoverOrchestratorTest {
 		FailoverOrchestrator orchestrator = orchestrator(allowAll());
 		serverA.enqueue(new MockResponse().setResponseCode(200).addHeader("Content-Type", "application/json"));
 
-		UpstreamUnavailableException failure = assertThrows(UpstreamUnavailableException.class,
-				() -> join(orchestrator.execute(alias("a", "b"), MODELS)));
+		UpstreamUnavailableException failure = assertThrows(
+				UpstreamUnavailableException.class,
+				() -> join(orchestrator.execute(alias("a", "b"), MODELS))
+		);
 
-		assertEquals(200, failure.getUpstreamStatus(),
-				"a non SSE 200 must surface as is, not fail over");
+		assertEquals(
+				200, failure.getUpstreamStatus(),
+				"a non SSE 200 must surface as is, not fail over"
+		);
 	}
 
 	@Test
@@ -382,8 +405,10 @@ class FailoverOrchestratorTest {
 		FailoverOrchestrator orchestrator = orchestrator(allowAll());
 		serverA.enqueue(error(404));
 
-		UpstreamUnavailableException failure = assertThrows(UpstreamUnavailableException.class,
-				() -> join(orchestrator.execute(alias("a", "b"), MODELS)));
+		UpstreamUnavailableException failure = assertThrows(
+				UpstreamUnavailableException.class,
+				() -> join(orchestrator.execute(alias("a", "b"), MODELS))
+		);
 
 		assertEquals(404, failure.getUpstreamStatus(), "a 404 must never fail over");
 		assertEquals(0, serverB.getRequestCount());
@@ -457,8 +482,8 @@ class FailoverOrchestratorTest {
 
 	private static List<ProviderRef> chain(String... providers) {
 		return Arrays.stream(providers)
-				.map(name -> new ProviderRef(name, null))
-				.toList();
+		             .map(name -> new ProviderRef(name, null))
+		             .toList();
 	}
 
 	private static MockResponse sse(String body) {
@@ -475,8 +500,7 @@ class FailoverOrchestratorTest {
 	private static ProviderResponse join(CompletableFuture<ProviderResponse> future) {
 		try {
 			return future.join();
-		}
-		catch (CompletionException ex) {
+		} catch (CompletionException ex) {
 			Throwable cause = ex.getCause();
 			if (cause instanceof RuntimeException runtime) {
 				throw runtime;

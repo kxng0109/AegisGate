@@ -3,8 +3,7 @@ package io.github.kxng0109.aegisgate.contracts;
 import java.time.Instant;
 
 /**
- * Snapshot of a key's rate-limit state after a check, used to populate the
- * {@code X-RateLimit-*} response headers.
+ * Snapshot of a key's rate-limit state after a check, used to populate the {@code X-RateLimit-*} response headers.
  *
  * @param rpmLimit     configured requests-per-minute limit (0 = unlimited)
  * @param rpmRemaining remaining requests in the current window

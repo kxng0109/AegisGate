@@ -1,8 +1,8 @@
 package io.github.kxng0109.aegisgate.contracts;
 
 /**
- * Result of a rate-limit check. Use pattern matching (switch on the sealed
- * type) to branch on {@code Allowed} vs {@code Rejected}.
+ * Result of a rate-limit check. Use pattern matching (switch on the sealed type) to branch on {@code Allowed} vs
+ * {@code Rejected}.
  */
 public sealed interface RateLimitDecision {
 

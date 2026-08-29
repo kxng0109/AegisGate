@@ -15,8 +15,8 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Unit tests for {@link OpenAiPassthroughAdapter}: body edits (model override
- * and forced usage reporting), headers, and URL building.
+ * Unit tests for {@link OpenAiPassthroughAdapter}: body edits (model override and forced usage reporting), headers, and
+ * URL building.
  */
 @DisplayName("OpenAiPassthroughAdapter")
 class OpenAiPassthroughAdapterTest {
@@ -35,7 +35,7 @@ class OpenAiPassthroughAdapterTest {
 		assertEquals("gpt-5.6-luna", result.get("model").asText());
 		assertEquals("hi", result.path("messages").get(0).path("content").asText());
 		assertEquals(0.7, result.path("temperature").asDouble());
-		assertEquals(true, result.path("stream_options").path("include_usage").asBoolean());
+		assertTrue(result.path("stream_options").path("include_usage").asBoolean());
 	}
 
 	@Test
@@ -45,8 +45,8 @@ class OpenAiPassthroughAdapterTest {
 
 		JsonNode result = objectMapper.readTree(adapter.buildRequestBody(body, null));
 
-		assertEquals(false, result.path("stream_options").path("include_obfuscation").asBoolean());
-		assertEquals(true, result.path("stream_options").path("include_usage").asBoolean());
+		assertFalse(result.path("stream_options").path("include_obfuscation").asBoolean());
+		assertTrue(result.path("stream_options").path("include_usage").asBoolean());
 	}
 
 	@Test
@@ -62,9 +62,12 @@ class OpenAiPassthroughAdapterTest {
 	void buildsUpstreamUrl() {
 		ProviderConfig config = new ProviderConfig(
 				"p", ProviderType.OPENAI, URI.create("https://api.openai.com/"), null,
-				Duration.ofSeconds(3), Duration.ofSeconds(30));
-		assertEquals("https://api.openai.com/v1/chat/completions",
-		             adapter.buildUpstreamUrl(config).toString());
+				Duration.ofSeconds(3), Duration.ofSeconds(30)
+		);
+		assertEquals(
+				"https://api.openai.com/v1/chat/completions",
+				adapter.buildUpstreamUrl(config).toString()
+		);
 	}
 
 	@Test
@@ -81,7 +84,8 @@ class OpenAiPassthroughAdapterTest {
 	void bearerHeaderForRealKey() {
 		ProviderConfig config = new ProviderConfig(
 				"p", ProviderType.OPENAI, URI.create("https://api.openai.com"),
-				new SensitiveString("sk-live"), Duration.ofSeconds(3), Duration.ofSeconds(30));
+				new SensitiveString("sk-live"), Duration.ofSeconds(3), Duration.ofSeconds(30)
+		);
 		Map<String, String> headers = adapter.buildRequestHeaders(config);
 		assertEquals("Bearer sk-live", headers.get("Authorization"));
 	}
@@ -92,6 +96,6 @@ class OpenAiPassthroughAdapterTest {
 		JsonNode result = objectMapper.readTree(
 				adapter.buildRequestBody("{\"model\":\"m\",\"stream_options\":\"bad\"}", null));
 		assertTrue(result.path("stream_options").isObject());
-		assertEquals(true, result.path("stream_options").path("include_usage").asBoolean());
+		assertTrue(result.path("stream_options").path("include_usage").asBoolean());
 	}
 }

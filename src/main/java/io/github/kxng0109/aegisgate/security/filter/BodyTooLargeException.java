@@ -6,8 +6,8 @@ import java.io.IOException;
  * Signals that a request body exceeds the configured buffering limit.
  *
  * <p>Thrown by {@link CachedBodyHttpServletRequest} when the declared or
- * streamed content length exceeds its cap. The mapping layer converts this
- * into an HTTP {@code 413 Payload Too Large} response.</p>
+ * streamed content length exceeds its cap. The mapping layer converts this into an HTTP {@code 413 Payload Too Large}
+ * response.</p>
  */
 public final class BodyTooLargeException extends IOException {
 

@@ -6,8 +6,8 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 
 /**
- * SHA-256 hash of a virtual API key's plaintext. The raw key is never stored;
- * only this hex digest is persisted (as the Redis key) and used for lookups.
+ * SHA-256 hash of a virtual API key's plaintext. The raw key is never stored; only this hex digest is persisted (as the
+ * Redis key) and used for lookups.
  *
  * <p>{@code toString()} is masked so the digest cannot leak into logs.</p>
  */

@@ -22,14 +22,13 @@ import java.util.Map;
  * Refreshes the pricing catalog from the LiteLLM model pricing file.
  *
  * <p>The gateway records cost against whatever the catalog holds, so the
- * prices must stay current as providers change them. The sync fetches the
- * LiteLLM catalog (configurable URL, so it can be pinned to a tag or commit),
- * keeps the chat oriented entries, and upserts them into the pricing table.
- * It runs once at startup and then on a daily cron schedule.</p>
+ * prices must stay current as providers change them. The sync fetches the LiteLLM catalog (configurable URL, so it can
+ * be pinned to a tag or commit), keeps the chat oriented entries, and upserts them into the pricing table. It runs once
+ * at startup and then on a daily cron schedule.</p>
  *
  * <p>The sync is strictly best effort. A failed fetch, an unparseable file,
- * or a database outage only logs a warning and leaves the previous rows in
- * place; the hot path never depends on it.</p>
+ * or a database outage only logs a warning and leaves the previous rows in place; the hot path never depends on
+ * it.</p>
  */
 @Slf4j
 @Component
@@ -93,8 +92,10 @@ public class PricingSyncService {
 			priceCatalog.invalidate();
 			log.info("Refreshed pricing catalog from {}: kept {} entries", sourceUrl, kept);
 		} catch (Exception ex) {
-			log.warn("Could not refresh the pricing catalog from {}: {}",
-			         sourceUrl, ex.getMessage());
+			log.warn(
+					"Could not refresh the pricing catalog from {}: {}",
+					sourceUrl, ex.getMessage()
+			);
 		}
 	}
 
@@ -143,9 +144,8 @@ public class PricingSyncService {
 	}
 
 	/**
-	 * The catalog values are nullable; the repository binds non null
-	 * parameters and translates zero back to SQL NULL for the optional
-	 * columns.
+	 * The catalog values are nullable; the repository binds non null parameters and translates zero back to SQL NULL
+	 * for the optional columns.
 	 */
 	private static BigDecimal decimalOrDefault(JsonNode entry, String field) {
 		JsonNode node = entry.get(field);

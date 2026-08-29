@@ -14,14 +14,12 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Translates between the OpenAI chat completions contract and the Ollama chat
- * API.
+ * Translates between the OpenAI chat completions contract and the Ollama chat API.
  *
  * <p>Ollama's message shape is already OpenAI compatible, so the body maps
- * almost directly. Sampling parameters that have an Ollama equivalent land in
- * the {@code options} map: temperature, top_p, stop sequences, and the
- * completion bound as {@code num_predict}. Local Ollama instances need no
- * credentials, so no auth header is sent.</p>
+ * almost directly. Sampling parameters that have an Ollama equivalent land in the {@code options} map: temperature,
+ * top_p, stop sequences, and the completion bound as {@code num_predict}. Local Ollama instances need no credentials,
+ * so no auth header is sent.</p>
  */
 @Component
 @RequiredArgsConstructor

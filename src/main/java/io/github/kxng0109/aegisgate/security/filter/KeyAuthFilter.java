@@ -16,9 +16,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.util.WebUtils;
+import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
-import tools.jackson.core.JacksonException;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -28,9 +28,8 @@ import java.util.Optional;
 import java.util.regex.Pattern;
 
 /**
- * Authenticates a virtual API key ({@code Authorization: Bearer gw-...}) and
- * enforces the distributed rate limit before the request reaches the proxy
- * controller.
+ * Authenticates a virtual API key ({@code Authorization: Bearer gw-...}) and enforces the distributed rate limit before
+ * the request reaches the proxy controller.
  *
  * <p>Pipeline (in order):</p>
  * <ol>
@@ -152,8 +151,8 @@ public class KeyAuthFilter extends OncePerRequestFilter {
 	}
 
 	/**
-	 * Validates the token shape: {@code gw-} prefix plus exactly 32 base64url
-	 * characters. Cheap rejection keeps the negative cache clean.
+	 * Validates the token shape: {@code gw-} prefix plus exactly 32 base64url characters. Cheap rejection keeps the
+	 * negative cache clean.
 	 *
 	 * @param rawKey the token after the {@code Bearer } scheme
 	 * @return {@code true} if the key is well formed
@@ -167,8 +166,7 @@ public class KeyAuthFilter extends OncePerRequestFilter {
 	}
 
 	/**
-	 * Sets a limit header, using {@link #UNLIMITED_HEADER_VALUE} for unlimited
-	 * dimensions (limit {@code 0}).
+	 * Sets a limit header, using {@link #UNLIMITED_HEADER_VALUE} for unlimited dimensions (limit {@code 0}).
 	 *
 	 * @param response the servlet response
 	 * @param name     header name
@@ -209,8 +207,9 @@ public class KeyAuthFilter extends OncePerRequestFilter {
 		if (authHeader == null
 				|| !authHeader.startsWith(AUTH_SCHEME)
 				|| authHeader.length() <= AUTH_SCHEME.length()) {
-			writeJsonError(response, HttpStatus.UNAUTHORIZED, "Missing or malformed Authorization header",
-			               RejectionReason.KEY_NOT_FOUND
+			writeJsonError(
+					response, HttpStatus.UNAUTHORIZED, "Missing or malformed Authorization header",
+					RejectionReason.KEY_NOT_FOUND
 			);
 			return;
 		}
@@ -244,8 +243,9 @@ public class KeyAuthFilter extends OncePerRequestFilter {
 		String model = extractModel(bodyBytes);
 		if (!key.allowedModels().isEmpty()
 				&& (model == null || !key.allowedModels().contains(model))) {
-			writeJsonError(response, HttpStatus.FORBIDDEN, "Model not allowed for this key",
-			               RejectionReason.MODEL_NOT_ALLOWED
+			writeJsonError(
+					response, HttpStatus.FORBIDDEN, "Model not allowed for this key",
+					RejectionReason.MODEL_NOT_ALLOWED
 			);
 			return;
 		}
@@ -270,8 +270,9 @@ public class KeyAuthFilter extends OncePerRequestFilter {
 			setLimitHeader(response, HEADER_LIMIT_TPM, key.tpmLimit());
 			response.setHeader(HEADER_REMAINING_TPM, "0");
 			response.setHeader(HEADER_RESET_TPM, Long.toString(nowEpochSecond + retryAfterSeconds));
-			writeJsonError(response, HttpStatus.TOO_MANY_REQUESTS,
-			               rejectionMessage(reason), reason
+			writeJsonError(
+					response, HttpStatus.TOO_MANY_REQUESTS,
+					rejectionMessage(reason), reason
 			);
 			return;
 		}
@@ -304,8 +305,8 @@ public class KeyAuthFilter extends OncePerRequestFilter {
 	}
 
 	/**
-	 * Extracts the {@code model} field from the buffered body. Returns
-	 * {@code null} on any parse failure or when the field is absent.
+	 * Extracts the {@code model} field from the buffered body. Returns {@code null} on any parse failure or when the
+	 * field is absent.
 	 *
 	 * @param bodyBytes the buffered request body
 	 * @return the model id, or {@code null}
@@ -327,9 +328,8 @@ public class KeyAuthFilter extends OncePerRequestFilter {
 	}
 
 	/**
-	 * Extracts the pre-flight token estimate from {@code max_tokens} or
-	 * {@code max_completion_tokens} (first present wins), clamped into
-	 * {@code [1, MAX_ESTIMATED_TOKENS]}.
+	 * Extracts the pre-flight token estimate from {@code max_tokens} or {@code max_completion_tokens} (first present
+	 * wins), clamped into {@code [1, MAX_ESTIMATED_TOKENS]}.
 	 *
 	 * @param bodyBytes the buffered request body
 	 * @return the estimate, defaulting to {@link #DEFAULT_ESTIMATED_TOKENS}

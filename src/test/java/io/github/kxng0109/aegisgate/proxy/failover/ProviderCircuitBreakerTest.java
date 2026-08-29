@@ -13,10 +13,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Unit tests for {@link ProviderCircuitBreaker}: every state transition, the
- * cooldown behaviour, probe semantics, concurrency safety, and configuration
- * validation. Time is controlled through a mutable clock so no test ever
- * sleeps.
+ * Unit tests for {@link ProviderCircuitBreaker}: every state transition, the cooldown behaviour, probe semantics,
+ * concurrency safety, and configuration validation. Time is controlled through a mutable clock so no test ever sleeps.
  */
 @DisplayName("ProviderCircuitBreaker")
 class ProviderCircuitBreakerTest {
@@ -200,15 +198,19 @@ class ProviderCircuitBreakerTest {
 	@Test
 	@DisplayName("a null clock is rejected")
 	void nullClockRejected() {
-		assertThrows(IllegalArgumentException.class,
-				() -> new ProviderCircuitBreaker("p1", null, 3, Duration.ofSeconds(30)));
+		assertThrows(
+				IllegalArgumentException.class,
+				() -> new ProviderCircuitBreaker("p1", null, 3, Duration.ofSeconds(30))
+		);
 	}
 
 	@Test
 	@DisplayName("a null provider name is rejected")
 	void nullProviderRejected() {
-		assertThrows(IllegalArgumentException.class,
-				() -> new ProviderCircuitBreaker(null, mutableClock(), 3, Duration.ofSeconds(30)));
+		assertThrows(
+				IllegalArgumentException.class,
+				() -> new ProviderCircuitBreaker(null, mutableClock(), 3, Duration.ofSeconds(30))
+		);
 	}
 
 	@Test
@@ -236,8 +238,10 @@ class ProviderCircuitBreakerTest {
 		assertEquals(ProviderCircuitBreaker.State.HALF_OPEN, breaker.getState());
 
 		breaker.recordFailure();
-		assertEquals(ProviderCircuitBreaker.State.OPEN, breaker.getState(),
-				"a failed probe must reopen the circuit");
+		assertEquals(
+				ProviderCircuitBreaker.State.OPEN, breaker.getState(),
+				"a failed probe must reopen the circuit"
+		);
 		assertFalse(breaker.tryAcquire(), "the reopened circuit must reject until the cooldown restarts");
 	}
 
@@ -261,14 +265,17 @@ class ProviderCircuitBreakerTest {
 	@DisplayName("invalid tuning values are rejected")
 	void invalidConfigurationRejected() {
 		MutableClock clock = mutableClock();
-		assertThrows(IllegalArgumentException.class,
-		             () -> new ProviderCircuitBreaker("p1", clock, 0, Duration.ofSeconds(30))
+		assertThrows(
+				IllegalArgumentException.class,
+				() -> new ProviderCircuitBreaker("p1", clock, 0, Duration.ofSeconds(30))
 		);
-		assertThrows(IllegalArgumentException.class,
-		             () -> new ProviderCircuitBreaker("p1", clock, 3, Duration.ofSeconds(-1))
+		assertThrows(
+				IllegalArgumentException.class,
+				() -> new ProviderCircuitBreaker("p1", clock, 3, Duration.ofSeconds(-1))
 		);
-		assertThrows(IllegalArgumentException.class,
-		             () -> new ProviderCircuitBreaker("  ", clock, 3, Duration.ofSeconds(30))
+		assertThrows(
+				IllegalArgumentException.class,
+				() -> new ProviderCircuitBreaker("  ", clock, 3, Duration.ofSeconds(30))
 		);
 	}
 

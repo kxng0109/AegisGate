@@ -18,11 +18,10 @@ import java.util.stream.Stream;
  * Turns one provider attempt into a non blocking HTTP call.
  *
  * <p>The request is assembled by the {@link ProtocolAdapter} for the
- * provider's dialect, so the same attempt path serves OpenAI compatible
- * providers, Anthropic, and Ollama. The request carries the provider's own
- * timeout, which per the JDK semantics bounds the time to the first byte of
- * the response rather than the duration of a long lived SSE stream. That
- * makes it exactly the per attempt failover bound the orchestrator needs.</p>
+ * provider's dialect, so the same attempt path serves OpenAI compatible providers, Anthropic, and Ollama. The request
+ * carries the provider's own timeout, which per the JDK semantics bounds the time to the first byte of the response
+ * rather than the duration of a long lived SSE stream. That makes it exactly the per attempt failover bound the
+ * orchestrator needs.</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -35,9 +34,8 @@ public class ProviderClientAdapter {
 	 * Sends the chat completion request to the provider without blocking.
 	 *
 	 * <p>The returned future completes when the response headers arrive, with
-	 * the body available as a lazy stream of lines. On timeout or transport
-	 * failure it completes exceptionally, which the orchestrator classifies as
-	 * a transient failure.</p>
+	 * the body available as a lazy stream of lines. On timeout or transport failure it completes exceptionally, which
+	 * the orchestrator classifies as a transient failure.</p>
 	 *
 	 * @param config        the provider to contact
 	 * @param requestBody   the client request body, OpenAI shaped

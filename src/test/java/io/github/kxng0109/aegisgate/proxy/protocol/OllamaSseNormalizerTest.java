@@ -11,8 +11,8 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Unit tests for {@link OllamaSseNormalizer}: newline delimited JSON mapping,
- * token counts from the done line, and the emitted OpenAI chunk shape.
+ * Unit tests for {@link OllamaSseNormalizer}: newline delimited JSON mapping, token counts from the done line, and the
+ * emitted OpenAI chunk shape.
  */
 @DisplayName("OllamaSseNormalizer")
 class OllamaSseNormalizerTest {
@@ -69,7 +69,8 @@ class OllamaSseNormalizerTest {
 		OllamaSseNormalizer normalizer = new OllamaSseNormalizer(objectMapper, "m", false);
 
 		List<String> lines = new ArrayList<>();
-		lines.addAll(normalizer.normalizeLine("{\"model\":\"m\",\"message\":{\"role\":\"assistant\",\"content\":\"\"},\"done\":false}"));
+		lines.addAll(normalizer.normalizeLine(
+				"{\"model\":\"m\",\"message\":{\"role\":\"assistant\",\"content\":\"\"},\"done\":false}"));
 		lines.addAll(normalizer.normalizeLine("not json"));
 		lines.addAll(normalizer.normalizeLine(doneLine(1, 1)));
 

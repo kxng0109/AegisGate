@@ -15,11 +15,10 @@ import java.util.UUID;
  * Rewrites the Ollama chat stream into OpenAI shaped chunks.
  *
  * <p>Ollama's {@code /api/chat} streams newline delimited JSON rather than
- * SSE. Every line carries the assistant's next content fragment, and the
- * final line carries {@code done: true} together with the token counts
- * ({@code prompt_eval_count} for the prompt, {@code eval_count} for the
- * completion). Content fragments become content chunks; the done line emits
- * the final chunk, the optional usage chunk, and the {@code [DONE]} marker.</p>
+ * SSE. Every line carries the assistant's next content fragment, and the final line carries {@code done: true} together
+ * with the token counts ({@code prompt_eval_count} for the prompt, {@code eval_count} for the completion). Content
+ * fragments become content chunks; the done line emits the final chunk, the optional usage chunk, and the
+ * {@code [DONE]} marker.</p>
  */
 @Slf4j
 public final class OllamaSseNormalizer implements SseNormalizer {
@@ -36,10 +35,8 @@ public final class OllamaSseNormalizer implements SseNormalizer {
 
 	/**
 	 * @param objectMapper           parses each newline delimited JSON line
-	 * @param fallbackModel          model to attribute cost against when the
-	 *                               provider never reports one
-	 * @param includeUsageInResponse whether the usage chunk is relayed to the
-	 *                               client (the client asked for it)
+	 * @param fallbackModel          model to attribute cost against when the provider never reports one
+	 * @param includeUsageInResponse whether the usage chunk is relayed to the client (the client asked for it)
 	 */
 	public OllamaSseNormalizer(ObjectMapper objectMapper, String fallbackModel, boolean includeUsageInResponse) {
 		this.objectMapper = objectMapper;
@@ -77,11 +74,15 @@ public final class OllamaSseNormalizer implements SseNormalizer {
 		}
 		if (finished) {
 			done = true;
-			usage = new UsageInfo(node.path("prompt_eval_count").asLong(0),
-			                      node.path("eval_count").asLong(0));
+			usage = new UsageInfo(
+					node.path("prompt_eval_count").asLong(0),
+					node.path("eval_count").asLong(0)
+			);
 			if (includeUsageInResponse) {
-				lines.add(OpenAiSseLine.usage(objectMapper, chunkId, created, model(),
-				                              usage.promptTokens(), usage.completionTokens()));
+				lines.add(OpenAiSseLine.usage(
+						objectMapper, chunkId, created, model(),
+						usage.promptTokens(), usage.completionTokens()
+				));
 			}
 			lines.add(OpenAiSseLine.finished(objectMapper, chunkId, created, model()));
 			lines.add(OpenAiSseLine.DONE);

@@ -11,9 +11,8 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Unit tests for {@link AnthropicSseNormalizer}: the two line SSE event
- * mapping, cumulative usage capture, tolerance of ping and unknown events,
- * and the emitted OpenAI chunk shape.
+ * Unit tests for {@link AnthropicSseNormalizer}: the two line SSE event mapping, cumulative usage capture, tolerance of
+ * ping and unknown events, and the emitted OpenAI chunk shape.
  */
 @DisplayName("AnthropicSseNormalizer")
 class AnthropicSseNormalizerTest {
@@ -29,7 +28,8 @@ class AnthropicSseNormalizerTest {
 		lines.addAll(normalizer.normalizeLine("event: message_start"));
 		lines.addAll(normalizer.normalizeLine(messageStart()));
 		lines.addAll(normalizer.normalizeLine("event: content_block_start"));
-		lines.addAll(normalizer.normalizeLine("data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}"));
+		lines.addAll(normalizer.normalizeLine(
+				"data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}"));
 		lines.addAll(normalizer.normalizeLine("event: content_block_delta"));
 		lines.addAll(normalizer.normalizeLine(delta("Hello")));
 		lines.addAll(normalizer.normalizeLine("event: content_block_delta"));
@@ -100,7 +100,8 @@ class AnthropicSseNormalizerTest {
 
 		List<String> lines = new ArrayList<>();
 		lines.addAll(normalizer.normalizeLine("event: content_block_delta"));
-		lines.addAll(normalizer.normalizeLine("data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"secret\"}}"));
+		lines.addAll(normalizer.normalizeLine(
+				"data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"secret\"}}"));
 		lines.addAll(normalizer.normalizeLine("event: content_block_delta"));
 		lines.addAll(normalizer.normalizeLine(delta("answer")));
 
@@ -130,9 +131,11 @@ class AnthropicSseNormalizerTest {
 
 		List<String> lines = new ArrayList<>();
 		lines.addAll(normalizer.normalizeLine("event: message_start"));
-		lines.addAll(normalizer.normalizeLine("data: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-sonnet-5\"}}"));
+		lines.addAll(normalizer.normalizeLine(
+				"data: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-sonnet-5\"}}"));
 		lines.addAll(normalizer.normalizeLine("event: message_delta"));
-		lines.addAll(normalizer.normalizeLine("data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}"));
+		lines.addAll(normalizer.normalizeLine(
+				"data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}"));
 		lines.addAll(normalizer.normalizeLine("event: message_stop"));
 		lines.addAll(normalizer.normalizeLine("data: {\"type\":\"message_stop\"}"));
 
@@ -169,7 +172,8 @@ class AnthropicSseNormalizerTest {
 		AnthropicSseNormalizer normalizer = new AnthropicSseNormalizer(objectMapper, "m", false);
 		List<String> lines = new ArrayList<>();
 		lines.addAll(normalizer.normalizeLine("event: content_block_delta"));
-		lines.addAll(normalizer.normalizeLine("data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"\"}}"));
+		lines.addAll(normalizer.normalizeLine(
+				"data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"\"}}"));
 		assertEquals(List.of(), lines);
 	}
 
@@ -248,7 +252,8 @@ class AnthropicSseNormalizerTest {
 		AnthropicSseNormalizer normalizer = new AnthropicSseNormalizer(objectMapper, "fallback", false);
 
 		normalizer.normalizeLine("event: message_start");
-		normalizer.normalizeLine("data: {\"type\":\"message_start\",\"message\":{\"model\":\"\",\"usage\":{\"input_tokens\":9}}}");
+		normalizer.normalizeLine(
+				"data: {\"type\":\"message_start\",\"message\":{\"model\":\"\",\"usage\":{\"input_tokens\":9}}}");
 
 		assertEquals("fallback", normalizer.upstreamModel());
 	}
@@ -287,7 +292,8 @@ class AnthropicSseNormalizerTest {
 	}
 
 	private static String delta(String text) {
-		return "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"" + text + "\"}}";
+		return "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\""
+				+ text + "\"}}";
 	}
 
 	private static String messageDelta(long outputTokens) {

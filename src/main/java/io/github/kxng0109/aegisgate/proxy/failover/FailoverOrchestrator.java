@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+
 import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.time.Clock;
@@ -21,8 +22,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
 /**
- * The failover brain: walks a {@link ModelAlias} provider chain, classifies
- * every attempt, and returns the winning provider's streaming response.
+ * The failover brain: walks a {@link ModelAlias} provider chain, classifies every attempt, and returns the winning
+ * provider's streaming response.
  *
  * <p>Two strategies are supported:</p>
  * <ul>
@@ -106,8 +107,8 @@ public class FailoverOrchestrator {
 	 *
 	 * @param alias       the routing plan for the requested model
 	 * @param requestBody the client request body, OpenAI shaped
-	 * @return a future completing with the winning provider response, or
-	 * completing exceptionally with {@link UpstreamUnavailableException}
+	 * @return a future completing with the winning provider response, or completing exceptionally with
+	 * {@link UpstreamUnavailableException}
 	 */
 	public CompletableFuture<ProviderResponse> execute(ModelAlias alias, String requestBody) {
 		if (alias.strategy() == FailoverStrategy.RACE) {
@@ -219,8 +220,9 @@ public class FailoverOrchestrator {
 				continue;
 			}
 			ctx.callsStarted.incrementAndGet();
-			attempts.add(new ProviderAttempt(config, breaker,
-			                                 clientAdapter.sendAsync(config, requestBody, ref.modelOverride())
+			attempts.add(new ProviderAttempt(
+					config, breaker,
+					clientAdapter.sendAsync(config, requestBody, ref.modelOverride())
 			));
 		}
 
@@ -303,8 +305,8 @@ public class FailoverOrchestrator {
 	}
 
 	/**
-	 * Closes every circuit breaker, forgetting all recorded failures. Useful
-	 * after an operator intervention or in tests between scenarios.
+	 * Closes every circuit breaker, forgetting all recorded failures. Useful after an operator intervention or in tests
+	 * between scenarios.
 	 */
 	public void resetCircuitBreakers() {
 		breakers.clear();
@@ -320,18 +322,20 @@ public class FailoverOrchestrator {
 		if (blockedProviders.containsKey(name)) {
 			return false;
 		}
-		return validatedProviders.computeIfAbsent(name, key -> {
-			                                          try {
-				                                          urlValidator.validate(config.baseUrl());
-				                                          return true;
-			                                          } catch (RuntimeException ex) {
-				                                          log.warn("Provider {} is not usable because its target was rejected: {}",
-				                                                   name, ex.getMessage()
-				                                          );
-				                                          blockedProviders.put(name, true);
-				                                          return false;
-			                                          }
-		                                          }
+		return validatedProviders.computeIfAbsent(
+				name, key -> {
+					try {
+						urlValidator.validate(config.baseUrl());
+						return true;
+					} catch (RuntimeException ex) {
+						log.warn(
+								"Provider {} is not usable because its target was rejected: {}",
+								name, ex.getMessage()
+						);
+						blockedProviders.put(name, true);
+						return false;
+					}
+				}
 		);
 	}
 
@@ -350,7 +354,7 @@ public class FailoverOrchestrator {
 		return response.headers().firstValue("Content-Type")
 		               .map(value -> value.toLowerCase()
 		                                  .contains("text/event-stream")
-				                  || value.toLowerCase().contains("application/x-ndjson"))
+				               || value.toLowerCase().contains("application/x-ndjson"))
 		               .orElse(false);
 	}
 
@@ -382,8 +386,8 @@ public class FailoverOrchestrator {
 	}
 
 	/**
-	 * Tracks everything observed across a chain walk so the final error can
-	 * name what happened without leaking secrets.
+	 * Tracks everything observed across a chain walk so the final error can name what happened without leaking
+	 * secrets.
 	 */
 	private static final class AttemptContext {
 

@@ -10,24 +10,23 @@ import java.util.List;
 /**
  * Validates target URLs against SSRF attack vectors before any outbound connection is made.
  * <p>
- * Implements the deny-list strategy of the OWASP SSRF Prevention Cheat Sheet as a
- * defense-in-depth layer. The primary SSRF control for this gateway is architectural:
- * upstream targets originate exclusively from trusted gateway configuration, never from
- * client input. This validator hardens the path for the phases where targets may become dynamic.
+ * Implements the deny-list strategy of the OWASP SSRF Prevention Cheat Sheet as a defense-in-depth layer. The primary
+ * SSRF control for this gateway is architectural: upstream targets originate exclusively from trusted gateway
+ * configuration, never from client input. This validator hardens the path for the phases where targets may become
+ * dynamic.
  * <p>
- * Every address the host resolves to (A and AAAA records) is checked against the blocklist,
- * so an attacker cannot slip through by pointing one record of a multi-record host inward.
- * Validation fails closed: a URL whose host cannot be resolved is rejected, because an
- * unverifiable destination must not be contacted. Resolution of literal IP addresses performs
- * no network I/O, keeping validation of literal targets fast and deterministic.
+ * Every address the host resolves to (A and AAAA records) is checked against the blocklist, so an attacker cannot slip
+ * through by pointing one record of a multi-record host inward. Validation fails closed: a URL whose host cannot be
+ * resolved is rejected, because an unverifiable destination must not be contacted. Resolution of literal IP addresses
+ * performs no network I/O, keeping validation of literal targets fast and deterministic.
  */
 @Component
 public class SsrfValidator {
 
 	/**
-	 * Ranges no legitimate public LLM provider can live in, per the OWASP minimum deny-list:
-	 * cloud metadata lives inside link-local space; loopback, RFC 1918 private, this-network,
-	 * and multicast cover the remaining internal attack surface for both address families.
+	 * Ranges no legitimate public LLM provider can live in, per the OWASP minimum deny-list: cloud metadata lives
+	 * inside link-local space; loopback, RFC 1918 private, this-network, and multicast cover the remaining internal
+	 * attack surface for both address families.
 	 */
 	private static final List<CidrRange> BLOCKED_RANGES = List.of(
 			new CidrRange(InetAddress.ofLiteral("0.0.0.0"), 8),
@@ -45,13 +44,13 @@ public class SsrfValidator {
 	/**
 	 * Rejects URLs that are unsafe to connect to; returns normally when the URL passes.
 	 * <p>
-	 * The checks run in escalation order so that cheap syntactic rejections fire before any
-	 * DNS work: null target, non-http(s) scheme, embedded credentials, missing host,
-	 * unresolvable host (fail closed), then the blocklist over all resolved addresses.
+	 * The checks run in escalation order so that cheap syntactic rejections fire before any DNS work: null target,
+	 * non-http(s) scheme, embedded credentials, missing host, unresolvable host (fail closed), then the blocklist over
+	 * all resolved addresses.
 	 *
 	 * @param targetUrl the URL about to be contacted by the gateway
-	 * @throws SsrfViolationException if any check fails; the message names the host and the
-	 *                                violated rule and never contains URL credentials
+	 * @throws SsrfViolationException if any check fails; the message names the host and the violated rule and never
+	 *                                contains URL credentials
 	 */
 	public void validate(URI targetUrl) {
 		if (targetUrl == null) {
@@ -86,7 +85,8 @@ public class SsrfValidator {
 			for (CidrRange range : BLOCKED_RANGES) {
 				if (range.contains(address)) {
 					throw new SsrfViolationException("host '" + host
-							                                 + "' resolves to blocked address " + address.getHostAddress()
+							                                 + "' resolves to blocked address "
+							                                 + address.getHostAddress()
 							                                 + " within range " + range.networkAddress()
 							                                                           .getHostAddress()
 							                                 + "/" + range.prefixLength());

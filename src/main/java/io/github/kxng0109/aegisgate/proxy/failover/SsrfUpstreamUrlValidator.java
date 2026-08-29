@@ -9,9 +9,8 @@ import java.net.URI;
  * {@link UpstreamUrlValidator} backed by the gateway's SSRF control.
  *
  * <p>Provider URLs originate from trusted configuration rather than client
- * input, so the SSRF check is a defense in depth layer that guards against
- * misconfiguration and future dynamic targets. The check runs once per
- * provider, lazily, before the first attempt.</p>
+ * input, so the SSRF check is a defense in depth layer that guards against misconfiguration and future dynamic targets.
+ * The check runs once per provider, lazily, before the first attempt.</p>
  */
 @Component
 public class SsrfUpstreamUrlValidator implements UpstreamUrlValidator {

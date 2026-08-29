@@ -9,12 +9,13 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.*;
 
 /**
- * Unit tests for {@link ModelPriceCatalog}: exact, composite, and prefix
- * matching, plus the empty result for unknown models.
+ * Unit tests for {@link ModelPriceCatalog}: exact, composite, and prefix matching, plus the empty result for unknown
+ * models.
  */
 @DisplayName("ModelPriceCatalog")
 class ModelPriceCatalogTest {
@@ -105,9 +106,11 @@ class ModelPriceCatalogTest {
 	}
 
 	private static ModelPricingEntity entity(String modelId, String provider, String input, String output) {
-		return new ModelPricingEntity(modelId, provider, "chat",
-		                              new BigDecimal(input), new BigDecimal(output),
-		                              null, null, null, null,
-		                              "https://example.test/prices.json", Instant.now());
+		return new ModelPricingEntity(
+				modelId, provider, "chat",
+				new BigDecimal(input), new BigDecimal(output),
+				null, null, null, null,
+				"https://example.test/prices.json", Instant.now()
+		);
 	}
 }

@@ -5,15 +5,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Verifies that the multi provider configuration in application.yml binds
- * correctly, in particular the model aliases whose names contain dots.
- * Dotted YAML keys are quoted so they bind as literal map keys rather than
- * nested property paths.
+ * Verifies that the multi provider configuration in application.yml binds correctly, in particular the model aliases
+ * whose names contain dots. Dotted YAML keys are quoted so they bind as literal map keys rather than nested property
+ * paths.
  */
 @SpringBootTest
 @DisplayName("GatewayProperties binding")
@@ -26,22 +23,32 @@ class GatewayPropertiesBindingTest {
 	@DisplayName("providers bind from application.yml")
 	void providersBind() {
 		assertNotNull(gatewayProperties.getProviders());
-		assertTrue(gatewayProperties.getProviders().containsKey("openai"),
-				"the openai provider must be configured");
-		assertTrue(gatewayProperties.getProviders().containsKey("ollama"),
-				"the ollama provider must be configured");
+		assertTrue(
+				gatewayProperties.getProviders().containsKey("openai"),
+				"the openai provider must be configured"
+		);
+		assertTrue(
+				gatewayProperties.getProviders().containsKey("ollama"),
+				"the ollama provider must be configured"
+		);
 	}
 
 	@Test
 	@DisplayName("aliases bind as literal map keys")
 	void dottedAliasesBind() {
 		assertNotNull(gatewayProperties.getAliases());
-		assertTrue(gatewayProperties.getAliases().containsKey("gpt-56-luna"),
-				"the alias gpt-56-luna must bind as a single key");
-		assertTrue(gatewayProperties.getAliases().containsKey("gpt-56-terra"),
-				"the alias gpt-56-terra must bind as a single key");
-		assertTrue(gatewayProperties.getAliases().containsKey("gpt-56-sol"),
-				"the alias gpt-56-sol must bind as a single key");
+		assertTrue(
+				gatewayProperties.getAliases().containsKey("gpt-56-luna"),
+				"the alias gpt-56-luna must bind as a single key"
+		);
+		assertTrue(
+				gatewayProperties.getAliases().containsKey("gpt-56-terra"),
+				"the alias gpt-56-terra must bind as a single key"
+		);
+		assertTrue(
+				gatewayProperties.getAliases().containsKey("gpt-56-sol"),
+				"the alias gpt-56-sol must bind as a single key"
+		);
 	}
 
 	@Test

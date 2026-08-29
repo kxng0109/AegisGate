@@ -12,12 +12,10 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Rewrites the Anthropic Messages streaming event sequence into OpenAI shaped
- * chunks.
+ * Rewrites the Anthropic Messages streaming event sequence into OpenAI shaped chunks.
  *
  * <p>Anthropic streams typed SSE events across two lines, an {@code event:}
- * line naming the event and a {@code data:} line carrying its JSON. The
- * mapping follows the documented event flow:</p>
+ * line naming the event and a {@code data:} line carrying its JSON. The mapping follows the documented event flow:</p>
  * <ul>
  *   <li>{@code message_start} contributes the input token count and the model
  *       id;</li>
@@ -51,10 +49,8 @@ public final class AnthropicSseNormalizer implements SseNormalizer {
 
 	/**
 	 * @param objectMapper           parses each data line
-	 * @param fallbackModel          model to attribute cost against when the
-	 *                               provider never reports one
-	 * @param includeUsageInResponse whether the usage chunk is relayed to the
-	 *                               client (the client asked for it)
+	 * @param fallbackModel          model to attribute cost against when the provider never reports one
+	 * @param includeUsageInResponse whether the usage chunk is relayed to the client (the client asked for it)
 	 */
 	public AnthropicSseNormalizer(ObjectMapper objectMapper, String fallbackModel, boolean includeUsageInResponse) {
 		this.objectMapper = objectMapper;
@@ -108,8 +104,10 @@ public final class AnthropicSseNormalizer implements SseNormalizer {
 		if (!done || inputTokens == null && outputTokens == null) {
 			return null;
 		}
-		return new UsageInfo(inputTokens == null ? 0 : inputTokens,
-		                     outputTokens == null ? 0 : outputTokens);
+		return new UsageInfo(
+				inputTokens == null ? 0 : inputTokens,
+				outputTokens == null ? 0 : outputTokens
+		);
 	}
 
 	@Override
@@ -158,8 +156,10 @@ public final class AnthropicSseNormalizer implements SseNormalizer {
 		if (includeUsageInResponse) {
 			UsageInfo usageInfo = usage();
 			if (usageInfo != null) {
-				lines.add(OpenAiSseLine.usage(objectMapper, chunkId, created, model(),
-				                              usageInfo.promptTokens(), usageInfo.completionTokens()));
+				lines.add(OpenAiSseLine.usage(
+						objectMapper, chunkId, created, model(),
+						usageInfo.promptTokens(), usageInfo.completionTokens()
+				));
 			}
 		}
 		lines.add(OpenAiSseLine.finished(objectMapper, chunkId, created, model()));

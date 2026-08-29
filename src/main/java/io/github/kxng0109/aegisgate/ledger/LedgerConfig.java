@@ -11,13 +11,11 @@ import java.util.concurrent.ThreadPoolExecutor;
  * Asynchronous support for the ledger.
  *
  * <p>Virtual threads are enabled globally, so Spring Boot's default async
- * executor would be an unbounded virtual thread executor. That is the wrong
- * tool for database writes, which should be rate limited and bounded: a
- * dedicated pool with a fixed number of threads and a bounded queue keeps a
- * burst of traffic from piling unbounded work onto the ledger. When the queue
- * fills, the {@link ThreadPoolExecutor.CallerRunsPolicy} runs the task on the
- * publishing thread rather than dropping the usage record, which preserves
- * billing data at the cost of a small amount of publishing time.</p>
+ * executor would be an unbounded virtual thread executor. That is the wrong tool for database writes, which should be
+ * rate limited and bounded: a dedicated pool with a fixed number of threads and a bounded queue keeps a burst of
+ * traffic from piling unbounded work onto the ledger. When the queue fills, the
+ * {@link ThreadPoolExecutor.CallerRunsPolicy} runs the task on the publishing thread rather than dropping the usage
+ * record, which preserves billing data at the cost of a small amount of publishing time.</p>
  */
 @Configuration
 @EnableAsync

@@ -20,18 +20,15 @@ import java.util.stream.Collectors;
  * Lifecycle and lookup for gateway-managed virtual API keys.
  *
  * <p>Keys are identified by the SHA-256 digest of their plaintext. The plaintext is
- * generated once (for {@link #generateKey(BootstrapKey)}) or supplied by configuration
- * (bootstrap keys) and is never persisted: only its digest and metadata are stored in a
- * Redis hash under {@code apikey:{hex}}. A short-TTL Caffeine cache absorbs hot
- * request-path lookups, including confirmed misses.</p>
+ * generated once (for {@link #generateKey(BootstrapKey)}) or supplied by configuration (bootstrap keys) and is never
+ * persisted: only its digest and metadata are stored in a Redis hash under {@code apikey:{hex}}. A short-TTL Caffeine
+ * cache absorbs hot request-path lookups, including confirmed misses.</p>
  *
  * <p>Boot-time seeding of configured keys is owned by {@link BootstrapKeySeeder}; this
- * service only provides the idempotent {@link #seedBootstrapKeys(GatewayProperties)}
- * operation the seeder invokes. The request path is fail-closed: when Redis is
- * unreachable, {@link #findByHash(SHA256Hash)} lets the underlying
- * {@link org.springframework.dao.DataAccessException} (or connection-pool exception)
- * propagate to the caller, which maps it to HTTP 503. A key is never silently treated
- * as absent merely because the backend was down.</p>
+ * service only provides the idempotent {@link #seedBootstrapKeys(GatewayProperties)} operation the seeder invokes. The
+ * request path is fail-closed: when Redis is unreachable, {@link #findByHash(SHA256Hash)} lets the underlying
+ * {@link org.springframework.dao.DataAccessException} (or connection-pool exception) propagate to the caller, which
+ * maps it to HTTP 503. A key is never silently treated as absent merely because the backend was down.</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -48,9 +45,9 @@ public class KeyManagementService {
 	private final StringRedisTemplate redisTemplate;
 
 	/**
-	 * Short-TTL local cache of resolved keys, holding {@link Optional}s so a confirmed
-	 * miss is cached without colliding with an in-flight load. Exceptions thrown by the
-	 * loader are never cached: they propagate to the caller (fail closed).
+	 * Short-TTL local cache of resolved keys, holding {@link Optional}s so a confirmed miss is cached without colliding
+	 * with an in-flight load. Exceptions thrown by the loader are never cached: they propagate to the caller (fail
+	 * closed).
 	 */
 	private final Cache<SHA256Hash, Optional<VirtualApiKey>> cache = Caffeine.newBuilder()
 	                                                                         .expireAfterWrite(Duration.ofSeconds(5))
@@ -92,12 +89,12 @@ public class KeyManagementService {
 	}
 
 	/**
-	 * Generates a brand-new virtual API key from a {@link BootstrapKey} template and
-	 * stores only its metadata hash in Redis.
+	 * Generates a brand-new virtual API key from a {@link BootstrapKey} template and stores only its metadata hash in
+	 * Redis.
 	 *
 	 * @param template key parameters (owner, label, limits, model/provider allow-lists)
-	 * @return the plaintext key ({@code gw-} + 32 URL-safe characters); this is the only
-	 * time the plaintext exists and it is never logged or stored
+	 * @return the plaintext key ({@code gw-} + 32 URL-safe characters); this is the only time the plaintext exists and
+	 * it is never logged or stored
 	 */
 	public String generateKey(BootstrapKey template) {
 		String plaintext = randomPlaintext();
@@ -114,8 +111,8 @@ public class KeyManagementService {
 	}
 
 	/**
-	 * Disables a key by flipping its {@code enabled} flag in Redis and evicting the
-	 * local cache entry so the next lookup observes the revocation.
+	 * Disables a key by flipping its {@code enabled} flag in Redis and evicting the local cache entry so the next
+	 * lookup observes the revocation.
 	 *
 	 * @param hash key hash to revoke
 	 */
@@ -128,10 +125,9 @@ public class KeyManagementService {
 	 * Resolves a key by its hash, using the local short-TTL cache first.
 	 *
 	 * <p>Fail-closed: a Redis outage ({@link org.springframework.dao.DataAccessException}
-	 * or connection-pool exception) is <em>not</em> swallowed here  -  it propagates to the
-	 * caller (which maps it to HTTP 503) and is never cached. Only malformed or
-	 * incomplete stored data degrades to an empty result, and a confirmed miss is
-	 * negatively cached for the TTL.</p>
+	 * or connection-pool exception) is <em>not</em> swallowed here  -  it propagates to the caller (which maps it to
+	 * HTTP 503) and is never cached. Only malformed or incomplete stored data degrades to an empty result, and a
+	 * confirmed miss is negatively cached for the TTL.</p>
 	 *
 	 * @param hash key hash
 	 * @return the key if present and parsable, otherwise empty
@@ -141,9 +137,9 @@ public class KeyManagementService {
 	}
 
 	/**
-	 * Seeds configured bootstrap keys so they exist at runtime. Idempotent: entries
-	 * with a null or blank {@code plaintextKey} are skipped, and a key whose hash is
-	 * already present is never overwritten. Never logs plaintexts.
+	 * Seeds configured bootstrap keys so they exist at runtime. Idempotent: entries with a null or blank
+	 * {@code plaintextKey} are skipped, and a key whose hash is already present is never overwritten. Never logs
+	 * plaintexts.
 	 *
 	 * <p>Fail-closed: a Redis failure propagates to the caller; {@link BootstrapKeySeeder}
 	 * catches it and defers seeding to its scheduled retry.</p>

@@ -7,21 +7,15 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 
 /**
  * Read side of the pricing catalog.
  *
  * <p>The full table is small (a few thousand rows at most), so the catalog
- * loads it wholesale into a Caffeine cache with a short expiry and matches in
- * memory. The daily sync refreshes the database; the cache picks the refresh
- * up on its next reload. A miss never fails the request: the cost calculator
- * gets an empty optional and records zero.</p>
+ * loads it wholesale into a Caffeine cache with a short expiry and matches in memory. The daily sync refreshes the
+ * database; the cache picks the refresh up on its next reload. A miss never fails the request: the cost calculator gets
+ * an empty optional and records zero.</p>
  *
  * <p>Matching follows the LiteLLM convention of exact ids with fallbacks:</p>
  * <ol>
@@ -71,8 +65,7 @@ public class ModelPriceCatalog {
 	}
 
 	/**
-	 * Drops the cached snapshot so the next lookup sees fresh rows. Called
-	 * after a successful pricing sync.
+	 * Drops the cached snapshot so the next lookup sees fresh rows. Called after a successful pricing sync.
 	 */
 	public void invalidate() {
 		snapshotCache.invalidateAll();

@@ -11,8 +11,8 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
- * Unit tests for {@link SsrfUpstreamUrlValidator}: it must delegate to the
- * SSRF control and surface its violations unchanged.
+ * Unit tests for {@link SsrfUpstreamUrlValidator}: it must delegate to the SSRF control and surface its violations
+ * unchanged.
  */
 @DisplayName("SsrfUpstreamUrlValidator")
 class SsrfUpstreamUrlValidatorTest {
@@ -30,8 +30,9 @@ class SsrfUpstreamUrlValidatorTest {
 	@DisplayName("a blocked URL surfaces the violation")
 	void blockedUrlRejected() {
 		SsrfUpstreamUrlValidator validator = new SsrfUpstreamUrlValidator(new SsrfValidator());
-		assertThrows(SsrfViolationException.class,
-		             () -> validator.validate(URI.create("http://127.0.0.1:8080/v1"))
+		assertThrows(
+				SsrfViolationException.class,
+				() -> validator.validate(URI.create("http://127.0.0.1:8080/v1"))
 		);
 	}
 }

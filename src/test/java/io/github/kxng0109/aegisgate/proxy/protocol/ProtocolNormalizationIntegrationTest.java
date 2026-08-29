@@ -1,12 +1,7 @@
 package io.github.kxng0109.aegisgate.proxy.protocol;
 
 import io.github.kxng0109.aegisgate.config.SensitiveString;
-import io.github.kxng0109.aegisgate.contracts.FailoverStrategy;
-import io.github.kxng0109.aegisgate.contracts.GatewayProperties;
-import io.github.kxng0109.aegisgate.contracts.ModelAlias;
-import io.github.kxng0109.aegisgate.contracts.ProviderConfig;
-import io.github.kxng0109.aegisgate.contracts.ProviderRef;
-import io.github.kxng0109.aegisgate.contracts.ProviderType;
+import io.github.kxng0109.aegisgate.contracts.*;
 import io.github.kxng0109.aegisgate.proxy.failover.FailoverOrchestrator;
 import io.github.kxng0109.aegisgate.proxy.failover.ProviderClientAdapter;
 import io.github.kxng0109.aegisgate.proxy.failover.ProviderResponse;
@@ -29,16 +24,14 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executors;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Integration style tests that run the real failover pipeline against mock
- * Anthropic and Ollama servers: the adapter translates the request, the
- * orchestrator accepts each native streaming content type, and the normalizer
- * rewrites the stream into OpenAI shaped SSE lines.
+ * Integration style tests that run the real failover pipeline against mock Anthropic and Ollama servers: the adapter
+ * translates the request, the orchestrator accepts each native streaming content type, and the normalizer rewrites the
+ * stream into OpenAI shaped SSE lines.
  */
 @DisplayName("Protocol normalization through the orchestrator")
 class ProtocolNormalizationIntegrationTest {
@@ -57,11 +50,11 @@ class ProtocolNormalizationIntegrationTest {
 		ollamaServer = new MockWebServer();
 		ollamaServer.start();
 		httpClient = HttpClient.newBuilder()
-				.version(HttpClient.Version.HTTP_2)
-				.connectTimeout(Duration.ofSeconds(5))
-				.executor(Executors.newVirtualThreadPerTaskExecutor())
-				.followRedirects(HttpClient.Redirect.NEVER)
-				.build();
+		                       .version(HttpClient.Version.HTTP_2)
+		                       .connectTimeout(Duration.ofSeconds(5))
+		                       .executor(Executors.newVirtualThreadPerTaskExecutor())
+		                       .followRedirects(HttpClient.Redirect.NEVER)
+		                       .build();
 		objectMapper = new ObjectMapper();
 	}
 
@@ -130,7 +123,7 @@ class ProtocolNormalizationIntegrationTest {
 		assertEquals(AnthropicAdapter.ANTHROPIC_VERSION, recorded.getHeader("anthropic-version"));
 		JsonNode body = objectMapper.readTree(recorded.getBody().readUtf8());
 		assertEquals("claude-sonnet-5", body.get("model").asText());
-		assertEquals(true, body.get("stream").asBoolean());
+		assertTrue(body.get("stream").asBoolean());
 		assertEquals(AnthropicAdapter.DEFAULT_MAX_TOKENS, body.get("max_tokens").asInt());
 	}
 
@@ -148,7 +141,7 @@ class ProtocolNormalizationIntegrationTest {
 		assertNull(recorded.getHeader("Authorization"));
 		JsonNode body = objectMapper.readTree(recorded.getBody().readUtf8());
 		assertEquals("llama3.2", body.get("model").asText());
-		assertEquals(true, body.get("stream").asBoolean());
+		assertTrue(body.get("stream").asBoolean());
 		assertEquals(0.4, body.path("options").path("temperature").asDouble());
 	}
 
@@ -162,11 +155,13 @@ class ProtocolNormalizationIntegrationTest {
 			case "anthropic" -> new ProviderConfig(
 					"anthropic", ProviderType.ANTHROPIC,
 					URI.create(anthropicServer.url("/").toString()),
-					new SensitiveString("sk-ant"), Duration.ofSeconds(3), Duration.ofSeconds(5));
+					new SensitiveString("sk-ant"), Duration.ofSeconds(3), Duration.ofSeconds(5)
+			);
 			case "ollama" -> new ProviderConfig(
 					"ollama", ProviderType.OLLAMA,
 					URI.create(ollamaServer.url("/").toString()),
-					null, Duration.ofSeconds(3), Duration.ofSeconds(5));
+					null, Duration.ofSeconds(3), Duration.ofSeconds(5)
+			);
 			default -> throw new IllegalArgumentException("unknown provider " + providerName);
 		};
 		properties.setProviders(Map.of(providerName, config));

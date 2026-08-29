@@ -81,8 +81,9 @@ class KeyManagementServiceTest {
 		String suffix = plaintext.substring("gw-".length());
 		assertEquals(32, suffix.length());
 		for (int i = 0; i < suffix.length(); i++) {
-			assertTrue(URL_SAFE_ALPHABET.indexOf(suffix.charAt(i)) >= 0,
-			           "character not in URL-safe alphabet at index " + i
+			assertTrue(
+					URL_SAFE_ALPHABET.indexOf(suffix.charAt(i)) >= 0,
+					"character not in URL-safe alphabet at index " + i
 			);
 		}
 	}
@@ -172,10 +173,11 @@ class KeyManagementServiceTest {
 		KeyManagementService service = newService();
 		SHA256Hash hash = hashOf(FIXED_PLAINTEXT);
 		Instant createdAt = Instant.parse(CREATED_AT);
-		stubPresent(hash, fields(
-				            "owner-7", "prod-key", "120", "9000", "true",
-				            "gpt-4,gpt-4o", "openai,anthropic", createdAt.toString(), "gw-"
-		            )
+		stubPresent(
+				hash, fields(
+						"owner-7", "prod-key", "120", "9000", "true",
+						"gpt-4,gpt-4o", "openai,anthropic", createdAt.toString(), "gw-"
+				)
 		);
 
 		Optional<VirtualApiKey> result = service.findByHash(hash);
@@ -191,10 +193,11 @@ class KeyManagementServiceTest {
 	void findByHashTrimsCsvEntriesAndDropsBlanks() {
 		KeyManagementService service = newService();
 		SHA256Hash hash = hashOf("gw-kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk");
-		stubPresent(hash, fields(
-				            "owner", "name", "5", "50", "true",
-				            " gpt-4 ,,gpt-4o ", " openai , ", CREATED_AT, "gw-"
-		            )
+		stubPresent(
+				hash, fields(
+						"owner", "name", "5", "50", "true",
+						" gpt-4 ,,gpt-4o ", " openai , ", CREATED_AT, "gw-"
+				)
 		);
 
 		Optional<VirtualApiKey> result = service.findByHash(hash);
@@ -243,14 +246,16 @@ class KeyManagementServiceTest {
 		assertTrue(service.findByHash(missingRpmLimit).isEmpty());
 
 		SHA256Hash malformedRpmLimit = hashOf("gw-gggggggggggggggggggggggggggggggg");
-		stubPresent(malformedRpmLimit,
-		            fields("owner", "name", "not-a-number", "50", "true", "", "", CREATED_AT, "gw-")
+		stubPresent(
+				malformedRpmLimit,
+				fields("owner", "name", "not-a-number", "50", "true", "", "", CREATED_AT, "gw-")
 		);
 		assertTrue(service.findByHash(malformedRpmLimit).isEmpty());
 
 		SHA256Hash malformedCreatedAt = hashOf("gw-hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh");
-		stubPresent(malformedCreatedAt,
-		            fields("owner", "name", "5", "50", "true", "", "", "not-a-date", "gw-")
+		stubPresent(
+				malformedCreatedAt,
+				fields("owner", "name", "5", "50", "true", "", "", "not-a-date", "gw-")
 		);
 		assertTrue(service.findByHash(malformedCreatedAt).isEmpty());
 
@@ -321,8 +326,9 @@ class KeyManagementServiceTest {
 		BootstrapKey existing = new BootstrapKey(
 				"owner-b", "key-b", "gw-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", 2, 2, Set.of(), Set.of());
 		String existingKey = redisKey(hashOf(existing.plaintextKey()));
-		stubPresent(hashOf(existing.plaintextKey()),
-		            fields("owner-b", "key-b", "2", "2", "true", "", "", CREATED_AT, "gw-")
+		stubPresent(
+				hashOf(existing.plaintextKey()),
+				fields("owner-b", "key-b", "2", "2", "true", "", "", CREATED_AT, "gw-")
 		);
 
 		GatewayProperties properties = new GatewayProperties();

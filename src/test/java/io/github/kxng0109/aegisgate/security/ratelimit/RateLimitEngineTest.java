@@ -336,9 +336,8 @@ class RateLimitEngineTest {
 	}
 
 	/**
-	 * Asserts a reset instant equals {@code [beforeMillis, afterMillis] +
-	 * ttlSeconds} within a one-second tolerance, keeping the assertion immune to
-	 * wall-clock jitter between the captured instants.
+	 * Asserts a reset instant equals {@code [beforeMillis, afterMillis] + ttlSeconds} within a one-second tolerance,
+	 * keeping the assertion immune to wall-clock jitter between the captured instants.
 	 */
 	private static void assertResetNear(Instant reset, long beforeMillis, long afterMillis, long ttlSeconds) {
 		long resetMillis = reset.toEpochMilli();

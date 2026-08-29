@@ -7,13 +7,14 @@ import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
 import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
- * Unit tests for {@link CostCalculator}: exact BigDecimal arithmetic into
- * micro dollars, and the zero cost fallback for unknown models.
+ * Unit tests for {@link CostCalculator}: exact BigDecimal arithmetic into micro dollars, and the zero cost fallback for
+ * unknown models.
  */
 @DisplayName("CostCalculator")
 class CostCalculatorTest {
@@ -29,8 +30,10 @@ class CostCalculatorTest {
 
 		long micros = calculator.calculate(ProviderType.OPENAI, "gpt-5.6-sol", 1000, 500);
 
-		assertEquals(4 * 1000L + 20 * 500L, micros,
-				"1000 input tokens at 4 dollars per million plus 500 output tokens at 20 dollars per million");
+		assertEquals(
+				4 * 1000L + 20 * 500L, micros,
+				"1000 input tokens at 4 dollars per million plus 500 output tokens at 20 dollars per million"
+		);
 	}
 
 	@Test
@@ -53,7 +56,9 @@ class CostCalculatorTest {
 	}
 
 	private static ModelPricingEntry entry(String modelId, String provider, String input, String output) {
-		return new ModelPricingEntry(modelId, provider, "chat",
-		                             new BigDecimal(input), new BigDecimal(output));
+		return new ModelPricingEntry(
+				modelId, provider, "chat",
+				new BigDecimal(input), new BigDecimal(output)
+		);
 	}
 }

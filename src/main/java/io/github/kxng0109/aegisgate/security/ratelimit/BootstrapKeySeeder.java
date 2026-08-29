@@ -12,9 +12,9 @@ import org.springframework.stereotype.Component;
  * Boot-time seeding of configured bootstrap keys into Redis.
  *
  * <p>Seeding is triggered by {@link ApplicationReadyEvent}  -  i.e. only after the
- * application context (and the embedded web server) is fully ready  -  and retried on a
- * fixed delay by {@link #scheduledReseed()} until it succeeds. The first successful run
- * latches the {@code seeded} flag so later events are no-ops.</p>
+ * application context (and the embedded web server) is fully ready  -  and retried on a fixed delay by
+ * {@link #scheduledReseed()} until it succeeds. The first successful run latches the {@code seeded} flag so later
+ * events are no-ops.</p>
  *
  * <p>Failure semantics are deliberately asymmetric:</p>
  * <ul>
@@ -46,8 +46,8 @@ public class BootstrapKeySeeder {
 	private volatile boolean seeded = false;
 
 	/**
-	 * Seeds configured bootstrap keys once the application context is fully ready.
-	 * Never fails the boot: failures are caught and deferred to the scheduled retry.
+	 * Seeds configured bootstrap keys once the application context is fully ready. Never fails the boot: failures are
+	 * caught and deferred to the scheduled retry.
 	 */
 	@EventListener(ApplicationReadyEvent.class)
 	public void seedOnApplicationReady() {
@@ -55,8 +55,8 @@ public class BootstrapKeySeeder {
 	}
 
 	/**
-	 * Retries seeding on a fixed delay until the first successful run. After seeding
-	 * has latched, later invocations are cheap no-ops.
+	 * Retries seeding on a fixed delay until the first successful run. After seeding has latched, later invocations are
+	 * cheap no-ops.
 	 */
 	@Scheduled(fixedDelayString = "${gateway.bootstrap-keys-seed-interval:30s}")
 	public void scheduledReseed() {
@@ -64,10 +64,9 @@ public class BootstrapKeySeeder {
 	}
 
 	/**
-	 * Runs the seeding operation exactly once: the first invocation whose Redis
-	 * interaction succeeds latches {@link #seeded}; any {@link RuntimeException} (for
-	 * example, Redis unreachable) is logged and leaves the latch open for the next
-	 * attempt. Plaintext keys and digests are never logged.
+	 * Runs the seeding operation exactly once: the first invocation whose Redis interaction succeeds latches
+	 * {@link #seeded}; any {@link RuntimeException} (for example, Redis unreachable) is logged and leaves the latch
+	 * open for the next attempt. Plaintext keys and digests are never logged.
 	 */
 	private void seedIfNeeded() {
 		if (seeded) {

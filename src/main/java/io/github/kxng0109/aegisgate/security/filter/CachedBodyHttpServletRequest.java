@@ -14,18 +14,15 @@ import java.util.Arrays;
  * <em>fresh</em> body stream on every access.
  *
  * <p>Why this exists: the gateway must read the JSON request body twice per
- * request  -  once in the auth/rate-limit filter (to extract {@code model} and
- * {@code max_tokens}) and once in Spring MVC's {@code @RequestBody} argument
- * resolver. Spring's {@code ContentCachingRequestWrapper} cannot do this: it
- * lazily caches bytes as they are read and returns the <em>same exhausted
- * stream</em> to second readers, which would silently deliver an empty body to
- * the controller. Buffering eagerly at construction makes every call to
- * {@link #getInputStream()} / {@link #getReader()} independent and
- * byte-for-byte faithful.</p>
+ * request  -  once in the auth/rate-limit filter (to extract {@code model} and {@code max_tokens}) and once in Spring
+ * MVC's {@code @RequestBody} argument resolver. Spring's {@code ContentCachingRequestWrapper} cannot do this: it lazily
+ * caches bytes as they are read and returns the <em>same exhausted stream</em> to second readers, which would silently
+ * deliver an empty body to the controller. Buffering eagerly at construction makes every call to
+ * {@link #getInputStream()} / {@link #getReader()} independent and byte-for-byte faithful.</p>
  *
  * <p>The body is capped at {@link #DEFAULT_MAX_BODY_BYTES} (1 MiB) to bound
- * memory. A declared or streamed body exceeding the cap is rejected with
- * {@link BodyTooLargeException} and the underlying input stream is closed.</p>
+ * memory. A declared or streamed body exceeding the cap is rejected with {@link BodyTooLargeException} and the
+ * underlying input stream is closed.</p>
  *
  * <p>Not thread-safe by design: a request is processed on a single (virtual)
  * thread, so no synchronization is added.</p>
@@ -144,8 +141,7 @@ public final class CachedBodyHttpServletRequest extends HttpServletRequestWrappe
 	}
 
 	/**
-	 * {@link ServletInputStream} over a fixed byte source. Always ready, never
-	 * asynchronous.
+	 * {@link ServletInputStream} over a fixed byte source. Always ready, never asynchronous.
 	 */
 	private static final class BufferedServletInputStream extends ServletInputStream {
 

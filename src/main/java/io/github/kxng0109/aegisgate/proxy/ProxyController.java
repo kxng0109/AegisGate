@@ -42,17 +42,14 @@ import java.util.concurrent.CompletionException;
  * REST controller exposing the chat completions proxy endpoint.
  *
  * <p>The client always talks to this one OpenAI shaped endpoint. Behind it the
- * controller resolves the requested model to a {@link ModelAlias}, asks the
- * {@link FailoverOrchestrator} to pick a winning provider, and relays that
- * provider's stream back through its {@link ProtocolAdapter} normalizer, so
- * the client sees OpenAI shaped SSE no matter which dialect the winner spoke.
- * Failover has already happened by the time streaming begins, so the client
- * never sees a switch.</p>
+ * controller resolves the requested model to a {@link ModelAlias}, asks the {@link FailoverOrchestrator} to pick a
+ * winning provider, and relays that provider's stream back through its {@link ProtocolAdapter} normalizer, so the
+ * client sees OpenAI shaped SSE no matter which dialect the winner spoke. Failover has already happened by the time
+ * streaming begins, so the client never sees a switch.</p>
  *
  * <p>When a stream completes with token usage, a single {@link TokenUsageEvent}
- * is published for the asynchronous ledger. Publishing happens after the last
- * byte was written, never inside the streaming loop, and the listener runs on
- * its own executor, so accounting can never slow the response.</p>
+ * is published for the asynchronous ledger. Publishing happens after the last byte was written, never inside the
+ * streaming loop, and the listener runs on its own executor, so accounting can never slow the response.</p>
  */
 @Slf4j
 @RestController
@@ -90,8 +87,8 @@ public class ProxyController {
 	}
 
 	/**
-	 * Proxies an OpenAI shaped chat completion request to the configured
-	 * provider chain and streams the normalized SSE response back.
+	 * Proxies an OpenAI shaped chat completion request to the configured provider chain and streams the normalized SSE
+	 * response back.
 	 *
 	 * @param rawBody the raw request body
 	 * @param request the servlet request, used to read the authenticated owner
@@ -126,8 +123,9 @@ public class ProxyController {
 				throw upstream;
 			}
 			log.warn("Upstream request failed unexpectedly: {}", cause == null ? "unknown cause" : cause.getMessage());
-			throw new UpstreamUnavailableException("upstream request failed unexpectedly",
-			                                       cause, false, false
+			throw new UpstreamUnavailableException(
+					"upstream request failed unexpectedly",
+					cause, false, false
 			);
 		}
 
@@ -190,8 +188,10 @@ public class ProxyController {
 		if (usage != null) {
 			long durationMs = (System.nanoTime() - startedNanos) / 1_000_000;
 			String model = normalizer.upstreamModel() == null ? requestedModel : normalizer.upstreamModel();
-			long costUsdMicros = costCalculator.calculate(providerType, model,
-			                                              usage.promptTokens(), usage.completionTokens());
+			long costUsdMicros = costCalculator.calculate(
+					providerType, model,
+					usage.promptTokens(), usage.completionTokens()
+			);
 			eventPublisher.publishEvent(new TokenUsageEvent(
 					requestId, ownerId, providerName, model,
 					usage.promptTokens(), usage.completionTokens(),
@@ -207,8 +207,7 @@ public class ProxyController {
 				out.write(line.getBytes(StandardCharsets.UTF_8));
 				out.write('\n');
 			}
-		}
-		catch (IOException ex) {
+		} catch (IOException ex) {
 			// The downstream client went away; the upstream stream is closed by
 			// the try with resources, so nothing leaks and nothing is recorded.
 		}

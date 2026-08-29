@@ -10,13 +10,13 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.UUID;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.*;
 
 /**
- * Unit tests for {@link UsageLedgerListener}: persistence of an event, the
- * dead letter fallback when the database fails, and the never throw
- * contract.
+ * Unit tests for {@link UsageLedgerListener}: persistence of an event, the dead letter fallback when the database
+ * fails, and the never throw contract.
  */
 @DisplayName("UsageLedgerListener")
 class UsageLedgerListenerTest {
@@ -28,8 +28,10 @@ class UsageLedgerListenerTest {
 	@DisplayName("persists a completed request")
 	void persistsEvent() {
 		UsageLedgerRepository repository = mock(UsageLedgerRepository.class);
-		UsageLedgerListener listener = new UsageLedgerListener(repository,
-		                                                       tempDir.resolve("deadletter.log").toString());
+		UsageLedgerListener listener = new UsageLedgerListener(
+				repository,
+				tempDir.resolve("deadletter.log").toString()
+		);
 		TokenUsageEvent event = event();
 
 		listener.onTokenUsage(event);
@@ -73,7 +75,7 @@ class UsageLedgerListenerTest {
 	void failureWithoutMessage() throws Exception {
 		UsageLedgerRepository repository = mock(UsageLedgerRepository.class);
 		when(repository.save(any(UsageLedgerEntry.class)))
-				.thenThrow(new DataAccessResourceFailureException((String) null));
+				.thenThrow(new DataAccessResourceFailureException(null));
 		Path deadLetter = tempDir.resolve("deadletter-null.log");
 		UsageLedgerListener listener = new UsageLedgerListener(repository, deadLetter.toString());
 
@@ -86,11 +88,14 @@ class UsageLedgerListenerTest {
 	@DisplayName("a missing owner id becomes the unknown tenant")
 	void missingOwnerId() {
 		UsageLedgerRepository repository = mock(UsageLedgerRepository.class);
-		UsageLedgerListener listener = new UsageLedgerListener(repository,
-		                                                       tempDir.resolve("deadletter.log").toString());
+		UsageLedgerListener listener = new UsageLedgerListener(
+				repository,
+				tempDir.resolve("deadletter.log").toString()
+		);
 		TokenUsageEvent event = new TokenUsageEvent(
 				UUID.randomUUID(), null, "openai", "gpt-5.6-sol",
-				10, 5, 15, 100, 4200, Instant.now());
+				10, 5, 15, 100, 4200, Instant.now()
+		);
 
 		listener.onTokenUsage(event);
 
@@ -108,7 +113,8 @@ class UsageLedgerListenerTest {
 			UsageLedgerListener listener = new UsageLedgerListener(repository, deadLetter.toString());
 			TokenUsageEvent event = new TokenUsageEvent(
 					UUID.randomUUID(), null, "openai", "gpt-5.6-sol",
-					1, 1, 2, 10, 100, Instant.now());
+					1, 1, 2, 10, 100, Instant.now()
+			);
 
 			assertDoesNotThrow(() -> listener.onTokenUsage(event));
 
@@ -122,11 +128,14 @@ class UsageLedgerListenerTest {
 	@DisplayName("token counts above the integer range are clamped")
 	void clampsOversizedTokenCounts() {
 		UsageLedgerRepository repository = mock(UsageLedgerRepository.class);
-		UsageLedgerListener listener = new UsageLedgerListener(repository,
-		                                                       tempDir.resolve("deadletter.log").toString());
+		UsageLedgerListener listener = new UsageLedgerListener(
+				repository,
+				tempDir.resolve("deadletter.log").toString()
+		);
 		TokenUsageEvent event = new TokenUsageEvent(
 				UUID.randomUUID(), "owner-1", "openai", "gpt-5.6-sol",
-				(long) Integer.MAX_VALUE + 1, 1, 2, 10, 100, Instant.now());
+				(long) Integer.MAX_VALUE + 1, 1, 2, 10, 100, Instant.now()
+		);
 
 		listener.onTokenUsage(event);
 
@@ -136,6 +145,7 @@ class UsageLedgerListenerTest {
 	private static TokenUsageEvent event() {
 		return new TokenUsageEvent(
 				UUID.randomUUID(), "owner-1", "openai", "gpt-5.6-sol",
-				10, 5, 15, 100, 4200, Instant.now());
+				10, 5, 15, 100, 4200, Instant.now()
+		);
 	}
 }

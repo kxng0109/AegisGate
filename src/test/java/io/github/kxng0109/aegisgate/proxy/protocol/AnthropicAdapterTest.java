@@ -15,9 +15,8 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Unit tests for {@link AnthropicAdapter}: system message extraction, role and
- * content block mapping, parameter translation, max tokens defaulting, and
- * dropping of parameters Anthropic has no equivalent for.
+ * Unit tests for {@link AnthropicAdapter}: system message extraction, role and content block mapping, parameter
+ * translation, max tokens defaulting, and dropping of parameters Anthropic has no equivalent for.
  */
 @DisplayName("AnthropicAdapter")
 class AnthropicAdapterTest {
@@ -45,14 +44,17 @@ class AnthropicAdapterTest {
 		assertEquals("text", messages.get(0).path("content").get(0).get("type").asText());
 		assertEquals("Hello", messages.get(0).path("content").get(0).get("text").asText());
 		assertEquals("assistant", messages.get(1).get("role").asText());
-		assertEquals(true, result.get("stream").asBoolean());
+		assertTrue(result.get("stream").asBoolean());
 	}
 
 	@Test
 	@DisplayName("defaults max tokens when the client sent none")
 	void defaultsMaxTokens() throws Exception {
 		JsonNode result = objectMapper.readTree(
-				adapter.buildRequestBody("{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"x\"}]}", null));
+				adapter.buildRequestBody(
+						"{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"x\"}]}",
+						null
+				));
 		assertEquals(AnthropicAdapter.DEFAULT_MAX_TOKENS, result.get("max_tokens").asInt());
 	}
 
@@ -106,8 +108,10 @@ class AnthropicAdapterTest {
 		JsonNode result = objectMapper.readTree(adapter.buildRequestBody(body, null));
 		assertEquals(1, result.get("messages").size());
 		assertEquals("user", result.get("messages").get(0).get("role").asText());
-		assertEquals(0, result.get("messages").get(0).get("content").size(),
-				"image parts have no Anthropic text equivalent and are dropped");
+		assertEquals(
+				0, result.get("messages").get(0).get("content").size(),
+				"image parts have no Anthropic text equivalent and are dropped"
+		);
 	}
 
 	@Test
@@ -155,7 +159,10 @@ class AnthropicAdapterTest {
 	@DisplayName("no system parameter when there is no system message")
 	void noSystemWhenAbsent() throws Exception {
 		JsonNode result = objectMapper.readTree(
-				adapter.buildRequestBody("{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"x\"}]}", null));
+				adapter.buildRequestBody(
+						"{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"x\"}]}",
+						null
+				));
 		assertFalse(result.has("system"));
 	}
 
@@ -163,7 +170,10 @@ class AnthropicAdapterTest {
 	@DisplayName("blank system content produces no system parameter")
 	void blankSystemDropped() throws Exception {
 		JsonNode result = objectMapper.readTree(
-				adapter.buildRequestBody("{\"model\":\"m\",\"messages\":[{\"role\":\"system\",\"content\":\"   \"}]}", null));
+				adapter.buildRequestBody(
+						"{\"model\":\"m\",\"messages\":[{\"role\":\"system\",\"content\":\"   \"}]}",
+						null
+				));
 		assertFalse(result.has("system"));
 	}
 
@@ -179,7 +189,10 @@ class AnthropicAdapterTest {
 	@DisplayName("a message with a non string non array content produces no blocks")
 	void oddContentProducesNoBlocks() throws Exception {
 		JsonNode result = objectMapper.readTree(
-				adapter.buildRequestBody("{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":{\"x\":1}}]}", null));
+				adapter.buildRequestBody(
+						"{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":{\"x\":1}}]}",
+						null
+				));
 		assertEquals(0, result.get("messages").get(0).get("content").size());
 	}
 
@@ -249,7 +262,10 @@ class AnthropicAdapterTest {
 	@DisplayName("a stop array with non text entries keeps only the text ones")
 	void stopArrayFiltersNonText() throws Exception {
 		JsonNode result = objectMapper.readTree(
-				adapter.buildRequestBody("{\"model\":\"m\",\"messages\":[],\"stop\":[\"END\",42,\"STOP\",false]}", null));
+				adapter.buildRequestBody(
+						"{\"model\":\"m\",\"messages\":[],\"stop\":[\"END\",42,\"STOP\",false]}",
+						null
+				));
 		assertEquals(2, result.get("stop_sequences").size());
 		assertEquals("END", result.get("stop_sequences").get(0).asText());
 		assertEquals("STOP", result.get("stop_sequences").get(1).asText());
@@ -259,9 +275,11 @@ class AnthropicAdapterTest {
 	@DisplayName("an object content system message produces no system parameter")
 	void objectContentSystemDropped() throws Exception {
 		JsonNode result = objectMapper.readTree(
-				adapter.buildRequestBody("{\"model\":\"m\",\"messages\":["
-						+ "{\"role\":\"system\",\"content\":{\"type\":\"text\",\"text\":\"x\"}},"
-						+ "{\"role\":\"user\",\"content\":\"hi\"}]}", null));
+				adapter.buildRequestBody(
+						"{\"model\":\"m\",\"messages\":["
+								+ "{\"role\":\"system\",\"content\":{\"type\":\"text\",\"text\":\"x\"}},"
+								+ "{\"role\":\"user\",\"content\":\"hi\"}]}", null
+				));
 		assertFalse(result.has("system"));
 		assertEquals(1, result.get("messages").size());
 	}
@@ -283,7 +301,8 @@ class AnthropicAdapterTest {
 	void headersTolerateNullKey() {
 		ProviderConfig config = new ProviderConfig(
 				"p", ProviderType.ANTHROPIC, URI.create("https://api.anthropic.com"), null,
-				Duration.ofSeconds(3), Duration.ofSeconds(30));
+				Duration.ofSeconds(3), Duration.ofSeconds(30)
+		);
 		Map<String, String> headers = adapter.buildRequestHeaders(config);
 		assertEquals("", headers.get("x-api-key"));
 	}
@@ -295,7 +314,8 @@ class AnthropicAdapterTest {
 				"p", ProviderType.ANTHROPIC,
 				URI.create("https://api.anthropic.com"),
 				new SensitiveString("sk-ant"),
-				Duration.ofSeconds(3), Duration.ofSeconds(30));
+				Duration.ofSeconds(3), Duration.ofSeconds(30)
+		);
 		assertEquals("https://api.anthropic.com/v1/messages", adapter.buildUpstreamUrl(config).toString());
 		Map<String, String> headers = adapter.buildRequestHeaders(config);
 		assertEquals("sk-ant", headers.get("x-api-key"));

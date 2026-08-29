@@ -1,18 +1,15 @@
 package io.github.kxng0109.aegisgate.proxy.protocol;
 
 import tools.jackson.databind.ObjectMapper;
-import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
 /**
  * Builds OpenAI shaped SSE lines for the normalized providers.
  *
  * <p>Anthropic and Ollama streams are rewritten into the exact chunk shape a
- * client of the OpenAI chat completions endpoint expects: a shared chunk id,
- * a delta carrying content, a final chunk with an empty delta and the finish
- * reason, an optional usage chunk with empty choices, and the {@code [DONE]}
- * marker. The helper exists so the three normalizers produce byte identical
- * output.</p>
+ * client of the OpenAI chat completions endpoint expects: a shared chunk id, a delta carrying content, a final chunk
+ * with an empty delta and the finish reason, an optional usage chunk with empty choices, and the {@code [DONE]} marker.
+ * The helper exists so the three normalizers produce byte identical output.</p>
  */
 final class OpenAiSseLine {
 
@@ -27,11 +24,11 @@ final class OpenAiSseLine {
 	/**
 	 * A chunk carrying one content delta.
 	 *
-	 * @param mapper the object mapper used to build the JSON
-	 * @param id     shared chunk id for this stream
+	 * @param mapper  the object mapper used to build the JSON
+	 * @param id      shared chunk id for this stream
 	 * @param created epoch seconds of the stream start
-	 * @param model  model id reported by the provider
-	 * @param text   the content delta
+	 * @param model   model id reported by the provider
+	 * @param text    the content delta
 	 * @return the {@code data:} line
 	 */
 	static String delta(ObjectMapper mapper, String id, long created, String model, String text) {
@@ -62,14 +59,14 @@ final class OpenAiSseLine {
 	}
 
 	/**
-	 * The usage chunk streamed before {@code [DONE]} when the client asked
-	 * for it. Its choices array is empty, matching the OpenAI contract.
+	 * The usage chunk streamed before {@code [DONE]} when the client asked for it. Its choices array is empty, matching
+	 * the OpenAI contract.
 	 *
-	 * @param mapper  the object mapper used to build the JSON
-	 * @param id      shared chunk id for this stream
-	 * @param created epoch seconds of the stream start
-	 * @param model   model id reported by the provider
-	 * @param promptTokens  input tokens
+	 * @param mapper           the object mapper used to build the JSON
+	 * @param id               shared chunk id for this stream
+	 * @param created          epoch seconds of the stream start
+	 * @param model            model id reported by the provider
+	 * @param promptTokens     input tokens
 	 * @param completionTokens output tokens
 	 * @return the {@code data:} line
 	 */
@@ -94,6 +91,6 @@ final class OpenAiSseLine {
 	}
 
 	private static String dataLine(ObjectNode root) {
-		return "data: " + root.toString();
+		return "data: " + root;
 	}
 }

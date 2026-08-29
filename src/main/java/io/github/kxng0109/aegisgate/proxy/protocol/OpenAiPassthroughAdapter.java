@@ -14,15 +14,13 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Adapter for providers that already speak the OpenAI chat completions
- * protocol (OpenAI itself, OpenRouter, Groq, DeepSeek, Mistral, Together,
- * vLLM, and most local servers).
+ * Adapter for providers that already speak the OpenAI chat completions protocol (OpenAI itself, OpenRouter, Groq,
+ * DeepSeek, Mistral, Together, vLLM, and most local servers).
  *
  * <p>The body is forwarded as is, with two surgical edits: the model override
- * when a chain step requests one, and {@code stream_options.include_usage}
- * forced to {@code true} so the upstream always reports token usage. Without
- * usage the gateway could not bill, and clients that did not ask for usage
- * never see the extra chunk because the normalizer drops it.</p>
+ * when a chain step requests one, and {@code stream_options.include_usage} forced to {@code true} so the upstream
+ * always reports token usage. Without usage the gateway could not bill, and clients that did not ask for usage never
+ * see the extra chunk because the normalizer drops it.</p>
  */
 @Component
 @RequiredArgsConstructor

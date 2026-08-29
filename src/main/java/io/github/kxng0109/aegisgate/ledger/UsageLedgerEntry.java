@@ -1,12 +1,6 @@
 package io.github.kxng0109.aegisgate.ledger;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.Index;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 import lombok.Getter;
 import org.jspecify.annotations.Nullable;
 
@@ -14,14 +8,13 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * One persisted row of usage: who asked, which provider and model served the
- * request, how many tokens were billed, and what it cost.
+ * One persisted row of usage: who asked, which provider and model served the request, how many tokens were billed, and
+ * what it cost.
  *
  * <p>Money is stored as micro dollars in a {@code long} so arithmetic never
- * touches floating point. The {@code requestId} is unique, which makes the
- * ledger idempotent: a duplicate event cannot create a second row. The schema
- * is owned by Flyway ({@code V1__usage_ledger.sql}), and Hibernate only
- * validates against it.</p>
+ * touches floating point. The {@code requestId} is unique, which makes the ledger idempotent: a duplicate event cannot
+ * create a second row. The schema is owned by Flyway ({@code V1__usage_ledger.sql}), and Hibernate only validates
+ * against it.</p>
  */
 @Entity
 @Table(name = "usage_ledger", indexes = {
@@ -72,16 +65,16 @@ public class UsageLedgerEntry {
 	}
 
 	/**
-	 * @param requestId         correlation id of the proxied request
-	 * @param ownerId           owner of the virtual API key that authenticated it
-	 * @param provider          name of the provider that served the request
-	 * @param model             model id reported by the provider
-	 * @param promptTokens      input tokens billed by the provider
-	 * @param completionTokens  output tokens billed by the provider
-	 * @param totalTokens       the two token counts summed
-	 * @param costUsdMicros     cost in micro dollars
-	 * @param durationMs        wall clock time of the stream in milliseconds
-	 * @param createdAt         when the request completed
+	 * @param requestId        correlation id of the proxied request
+	 * @param ownerId          owner of the virtual API key that authenticated it
+	 * @param provider         name of the provider that served the request
+	 * @param model            model id reported by the provider
+	 * @param promptTokens     input tokens billed by the provider
+	 * @param completionTokens output tokens billed by the provider
+	 * @param totalTokens      the two token counts summed
+	 * @param costUsdMicros    cost in micro dollars
+	 * @param durationMs       wall clock time of the stream in milliseconds
+	 * @param createdAt        when the request completed
 	 */
 	public UsageLedgerEntry(
 			UUID requestId,

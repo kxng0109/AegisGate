@@ -12,8 +12,8 @@ import java.nio.charset.StandardCharsets;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Unit tests for {@link RequestBodyCachingFilter}: path/method gating, wrapping,
- * replayability through the chain, and the 413 rejection path.
+ * Unit tests for {@link RequestBodyCachingFilter}: path/method gating, wrapping, replayability through the chain, and
+ * the 413 rejection path.
  */
 @DisplayName("RequestBodyCachingFilter")
 class RequestBodyCachingFilterTest {
@@ -33,8 +33,9 @@ class RequestBodyCachingFilterTest {
 
 		assertInstanceOf(CachedBodyHttpServletRequest.class, chain.getRequest());
 		CachedBodyHttpServletRequest wrapped = (CachedBodyHttpServletRequest) chain.getRequest();
-		assertArrayEquals("{\"model\":\"gpt-4o\"}".getBytes(StandardCharsets.UTF_8),
-		                  wrapped.getContentAsByteArray()
+		assertArrayEquals(
+				"{\"model\":\"gpt-4o\"}".getBytes(StandardCharsets.UTF_8),
+				wrapped.getContentAsByteArray()
 		);
 	}
 
@@ -120,8 +121,9 @@ class RequestBodyCachingFilterTest {
 		filter.doFilter(request, response, chain);
 
 		CachedBodyHttpServletRequest wrapped = (CachedBodyHttpServletRequest) chain.getRequest();
-		assertArrayEquals("{\"model\":\"gpt-4o\"}".getBytes(StandardCharsets.UTF_8),
-		                  wrapped.getContentAsByteArray()
+		assertArrayEquals(
+				"{\"model\":\"gpt-4o\"}".getBytes(StandardCharsets.UTF_8),
+				wrapped.getContentAsByteArray()
 		);
 	}
 

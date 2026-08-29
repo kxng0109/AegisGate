@@ -15,8 +15,8 @@ import java.util.Arrays;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Unit tests for {@link CachedBodyHttpServletRequest}: byte-for-byte fidelity,
- * repeatable reads, size caps, and defensive-copy semantics.
+ * Unit tests for {@link CachedBodyHttpServletRequest}: byte-for-byte fidelity, repeatable reads, size caps, and
+ * defensive-copy semantics.
  */
 @DisplayName("CachedBodyHttpServletRequest")
 class CachedBodyHttpServletRequestTest {
@@ -112,8 +112,9 @@ class CachedBodyHttpServletRequestTest {
 	@DisplayName("chunked body (no content-length) above the cap is rejected")
 	void chunkedExceedsCap() throws IOException {
 		byte[] in = new byte[11];
-		assertThrows(BodyTooLargeException.class,
-		             () -> new CachedBodyHttpServletRequest(chunkedRequest(in), 10)
+		assertThrows(
+				BodyTooLargeException.class,
+				() -> new CachedBodyHttpServletRequest(chunkedRequest(in), 10)
 		);
 	}
 
@@ -132,19 +133,22 @@ class CachedBodyHttpServletRequestTest {
 	@DisplayName("body one byte over the cap is rejected")
 	void oneByteOverCap() {
 		byte[] in = new byte[11];
-		assertThrows(BodyTooLargeException.class,
-		             () -> new CachedBodyHttpServletRequest(requestWith(in), 10)
+		assertThrows(
+				BodyTooLargeException.class,
+				() -> new CachedBodyHttpServletRequest(requestWith(in), 10)
 		);
 	}
 
 	@Test
 	@DisplayName("non-positive caps are rejected")
 	void invalidCap() {
-		assertThrows(IllegalArgumentException.class,
-		             () -> new CachedBodyHttpServletRequest(requestWith(new byte[0]), 0)
+		assertThrows(
+				IllegalArgumentException.class,
+				() -> new CachedBodyHttpServletRequest(requestWith(new byte[0]), 0)
 		);
-		assertThrows(IllegalArgumentException.class,
-		             () -> new CachedBodyHttpServletRequest(requestWith(new byte[0]), -1)
+		assertThrows(
+				IllegalArgumentException.class,
+				() -> new CachedBodyHttpServletRequest(requestWith(new byte[0]), -1)
 		);
 	}
 
@@ -175,8 +179,9 @@ class CachedBodyHttpServletRequestTest {
 	@DisplayName("setReadListener is unsupported (synchronous reads only)")
 	void readListenerUnsupported() throws IOException {
 		CachedBodyHttpServletRequest wrapper = new CachedBodyHttpServletRequest(requestWith(new byte[8]));
-		assertThrows(UnsupportedOperationException.class,
-		             () -> wrapper.getInputStream().setReadListener(mockReadListener())
+		assertThrows(
+				UnsupportedOperationException.class,
+				() -> wrapper.getInputStream().setReadListener(mockReadListener())
 		);
 	}
 

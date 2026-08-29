@@ -11,8 +11,8 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Unit tests for {@link OpenAiSseNormalizer}: pass through relay, usage
- * capture, usage chunk gating, and the terminal marker.
+ * Unit tests for {@link OpenAiSseNormalizer}: pass through relay, usage capture, usage chunk gating, and the terminal
+ * marker.
  */
 @DisplayName("OpenAiSseNormalizer")
 class OpenAiSseNormalizerTest {
@@ -28,8 +28,12 @@ class OpenAiSseNormalizerTest {
 		lines.addAll(normalizer.normalizeLine("data: {\"delta\":{\"content\":\"hello\"}}"));
 		lines.addAll(normalizer.normalizeLine("data: [DONE]"));
 
-		assertEquals(List.of("data: {\"delta\":{\"content\":\"hello\"}}",
-		                     "data: [DONE]"), lines);
+		assertEquals(
+				List.of(
+						"data: {\"delta\":{\"content\":\"hello\"}}",
+						"data: [DONE]"
+				), lines
+		);
 		assertTrue(normalizer.isDone());
 	}
 
@@ -68,7 +72,8 @@ class OpenAiSseNormalizerTest {
 	void capturesUpstreamModel() {
 		OpenAiSseNormalizer normalizer = new OpenAiSseNormalizer(objectMapper, "fallback", false);
 
-		normalizer.normalizeLine("data: {\"id\":\"x\",\"object\":\"chat.completion.chunk\",\"model\":\"gpt-5.6-sol\",\"choices\":[]}");
+		normalizer.normalizeLine(
+				"data: {\"id\":\"x\",\"object\":\"chat.completion.chunk\",\"model\":\"gpt-5.6-sol\",\"choices\":[]}");
 
 		assertEquals("gpt-5.6-sol", normalizer.upstreamModel());
 	}
@@ -96,9 +101,11 @@ class OpenAiSseNormalizerTest {
 		OpenAiSseNormalizer normalizer = new OpenAiSseNormalizer(objectMapper, "m", false);
 		assertEquals(List.of(": keep-alive"), normalizer.normalizeLine(": keep-alive"));
 		assertEquals(List.of(), normalizer.normalizeLine(""));
-		assertEquals(List.of("data: {not json"),
-		             normalizer.normalizeLine("data: {not json"),
-		             "unparseable lines are relayed untouched, they are not usage chunks");
+		assertEquals(
+				List.of("data: {not json"),
+				normalizer.normalizeLine("data: {not json"),
+				"unparseable lines are relayed untouched, they are not usage chunks"
+		);
 		assertEquals(List.of("data: [1,2,3]"), normalizer.normalizeLine("data: [1,2,3]"));
 	}
 
@@ -106,8 +113,10 @@ class OpenAiSseNormalizerTest {
 	@DisplayName("a data line without usage or choices passes through")
 	void plainDataLinePassesThrough() {
 		OpenAiSseNormalizer normalizer = new OpenAiSseNormalizer(objectMapper, "m", false);
-		assertEquals(List.of("data: {\"id\":\"x\",\"object\":\"chat.completion.chunk\"}"),
-		             normalizer.normalizeLine("data: {\"id\":\"x\",\"object\":\"chat.completion.chunk\"}"));
+		assertEquals(
+				List.of("data: {\"id\":\"x\",\"object\":\"chat.completion.chunk\"}"),
+				normalizer.normalizeLine("data: {\"id\":\"x\",\"object\":\"chat.completion.chunk\"}")
+		);
 	}
 
 	@Test
@@ -123,18 +132,26 @@ class OpenAiSseNormalizerTest {
 	void nearUsageChunksPassThrough() {
 		OpenAiSseNormalizer normalizer = new OpenAiSseNormalizer(objectMapper, "m", false);
 
-		assertEquals(List.of("data: {\"id\":\"x\",\"choices\":[{\"index\":0}]}"),
-		             normalizer.normalizeLine("data: {\"id\":\"x\",\"choices\":[{\"index\":0}]}"),
-		             "a non empty choices array is not a usage chunk");
-		assertEquals(List.of("data: {\"id\":\"x\",\"usage\":\"string\"}"),
-		             normalizer.normalizeLine("data: {\"id\":\"x\",\"usage\":\"string\"}"),
-		             "a non object usage field is not a usage chunk");
-		assertEquals(List.of("data: {\"id\":\"x\",\"usage\":{}}"),
-		             normalizer.normalizeLine("data: {\"id\":\"x\",\"usage\":{}}"),
-		             "a usage field without a choices array is relayed");
-		assertEquals(List.of("data: {\"id\":\"x\",\"usage\":{},\"choices\":\"oops\"}"),
-		             normalizer.normalizeLine("data: {\"id\":\"x\",\"usage\":{},\"choices\":\"oops\"}"),
-		             "a non array choices field is relayed");
+		assertEquals(
+				List.of("data: {\"id\":\"x\",\"choices\":[{\"index\":0}]}"),
+				normalizer.normalizeLine("data: {\"id\":\"x\",\"choices\":[{\"index\":0}]}"),
+				"a non empty choices array is not a usage chunk"
+		);
+		assertEquals(
+				List.of("data: {\"id\":\"x\",\"usage\":\"string\"}"),
+				normalizer.normalizeLine("data: {\"id\":\"x\",\"usage\":\"string\"}"),
+				"a non object usage field is not a usage chunk"
+		);
+		assertEquals(
+				List.of("data: {\"id\":\"x\",\"usage\":{}}"),
+				normalizer.normalizeLine("data: {\"id\":\"x\",\"usage\":{}}"),
+				"a usage field without a choices array is relayed"
+		);
+		assertEquals(
+				List.of("data: {\"id\":\"x\",\"usage\":{},\"choices\":\"oops\"}"),
+				normalizer.normalizeLine("data: {\"id\":\"x\",\"usage\":{},\"choices\":\"oops\"}"),
+				"a non array choices field is relayed"
+		);
 	}
 
 	private static String usageChunk(long prompt, long completion) {
