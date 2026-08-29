@@ -28,6 +28,11 @@
     </scm>
     <properties>
         <java.version>25</java.version>
+        <!-- VM arguments for tests. Mockito's inline mock maker can no longer
+             self-attach on future JDKs, so it is supplied as a Java agent up
+             front. JaCoCo's prepare-agent appends its own agent options to this
+             property (documented pattern), so coverage is still collected. -->
+        <argLine>-javaagent:${settings.localRepository}/org/mockito/mockito-core/${mockito.version}/mockito-core-${mockito.version}.jar</argLine>
     </properties>
     <dependencies>
         <dependency>
@@ -44,6 +49,21 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
+
+        <!-- Phase 2: distributed rate limiting + virtual API keys (Redis/Lettuce + Caffeine). 
+             Versions are managed by the Spring Boot 4.1.0 BOM (lettuce 7.5.2, commons-pool2 2.13.1, caffeine 3.2.4). -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-pool2</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
@@ -58,6 +78,24 @@
             <groupId>com.squareup.okhttp3</groupId>
             <artifactId>mockwebserver</artifactId>
             <version>5.5.0</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Testcontainers integration tests (versions managed by the Boot 4.1.0 BOM:
+             org.testcontainers BOM 2.0.5, com.redis:testcontainers-redis 2.2.4). -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.redis</groupId>
+            <artifactId>testcontainers-redis</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>

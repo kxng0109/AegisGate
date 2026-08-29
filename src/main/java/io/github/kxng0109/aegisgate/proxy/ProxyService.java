@@ -85,11 +85,7 @@ public class ProxyService {
 		if (baseUrl.endsWith("/")) {
 			baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
 		}
-		String path = upstreamConfig.chatCompletionsPath();
-		if (!path.startsWith("/")) {
-			path = "/" + path;
-		}
-		URI upstreamUrl = URI.create(baseUrl + path);
+		URI upstreamUrl = URI.create(baseUrl + upstreamConfig.chatCompletionsPath());
 
 		Map<String, String> sanitizedHeaders = headerSanitizer.sanitizeRequestHeaders(clientHeaders);
 
