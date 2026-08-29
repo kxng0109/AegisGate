@@ -37,15 +37,15 @@ gateway:
       connect-timeout: 3s
       request-timeout: 120s
   aliases:
-    gpt-5.6-luna:
+    'gpt-56-luna':
       chain:
         - provider-name: openai
       strategy: SEQUENTIAL
-    gpt-5.6-terra:
+    'gpt-56-terra':
       chain:
         - provider-name: openai
       strategy: SEQUENTIAL
-    gpt-5.6-sol:
+    'gpt-56-sol':
       chain:
         - provider-name: openai
       strategy: SEQUENTIAL

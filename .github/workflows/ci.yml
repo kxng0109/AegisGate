@@ -102,7 +102,7 @@ jobs:
           fail_ci_if_error: false
 
       - name: Scan dependencies for known vulnerabilities
-        if: ${{ secrets.NVD_API_KEY != '' }}
+        if: ${{ success() && secrets.NVD_API_KEY != '' }}
         continue-on-error: true
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
