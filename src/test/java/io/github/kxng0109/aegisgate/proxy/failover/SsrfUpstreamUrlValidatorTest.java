@@ -18,10 +18,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class SsrfUpstreamUrlValidatorTest {
 
 	@Test
-	@DisplayName("a public URL passes through")
+	@DisplayName("a public IP passes without DNS")
 	void publicUrlPasses() {
 		SsrfUpstreamUrlValidator validator = new SsrfUpstreamUrlValidator(new SsrfValidator());
-		assertDoesNotThrow(() -> validator.validate(URI.create("https://api.openai.com/v1")));
+		// A literal public IP performs no DNS resolution and is deterministic:
+		// the test must not depend on external DNS availability.
+		assertDoesNotThrow(() -> validator.validate(URI.create("https://8.8.8.8/v1")));
 	}
 
 	@Test
