@@ -1,9 +1,10 @@
 package io.github.kxng0109.aegisgate.security.ratelimit;
 
+import com.redis.testcontainers.RedisContainer;
 import io.github.kxng0109.aegisgate.contracts.BootstrapKey;
 import io.github.kxng0109.aegisgate.contracts.GatewayProperties;
 import io.github.kxng0109.aegisgate.contracts.SHA256Hash;
-import com.redis.testcontainers.RedisContainer;
+import io.github.kxng0109.aegisgate.proxy.failover.FailoverOrchestrator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -16,7 +17,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
-
+import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -52,10 +53,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(
 		webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
 		properties = {
-				"gateway.base-url=http://203.0.113.1:1",
-				"gateway.connect-timeout=500ms",
-				"gateway.request-timeout=2s",
-				"gateway.api-key.value=itest-key",
+				"gateway.providers.upstream.name=upstream",
+				"gateway.providers.upstream.type=OPENAI",
+				"gateway.providers.upstream.base-url=http://203.0.113.1:1",
+				"gateway.providers.upstream.api-key=itest-key",
+				"gateway.providers.upstream.connect-timeout=500ms",
+				"gateway.providers.upstream.request-timeout=2s",
+				"gateway.aliases.gpt-4o.chain[0].provider-name=upstream",
+				"gateway.aliases.gpt-4o.strategy=SEQUENTIAL",
+				"gateway.aliases.gpt-3.5-turbo.chain[0].provider-name=upstream",
+				"gateway.aliases.gpt-3.5-turbo.strategy=SEQUENTIAL",
 				"spring.data.redis.timeout=3s"
 		})
 @DisplayName("Rate limiting and virtual-key auth against real Redis")
@@ -90,17 +97,21 @@ class RateLimitIntegrationTest {
 	@Autowired
 	private StringRedisTemplate redisTemplate;
 
+	@Autowired
+	private FailoverOrchestrator orchestrator;
+
 	private final HttpClient httpClient = HttpClient.newBuilder()
-			.connectTimeout(Duration.ofSeconds(3))
-			.version(HttpClient.Version.HTTP_2)
-			.followRedirects(HttpClient.Redirect.NEVER)
-			.build();
+	                                                .connectTimeout(Duration.ofSeconds(3))
+	                                                .version(HttpClient.Version.HTTP_2)
+	                                                .followRedirects(HttpClient.Redirect.NEVER)
+	                                                .build();
 
 	private final ObjectMapper objectMapper = new ObjectMapper();
 
 	@BeforeEach
 	void resetRedisState() {
 		redisTemplate.getConnectionFactory().getConnection().serverCommands().flushDb();
+		orchestrator.resetCircuitBreakers();
 	}
 
 	@Test
@@ -190,8 +201,7 @@ class RateLimitIntegrationTest {
 			REDIS.getDockerClient().pauseContainerCmd(REDIS.getContainerId()).exec();
 			HttpResponse<String> during = post(key, body("gpt-4o", 100));
 			assertThat(during.statusCode()).isEqualTo(503);
-		}
-		finally {
+		} finally {
 			REDIS.getDockerClient().unpauseContainerCmd(REDIS.getContainerId()).exec();
 		}
 
@@ -216,9 +226,11 @@ class RateLimitIntegrationTest {
 
 	private HttpResponse<String> post(String bearerKey, String jsonBody) throws Exception {
 		HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create("http://localhost:" + port + PATH))
-				.timeout(Duration.ofSeconds(10))
-				.header("Content-Type", "application/json")
-				.POST(HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8));
+		                                         .timeout(Duration.ofSeconds(10))
+		                                         .header("Content-Type", "application/json")
+		                                         .POST(HttpRequest.BodyPublishers.ofString(jsonBody,
+		                                                                                   StandardCharsets.UTF_8
+		                                         ));
 		if (bearerKey != null) {
 			builder.header("Authorization", "Bearer " + bearerKey);
 		}
@@ -229,8 +241,7 @@ class RateLimitIntegrationTest {
 		try {
 			JsonNode root = objectMapper.readTree(response.body());
 			return root.path("error").path("code").asText();
-		}
-		catch (tools.jackson.core.JacksonException e) {
+		} catch (JacksonException e) {
 			throw new IllegalStateException("Failed to parse error response", e);
 		}
 	}

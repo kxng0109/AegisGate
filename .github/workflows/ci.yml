@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+
+  commitlint:
+    name: Validate commit messages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Lint commit messages
+        uses: wagoid/commitlint-github-action@v6
+        with:
+          configFile: commitlint.config.js
+
+  build:
+    name: Build, test and verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 25 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+
+      - name: Make the Maven wrapper executable
+        run: chmod +x mvnw
+
+      - name: Compile, test and package with coverage gate
+        run: ./mvnw -B -ntp clean verify
+
+      - name: Summarize test results
+        if: always()
+        run: |
+          {
+            echo "### Test summary"
+            if compgen -G "target/surefire-reports/*.txt" > /dev/null; then
+              grep -h -E "Tests run:" target/surefire-reports/*.txt \
+                | awk -F'[:,]+' '{t+=$2; f+=$4; e+=$6; s+=$8} \
+                   END {printf "Tests run: %d, Failures: %d, Errors: %d, Skipped: %d\n", t, f, e, s}'
+            else
+              echo "No surefire reports were produced."
+            fi
+            echo "The JaCoCo execution report is attached as the jacoco-report artifact."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload JaCoCo coverage report
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-report
+          path: target/site/jacoco/
+          if-no-files-found: warn
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: target/surefire-reports/
+          if-no-files-found: warn
+
+      - name: Upload application jar
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aegisgate-jar
+          path: target/*.jar
+          if-no-files-found: warn
+
+      - name: Upload coverage to Codecov
+        if: ${{ success() && secrets.CODECOV_TOKEN != '' }}
+        uses: codecov/codecov-action@v4
+        with:
+          files: target/site/jacoco/jacoco.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+      - name: Scan dependencies for known vulnerabilities
+        if: ${{ secrets.NVD_API_KEY != '' }}
+        continue-on-error: true
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: |
+          ./mvnw -B -ntp org.owasp:dependency-check-maven:13.0.0:check \
+            -DfailBuildOnCVSS=11 \
+            -Dformat=HTML,SARIF

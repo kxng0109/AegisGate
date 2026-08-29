@@ -77,23 +77,27 @@ class CidrRangeTest {
 	@DisplayName("constructor rejects a null network address")
 	void constructorRejectsNullAddress() {
 		assertThrows(NullPointerException.class,
-				() -> new CidrRange((InetAddress) null, 8));
+		             () -> new CidrRange(null, 8)
+		);
 	}
 
 	@Test
 	@DisplayName("constructor rejects negative prefix length")
 	void constructorRejectsNegativePrefix() throws Exception {
 		assertThrows(IllegalArgumentException.class,
-				() -> new CidrRange(ip("192.168.0.0"), -1));
+		             () -> new CidrRange(ip("192.168.0.0"), -1)
+		);
 	}
 
 	@Test
 	@DisplayName("constructor enforces the inclusive maximum prefix per address family")
 	void constructorEnforcesFamilyMaximumPrefix() throws Exception {
 		assertThrows(IllegalArgumentException.class,
-				() -> new CidrRange(ip("192.168.0.0"), 33));
+		             () -> new CidrRange(ip("192.168.0.0"), 33)
+		);
 		assertThrows(IllegalArgumentException.class,
-				() -> new CidrRange(ip("fc00::"), 129));
+		             () -> new CidrRange(ip("fc00::"), 129)
+		);
 
 		assertDoesNotThrow(() -> new CidrRange(ip("192.168.0.0"), 32));
 		assertDoesNotThrow(() -> new CidrRange(ip("fc00::"), 128));

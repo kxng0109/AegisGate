@@ -30,7 +30,7 @@ import org.springframework.stereotype.Component;
  *
  * <p>The fixed-delay retry reuses Spring's auto-configured task scheduler (enabled by
  * {@code @EnableScheduling} on {@code AegisGateApplication}); the interval defaults to
- * {@code 30s} and can be tuned via {@code gateway.bootstrap-keys.seed-interval}.</p>
+ * {@code 30s} and can be tuned via {@code gateway.bootstrap-keys-seed-interval}.</p>
  */
 @Component
 @RequiredArgsConstructor
@@ -58,7 +58,7 @@ public class BootstrapKeySeeder {
 	 * Retries seeding on a fixed delay until the first successful run. After seeding
 	 * has latched, later invocations are cheap no-ops.
 	 */
-	@Scheduled(fixedDelayString = "${gateway.bootstrap-keys.seed-interval:30s}")
+	@Scheduled(fixedDelayString = "${gateway.bootstrap-keys-seed-interval:30s}")
 	public void scheduledReseed() {
 		seedIfNeeded();
 	}
@@ -78,7 +78,7 @@ public class BootstrapKeySeeder {
 			seeded = true;
 			log.info(
 					"Bootstrap keys seeded into Redis ({} key(s))",
-			         gatewayProperties.getBootstrapKeys().size()
+					gatewayProperties.getBootstrapKeys().size()
 			);
 		} catch (RuntimeException ex) {
 			log.warn("Bootstrap key seeding deferred: {}", ex.getMessage());

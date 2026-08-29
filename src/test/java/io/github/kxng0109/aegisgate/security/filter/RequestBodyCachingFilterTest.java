@@ -7,16 +7,9 @@ import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Unit tests for {@link RequestBodyCachingFilter}: path/method gating, wrapping,
@@ -41,7 +34,8 @@ class RequestBodyCachingFilterTest {
 		assertInstanceOf(CachedBodyHttpServletRequest.class, chain.getRequest());
 		CachedBodyHttpServletRequest wrapped = (CachedBodyHttpServletRequest) chain.getRequest();
 		assertArrayEquals("{\"model\":\"gpt-4o\"}".getBytes(StandardCharsets.UTF_8),
-				wrapped.getContentAsByteArray());
+		                  wrapped.getContentAsByteArray()
+		);
 	}
 
 	@Test
@@ -127,7 +121,8 @@ class RequestBodyCachingFilterTest {
 
 		CachedBodyHttpServletRequest wrapped = (CachedBodyHttpServletRequest) chain.getRequest();
 		assertArrayEquals("{\"model\":\"gpt-4o\"}".getBytes(StandardCharsets.UTF_8),
-				wrapped.getContentAsByteArray());
+		                  wrapped.getContentAsByteArray()
+		);
 	}
 
 	@Test

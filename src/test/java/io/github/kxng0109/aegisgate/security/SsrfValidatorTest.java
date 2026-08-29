@@ -5,6 +5,8 @@ import org.junit.jupiter.api.Test;
 
 import java.net.URI;
 import java.net.UnknownHostException;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -202,7 +204,7 @@ class SsrfValidatorTest {
 	}
 
 	private String hostOf(SsrfViolationException thrown) {
-		java.util.regex.Matcher matcher = java.util.regex.Pattern
+		Matcher matcher = Pattern
 				.compile("host '([^']+)'")
 				.matcher(thrown.getMessage());
 		return matcher.find() ? matcher.group(1) : "";

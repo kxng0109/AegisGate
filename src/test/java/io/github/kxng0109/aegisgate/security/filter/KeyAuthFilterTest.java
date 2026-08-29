@@ -1,10 +1,6 @@
 package io.github.kxng0109.aegisgate.security.filter;
 
-import io.github.kxng0109.aegisgate.contracts.RateLimitDecision;
-import io.github.kxng0109.aegisgate.contracts.RateLimitState;
-import io.github.kxng0109.aegisgate.contracts.RejectionReason;
-import io.github.kxng0109.aegisgate.contracts.SHA256Hash;
-import io.github.kxng0109.aegisgate.contracts.VirtualApiKey;
+import io.github.kxng0109.aegisgate.contracts.*;
 import io.github.kxng0109.aegisgate.security.ratelimit.KeyManagementService;
 import io.github.kxng0109.aegisgate.security.ratelimit.RateLimitEngine;
 import io.github.kxng0109.aegisgate.security.ratelimit.RateLimitUnavailableException;
@@ -12,13 +8,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.connection.PoolException;
-import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
-
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -28,18 +23,10 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.Set;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link KeyAuthFilter}: authentication format gates, key
@@ -77,7 +64,8 @@ class KeyAuthFilterTest {
 		when(engine.checkRateLimit(any(), any(), anyInt())).thenReturn(
 				new RateLimitDecision.Allowed(new RateLimitState(
 						rpmLimit, rpmRemaining, Instant.ofEpochSecond(1_700_000_000),
-						tpmLimit, tpmRemaining, Instant.ofEpochSecond(1_700_000_060))));
+						tpmLimit, tpmRemaining, Instant.ofEpochSecond(1_700_000_060)
+				)));
 	}
 
 	private static VirtualApiKey key(int rpm, int tpm, Set<String> models, boolean enabled) {
@@ -91,7 +79,8 @@ class KeyAuthFilterTest {
 				models,
 				Set.of(),
 				enabled,
-				Instant.parse("2026-08-28T00:00:00Z"));
+				Instant.parse("2026-08-28T00:00:00Z")
+		);
 	}
 
 	private static CachedBodyHttpServletRequest request(String authHeader, String jsonBody) throws IOException {
@@ -102,8 +91,7 @@ class KeyAuthFilterTest {
 		}
 		if (jsonBody != null) {
 			mock.setContent(jsonBody.getBytes(StandardCharsets.UTF_8));
-		}
-		else {
+		} else {
 			mock.setContent(new byte[0]);
 		}
 		return new CachedBodyHttpServletRequest(mock);
@@ -119,8 +107,7 @@ class KeyAuthFilterTest {
 	private static JsonNode parse(MockHttpServletResponse response) {
 		try {
 			return new ObjectMapper().readTree(response.getContentAsString(StandardCharsets.UTF_8));
-		}
-		catch (IOException e) {
+		} catch (IOException e) {
 			throw new IllegalStateException("Failed to parse error response JSON", e);
 		}
 	}
@@ -289,7 +276,8 @@ class KeyAuthFilterTest {
 				request("Bearer " + VALID_KEY, "{\"model\":\"gpt-b\"}"), filter);
 		assertEquals(403, response.getStatus());
 		assertEquals(RejectionReason.MODEL_NOT_ALLOWED.name(),
-				parse(response).get("error").get("code").asText());
+		             parse(response).get("error").get("code").asText()
+		);
 	}
 
 	@Test
@@ -319,7 +307,8 @@ class KeyAuthFilterTest {
 		MockHttpServletResponse response = invoke(request("Bearer " + VALID_KEY, "{not json"), filter);
 		assertEquals(403, response.getStatus());
 		assertEquals(RejectionReason.MODEL_NOT_ALLOWED.name(),
-				parse(response).get("error").get("code").asText());
+		             parse(response).get("error").get("code").asText()
+		);
 	}
 
 	@Test
@@ -430,7 +419,8 @@ class KeyAuthFilterTest {
 		when(engine.checkRateLimit(any(), any(), anyInt())).thenReturn(
 				new RateLimitDecision.Allowed(new RateLimitState(
 						0, 0, Instant.ofEpochSecond(1_700_000_000),
-						0, 0, Instant.ofEpochSecond(1_700_000_060))));
+						0, 0, Instant.ofEpochSecond(1_700_000_060)
+				)));
 		MockHttpServletResponse response = invoke(request("Bearer " + VALID_KEY, null), filter);
 		assertEquals(KeyAuthFilter.UNLIMITED_HEADER_VALUE, response.getHeader(KeyAuthFilter.HEADER_LIMIT_RPM));
 		assertEquals("0", response.getHeader(KeyAuthFilter.HEADER_REMAINING_RPM));
@@ -462,9 +452,11 @@ class KeyAuthFilterTest {
 		assertEquals("0", response.getHeader(KeyAuthFilter.HEADER_REMAINING_TPM));
 		long reset = Long.parseLong(response.getHeader(KeyAuthFilter.HEADER_RESET_RPM));
 		assertTrue(reset >= before + 45 && reset <= after + 45 + 1,
-				"reset must be ~now+45s, was " + reset);
+		           "reset must be ~now+45s, was " + reset
+		);
 		assertEquals(RejectionReason.RPM_EXCEEDED.name(),
-				parse(response).get("error").get("code").asText());
+		             parse(response).get("error").get("code").asText()
+		);
 		assertNull(chain.chain().getRequest(), "chain must not run for rejected requests");
 	}
 
@@ -478,7 +470,8 @@ class KeyAuthFilterTest {
 		assertEquals(429, response.getStatus());
 		assertEquals("2", response.getHeader("Retry-After"));
 		assertEquals(RejectionReason.TPM_EXCEEDED.name(),
-				parse(response).get("error").get("code").asText());
+		             parse(response).get("error").get("code").asText()
+		);
 	}
 
 	// ---------------------------------------------------------------------
@@ -506,7 +499,7 @@ class KeyAuthFilterTest {
 	void shouldNotFilterTargetPost() {
 		MockHttpServletRequest request = new MockHttpServletRequest("POST", PATH);
 		request.setServletPath(PATH);
-		assertTrue(!filter.shouldNotFilter(request));
+		assertFalse(filter.shouldNotFilter(request));
 	}
 
 	// ---------------------------------------------------------------------
@@ -569,7 +562,8 @@ class KeyAuthFilterTest {
 
 		assertEquals(200, response.getStatus());
 		assertEquals(KeyAuthFilter.DEFAULT_ESTIMATED_TOKENS, captor.getValue(),
-				"unwrapped request must be treated as empty body");
+		             "unwrapped request must be treated as empty body"
+		);
 		assertSame(raw, chain.chain().getRequest(), "accepted requests must continue down the chain");
 	}
 
@@ -591,20 +585,23 @@ class KeyAuthFilterTest {
 		when(kms.findByHash(any())).thenReturn(Optional.of(key(10, 1000, Set.of(), false)));
 		MockHttpServletResponse response = invoke(request("Bearer " + VALID_KEY, null), filter);
 		String body = response.getContentAsString(StandardCharsets.UTF_8);
-		assertTrue(!body.contains(VALID_KEY), "response must never echo the key");
+		assertFalse(body.contains(VALID_KEY), "response must never echo the key");
 	}
 
 	@Test
 	@DisplayName("rejection messages are defined for every rejection reason")
 	void rejectionMessagesForAllReasons() {
 		assertEquals("Request rate limit exceeded. Retry after the indicated period.",
-				KeyAuthFilter.rejectionMessage(RejectionReason.RPM_EXCEEDED));
+		             KeyAuthFilter.rejectionMessage(RejectionReason.RPM_EXCEEDED)
+		);
 		assertEquals("Token rate limit exceeded. Retry after the indicated period.",
-				KeyAuthFilter.rejectionMessage(RejectionReason.TPM_EXCEEDED));
+		             KeyAuthFilter.rejectionMessage(RejectionReason.TPM_EXCEEDED)
+		);
 		assertEquals("API key is disabled.", KeyAuthFilter.rejectionMessage(RejectionReason.KEY_DISABLED));
 		assertEquals("API key not found.", KeyAuthFilter.rejectionMessage(RejectionReason.KEY_NOT_FOUND));
 		assertEquals("Model not allowed for this key.",
-				KeyAuthFilter.rejectionMessage(RejectionReason.MODEL_NOT_ALLOWED));
+		             KeyAuthFilter.rejectionMessage(RejectionReason.MODEL_NOT_ALLOWED)
+		);
 	}
 
 	@Test
@@ -621,7 +618,7 @@ class KeyAuthFilterTest {
 	@Test
 	@DisplayName("isWellFormedKey rejects null")
 	void isWellFormedKeyRejectsNull() {
-		assertTrue(!KeyAuthFilter.isWellFormedKey(null));
+		assertFalse(KeyAuthFilter.isWellFormedKey(null));
 		assertTrue(KeyAuthFilter.isWellFormedKey(VALID_KEY));
 	}
 
@@ -634,7 +631,9 @@ class KeyAuthFilterTest {
 				rl, rr, Instant.ofEpochSecond(1_700_000_000), tl, tr, Instant.ofEpochSecond(1_700_000_060)));
 	}
 
-	/** Chain wrapper exposing the stored request for assertions. */
+	/**
+	 * Chain wrapper exposing the stored request for assertions.
+	 */
 	private static final class MockClientChain {
 
 		private final MockFilterChain chain = new MockFilterChain();

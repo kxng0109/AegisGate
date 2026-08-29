@@ -11,27 +11,11 @@ import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
 import java.time.Instant;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.anyMap;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 class KeyManagementServiceTest {
 
@@ -98,7 +82,8 @@ class KeyManagementServiceTest {
 		assertEquals(32, suffix.length());
 		for (int i = 0; i < suffix.length(); i++) {
 			assertTrue(URL_SAFE_ALPHABET.indexOf(suffix.charAt(i)) >= 0,
-					"character not in URL-safe alphabet at index " + i);
+			           "character not in URL-safe alphabet at index " + i
+			);
 		}
 	}
 
@@ -138,7 +123,8 @@ class KeyManagementServiceTest {
 		when(redisTemplate.hasKey(redisKey(hash))).thenReturn(Boolean.TRUE);
 		when(hashOps.entries(redisKey(hash))).thenReturn(
 				fields("owner", "name", "5", "50", "true", "", "", CREATED_AT, "gw-"),
-				fields("owner", "name", "5", "50", "false", "", "", CREATED_AT, "gw-"));
+				fields("owner", "name", "5", "50", "false", "", "", CREATED_AT, "gw-")
+		);
 
 		Optional<VirtualApiKey> before = service.findByHash(hash);
 		service.revokeKey(hash);
@@ -187,14 +173,17 @@ class KeyManagementServiceTest {
 		SHA256Hash hash = hashOf(FIXED_PLAINTEXT);
 		Instant createdAt = Instant.parse(CREATED_AT);
 		stubPresent(hash, fields(
-				"owner-7", "prod-key", "120", "9000", "true",
-				"gpt-4,gpt-4o", "openai,anthropic", createdAt.toString(), "gw-"));
+				            "owner-7", "prod-key", "120", "9000", "true",
+				            "gpt-4,gpt-4o", "openai,anthropic", createdAt.toString(), "gw-"
+		            )
+		);
 
 		Optional<VirtualApiKey> result = service.findByHash(hash);
 
 		VirtualApiKey expected = new VirtualApiKey(
 				hash, "gw-", "owner-7", "prod-key", 120, 9000,
-				Set.of("gpt-4", "gpt-4o"), Set.of("openai", "anthropic"), true, createdAt);
+				Set.of("gpt-4", "gpt-4o"), Set.of("openai", "anthropic"), true, createdAt
+		);
 		assertEquals(Optional.of(expected), result);
 	}
 
@@ -203,8 +192,10 @@ class KeyManagementServiceTest {
 		KeyManagementService service = newService();
 		SHA256Hash hash = hashOf("gw-kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk");
 		stubPresent(hash, fields(
-				"owner", "name", "5", "50", "true",
-				" gpt-4 ,,gpt-4o ", " openai , ", CREATED_AT, "gw-"));
+				            "owner", "name", "5", "50", "true",
+				            " gpt-4 ,,gpt-4o ", " openai , ", CREATED_AT, "gw-"
+		            )
+		);
 
 		Optional<VirtualApiKey> result = service.findByHash(hash);
 
@@ -253,12 +244,14 @@ class KeyManagementServiceTest {
 
 		SHA256Hash malformedRpmLimit = hashOf("gw-gggggggggggggggggggggggggggggggg");
 		stubPresent(malformedRpmLimit,
-				fields("owner", "name", "not-a-number", "50", "true", "", "", CREATED_AT, "gw-"));
+		            fields("owner", "name", "not-a-number", "50", "true", "", "", CREATED_AT, "gw-")
+		);
 		assertTrue(service.findByHash(malformedRpmLimit).isEmpty());
 
 		SHA256Hash malformedCreatedAt = hashOf("gw-hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh");
 		stubPresent(malformedCreatedAt,
-				fields("owner", "name", "5", "50", "true", "", "", "not-a-date", "gw-"));
+		            fields("owner", "name", "5", "50", "true", "", "", "not-a-date", "gw-")
+		);
 		assertTrue(service.findByHash(malformedCreatedAt).isEmpty());
 
 		SHA256Hash emptyEntries = hashOf("gw-iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii");
@@ -314,7 +307,8 @@ class KeyManagementServiceTest {
 		properties.setBootstrapKeys(List.of(
 				new BootstrapKey("o1", "n1", null, 1, 1, Set.of(), Set.of()),
 				new BootstrapKey("o2", "n2", "", 1, 1, Set.of(), Set.of()),
-				new BootstrapKey("o3", "n3", "   ", 1, 1, Set.of(), Set.of())));
+				new BootstrapKey("o3", "n3", "   ", 1, 1, Set.of(), Set.of())
+		));
 
 		service.seedBootstrapKeys(properties);
 
@@ -328,7 +322,8 @@ class KeyManagementServiceTest {
 				"owner-b", "key-b", "gw-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", 2, 2, Set.of(), Set.of());
 		String existingKey = redisKey(hashOf(existing.plaintextKey()));
 		stubPresent(hashOf(existing.plaintextKey()),
-				fields("owner-b", "key-b", "2", "2", "true", "", "", CREATED_AT, "gw-"));
+		            fields("owner-b", "key-b", "2", "2", "true", "", "", CREATED_AT, "gw-")
+		);
 
 		GatewayProperties properties = new GatewayProperties();
 		properties.setBootstrapKeys(List.of(existing));
@@ -351,7 +346,7 @@ class KeyManagementServiceTest {
 		verifyNoInteractions(redisTemplate);
 	}
 
-@Test
+	@Test
 	void seedBootstrapKeysPropagatesRedisFailuresForTheSeederToHandle() {
 		KeyManagementService service = newService();
 		BootstrapKey key = new BootstrapKey(

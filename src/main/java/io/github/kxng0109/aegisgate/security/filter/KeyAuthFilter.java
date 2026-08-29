@@ -18,6 +18,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.util.WebUtils;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -258,9 +259,9 @@ public class KeyAuthFilter extends OncePerRequestFilter {
 			return;
 		}
 
-		if (decision instanceof RateLimitDecision.Rejected rejected) {
+		if (decision instanceof RateLimitDecision.Rejected(RejectionReason reason, long afterSeconds)) {
 			long nowEpochSecond = System.currentTimeMillis() / 1000L;
-			long retryAfterSeconds = Math.max(1, rejected.retryAfterSeconds());
+			long retryAfterSeconds = Math.max(1, afterSeconds);
 			response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
 			response.setHeader(HttpHeaders.RETRY_AFTER, Long.toString(retryAfterSeconds));
 			setLimitHeader(response, HEADER_LIMIT_RPM, key.rpmLimit());
@@ -270,7 +271,7 @@ public class KeyAuthFilter extends OncePerRequestFilter {
 			response.setHeader(HEADER_REMAINING_TPM, "0");
 			response.setHeader(HEADER_RESET_TPM, Long.toString(nowEpochSecond + retryAfterSeconds));
 			writeJsonError(response, HttpStatus.TOO_MANY_REQUESTS,
-			               rejectionMessage(rejected.reason()), rejected.reason()
+			               rejectionMessage(reason), reason
 			);
 			return;
 		}
@@ -320,7 +321,7 @@ public class KeyAuthFilter extends OncePerRequestFilter {
 			}
 			JsonNode modelNode = root.get("model");
 			return modelNode != null && modelNode.isTextual() ? modelNode.asText() : null;
-		} catch (tools.jackson.core.JacksonException ignored) {
+		} catch (JacksonException ignored) {
 			return null;
 		}
 	}
@@ -354,7 +355,7 @@ public class KeyAuthFilter extends OncePerRequestFilter {
 				return DEFAULT_ESTIMATED_TOKENS;
 			}
 			return (int) Math.min(MAX_ESTIMATED_TOKENS, value);
-		} catch (tools.jackson.core.JacksonException ignored) {
+		} catch (JacksonException ignored) {
 			return DEFAULT_ESTIMATED_TOKENS;
 		}
 	}

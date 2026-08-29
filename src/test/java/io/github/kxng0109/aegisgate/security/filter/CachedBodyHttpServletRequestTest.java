@@ -12,11 +12,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Unit tests for {@link CachedBodyHttpServletRequest}: byte-for-byte fidelity,
@@ -105,11 +101,9 @@ class CachedBodyHttpServletRequestTest {
 		try {
 			wrapper = new CachedBodyHttpServletRequest(requestWith(in), 10);
 			assertEquals(11, wrapper.getContentAsByteArray().length, "must not reach here");
-		}
-		catch (BodyTooLargeException expected) {
+		} catch (BodyTooLargeException expected) {
 			assertEquals(10, expected.getLimit());
-		}
-		catch (IOException unexpected) {
+		} catch (IOException unexpected) {
 			throw new AssertionError(unexpected);
 		}
 	}
@@ -119,7 +113,8 @@ class CachedBodyHttpServletRequestTest {
 	void chunkedExceedsCap() throws IOException {
 		byte[] in = new byte[11];
 		assertThrows(BodyTooLargeException.class,
-				() -> new CachedBodyHttpServletRequest(chunkedRequest(in), 10));
+		             () -> new CachedBodyHttpServletRequest(chunkedRequest(in), 10)
+		);
 	}
 
 	@Test
@@ -138,16 +133,19 @@ class CachedBodyHttpServletRequestTest {
 	void oneByteOverCap() {
 		byte[] in = new byte[11];
 		assertThrows(BodyTooLargeException.class,
-				() -> new CachedBodyHttpServletRequest(requestWith(in), 10));
+		             () -> new CachedBodyHttpServletRequest(requestWith(in), 10)
+		);
 	}
 
 	@Test
 	@DisplayName("non-positive caps are rejected")
 	void invalidCap() {
 		assertThrows(IllegalArgumentException.class,
-				() -> new CachedBodyHttpServletRequest(requestWith(new byte[0]), 0));
+		             () -> new CachedBodyHttpServletRequest(requestWith(new byte[0]), 0)
+		);
 		assertThrows(IllegalArgumentException.class,
-				() -> new CachedBodyHttpServletRequest(requestWith(new byte[0]), -1));
+		             () -> new CachedBodyHttpServletRequest(requestWith(new byte[0]), -1)
+		);
 	}
 
 	@Test
@@ -178,7 +176,8 @@ class CachedBodyHttpServletRequestTest {
 	void readListenerUnsupported() throws IOException {
 		CachedBodyHttpServletRequest wrapper = new CachedBodyHttpServletRequest(requestWith(new byte[8]));
 		assertThrows(UnsupportedOperationException.class,
-				() -> wrapper.getInputStream().setReadListener(mockReadListener()));
+		             () -> wrapper.getInputStream().setReadListener(mockReadListener())
+		);
 	}
 
 	@Test

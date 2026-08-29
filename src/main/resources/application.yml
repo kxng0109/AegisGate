@@ -1,0 +1,73 @@
+spring:
+  application:
+    name: AegisGate
+  threads:
+    virtual:
+      enabled: true
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      lettuce:
+        pool:
+          enabled: true
+          max-active: ${REDIS_POOL_MAX_ACTIVE:20}
+          max-idle: 10
+          min-idle: 2
+          max-wait: 2s
+
+gateway:
+  providers:
+    openai:
+      type: OPENAI
+      base-url: https://api.openai.com
+      api-key: ${OPENAI_API_KEY:}
+      connect-timeout: 5s
+      request-timeout: 60s
+    openrouter:
+      type: OPENAI
+      base-url: https://openrouter.ai/api
+      api-key: ${OPENROUTER_API_KEY:}
+      connect-timeout: 5s
+      request-timeout: 60s
+    ollama:
+      type: OPENAI
+      base-url: http://localhost:11434
+      api-key: ""
+      connect-timeout: 3s
+      request-timeout: 120s
+  aliases:
+    gpt-5.6-luna:
+      chain:
+        - provider-name: openai
+      strategy: SEQUENTIAL
+    gpt-5.6-terra:
+      chain:
+        - provider-name: openai
+      strategy: SEQUENTIAL
+    gpt-5.6-sol:
+      chain:
+        - provider-name: openai
+      strategy: SEQUENTIAL
+    fast:
+      chain:
+        - provider-name: openai
+        - provider-name: openrouter
+        - provider-name: ollama
+      strategy: SEQUENTIAL
+    race-demo:
+      chain:
+        - provider-name: openai
+        - provider-name: openrouter
+      strategy: RACE
+  bootstrap-keys:
+  # Bootstrap keys are provisioned exclusively through environment variables.
+  # Example for the first key:
+  #   GATEWAY_BOOTSTRAPKEYS_0_OWNERID=owner-1
+  #   GATEWAY_BOOTSTRAPKEYS_0_NAME=local-dev
+  #   GATEWAY_BOOTSTRAPKEYS_0_PLAINTEXTKEY=gw-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  #   GATEWAY_BOOTSTRAPKEYS_0_RPMLIMIT=60
+  #   GATEWAY_BOOTSTRAPKEYS_0_TPMLIMIT=100000
+  #   GATEWAY_BOOTSTRAPKEYS_0_ALLOWEDMODELS=
+  #   GATEWAY_BOOTSTRAPKEYS_0_ALLOWEDPROVIDERS=
+  bootstrap-keys-seed-interval: 30s
