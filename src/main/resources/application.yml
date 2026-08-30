@@ -134,3 +134,15 @@ gateway:
     refresh-cron: ${GATEWAY_PRICING_REFRESH_CRON:0 0 3 * * *}
   ledger:
     dead-letter-path: ${GATEWAY_LEDGER_DEAD_LETTER_PATH:logs/ledger-deadletter.log}
+  circuit-breaker:
+    redis-timeout: 250ms
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true

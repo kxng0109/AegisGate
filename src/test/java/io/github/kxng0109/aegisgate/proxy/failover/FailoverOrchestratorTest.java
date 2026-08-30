@@ -17,12 +17,15 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.net.URI;
 import java.net.http.HttpClient;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -434,7 +437,9 @@ class FailoverOrchestratorTest {
 	// ---------------------------------------------------------------------
 
 	private FailoverOrchestrator orchestrator(UpstreamUrlValidator validator) {
-		return new FailoverOrchestrator(adapter(), validator, properties());
+		GatewayProperties properties = properties();
+		return new FailoverOrchestrator(
+				adapter(), validator, properties, new InMemoryCircuitBreakerFactory(properties));
 	}
 
 	private UpstreamUrlValidator allowAll() {
@@ -506,6 +511,41 @@ class FailoverOrchestratorTest {
 				throw runtime;
 			}
 			throw new RuntimeException(cause);
+		}
+	}
+
+	/**
+	 * Redis free {@link CircuitBreakerFactory} for the integration tests: keeps one in memory breaker per provider so
+	 * circuit state survives across requests without needing Redis.
+	 */
+	private static final class InMemoryCircuitBreakerFactory implements CircuitBreakerFactory {
+
+		private final GatewayProperties gatewayProperties;
+		private final Map<String, CircuitBreaker> breakers = new ConcurrentHashMap<>();
+
+		private InMemoryCircuitBreakerFactory(GatewayProperties gatewayProperties) {
+			this.gatewayProperties = gatewayProperties;
+		}
+
+		@Override
+		public CircuitBreaker get(String providerName) {
+			return breakers.computeIfAbsent(
+					providerName, name -> new ProviderCircuitBreaker(name, Clock.systemUTC()));
+		}
+
+		@Override
+		public Set<String> providerNames() {
+			return gatewayProperties.getProviders().keySet();
+		}
+
+		@Override
+		public void reset() {
+			breakers.clear();
+		}
+
+		@Override
+		public Map<String, CircuitBreaker.State> states() {
+			return Map.of();
 		}
 	}
 }

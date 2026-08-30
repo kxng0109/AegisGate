@@ -2,7 +2,7 @@
 
 AegisGate is an AI gateway built in Java 25 on Spring Boot 4.1. It sits between your applications and large language model providers, exposing a single OpenAI compatible chat completions endpoint while handling authentication, rate limiting, secure upstream forwarding, protocol normalization, and usage based cost accounting.
 
-The project is developed in phases. Phase 1 delivered a transparent SSE streaming proxy with SSRF defense and header sanitization. Phase 2 added virtual API key authentication and distributed rate limiting backed by Redis. Phase 3 added resilient multi provider failover: every model now maps to a chain of providers with automatic failover, per provider circuit breakers, and an optional race strategy. Phase 4 added protocol normalization and an asynchronous usage and cost ledger. The gateway now serves OpenAI shaped SSE to your client no matter which provider dialect answers the request, and it records the tokens and estimated cost of every completed stream in PostgreSQL with prices refreshed daily from the LiteLLM catalog, following the architectural master plan.
+The project is developed in phases. Phase 1 delivered a transparent SSE streaming proxy with SSRF defense and header sanitization. Phase 2 added virtual API key authentication and distributed rate limiting backed by Redis. Phase 3 added resilient multi provider failover: every model now maps to a chain of providers with automatic failover, per provider circuit breakers, and an optional race strategy. Phase 4 added protocol normalization and an asynchronous usage and cost ledger. The gateway now serves OpenAI shaped SSE to your client no matter which provider dialect answers the request, and it records the tokens and estimated cost of every completed stream in PostgreSQL with prices refreshed daily from the LiteLLM catalog. Phase 5 made the per provider circuit breaker distributed across gateway instances: breaker state lives in Redis so every instance agrees on which providers are healthy, with an in-memory mirror that keeps the gateway fail closed when Redis is slow or unavailable, following the architectural master plan.
 
 ## What it does
 
@@ -12,7 +12,7 @@ The project is developed in phases. Phase 1 delivered a transparent SSE streamin
 - Fails closed. If Redis is unreachable, requests are rejected with a 503 instead of being allowed through unthrottled.
 - Rejects oversized request bodies with a 413 before they can exhaust memory.
 - Routes every model through an ordered provider chain. When a provider returns a transient error (429, a 5xx, a dropped connection, or a timeout), the request automatically fails over to the next provider.
-- Protects each provider with a circuit breaker. After a few consecutive failures the provider is skipped for a cooldown period, then a single probe decides whether normal service resumes.
+- Protects each provider with a circuit breaker that is shared across all gateway instances through Redis. After a few consecutive failures the provider is skipped for a cooldown period, then a single probe from one instance decides whether normal service resumes.
 - Never fails over on 401, 403, or 400, because a client or key problem cannot be fixed by another provider.
 - Validates upstream URLs against private, loopback, link local, multicast, and cloud metadata ranges before any connection is attempted.
 - Strips client supplied identity and authorization headers and injects the configured upstream key.
@@ -100,7 +100,7 @@ The behavior of a chain is decided by the classification rules in `FailoverOrche
 - Timeouts and connection failures are transient and fail over.
 - Failover happens only before the first byte is sent to the client. Once streaming starts, switching providers is impossible.
 
-Each provider has a `ProviderCircuitBreaker`. It starts closed, opens after three consecutive failures, stays open for thirty seconds, then admits a single probe. A successful probe closes the circuit; a failed probe reopens it. See `proxy/failover/ProviderCircuitBreaker.java`.
+Each provider has a circuit breaker whose state is held in Redis and shared by every gateway instance, with a local in-memory mirror as a fallback. It starts closed, opens after three consecutive failures, stays open for thirty seconds, then admits a single probe owned by one instance. A successful probe closes the circuit; a failed probe reopens it. See `proxy/failover/RedisCircuitBreaker.java` and `proxy/failover/ProviderCircuitBreaker.java`.
 
 When every provider fails, the client sees a clean error: 502 when providers returned errors, 503 when nothing usable was reachable, 504 when the chain timed out. See `proxy/failover/GatewayExceptionHandler.java`.
 
@@ -132,13 +132,13 @@ The code is organized by responsibility under `src/main/java/io/github/kxng0109/
 - `security` contains the Phase 1 controls: `SsrfValidator`, `HeaderSanitizer`, and `CidrRange`.
 - `security/filter` contains the servlet filter pipeline: the replayable body wrapper, the authentication filter, and the registration configuration.
 - `security/ratelimit` contains the distributed limiter: `RateLimitEngine`, `RateLimitScriptConfig`, `KeyManagementService`, and `BootstrapKeySeeder`.
-- `proxy/failover` contains the Phase 3 routing layer: `FailoverOrchestrator`, `ProviderCircuitBreaker`, `ProviderClientAdapter`, `ProviderResponse`, `UpstreamUnavailableException`, and `GatewayExceptionHandler`.
+- `proxy/failover` contains the routing and resilience layer: `FailoverOrchestrator`, `CircuitBreaker`, `CircuitBreakerFactory`, `RedisCircuitBreaker`, `RedisCircuitBreakerFactory`, `ProviderCircuitBreaker`, `CircuitBreakerConfig`, `CircuitBreakerMetrics`, `CircuitBreakerProperties`, `InstanceId`, `ProviderClientAdapter`, `ProviderResponse`, `UpstreamUnavailableException`, and `GatewayExceptionHandler`.
 - `proxy/protocol` contains the Phase 4 dialect layer: `ProtocolAdapterResolver`, the request adapters, and the SSE normalizers for the OpenAI, Anthropic, and Ollama dialects.
 - `ledger` contains the Phase 4 usage and cost ledger: `UsageLedgerListener`, `UsageLedgerRepository`, `CostCalculator`, `ModelPriceCatalog`, `ModelPricingRepository`, and `PricingSyncService`.
 - `proxy` contains the controller and the shared `HttpClient` bean in `proxy/config/HttpClientConfig.java`.
 - `config` contains the `SensitiveString` value wrapper and the retrying `DatabaseMigrator`.
 
-The Lua script that implements the atomic RPM and TPM counters lives in `src/main/resources/rate_limit.lua`. Runtime configuration lives in `src/main/resources/application.yml`, and the database schema is defined by the Flyway migrations under `src/main/resources/db/migration`.
+The Lua script that implements the atomic RPM and TPM counters lives in `src/main/resources/rate_limit.lua`. The circuit breaker state machine lives in `src/main/resources/circuit_try_acquire.lua`, `circuit_record_failure.lua`, and `circuit_record_success.lua`. Runtime configuration lives in `src/main/resources/application.yml`, and the database schema is defined by the Flyway migrations under `src/main/resources/db/migration`.
 
 ## Technology stack
 
@@ -156,7 +156,7 @@ Dependency versions are managed by the Spring Boot 4.1 BOM. See `pom.xml`.
 ## Prerequisites
 
 - JDK 25
-- Redis 7 or newer, reachable at `localhost:6379` by default
+- Redis 7 or newer, reachable at `localhost:6379` by default. Redis is also required for the distributed circuit breaker, which fails closed when Redis is unreachable.
 - PostgreSQL, reachable at `localhost:5432` by default. The gateway starts without it, but the ledger and pricing table need it.
 - Docker, only if you want to run the Testcontainers integration tests
 
@@ -202,6 +202,8 @@ All configuration lives in `src/main/resources/application.yml`. The most import
 - `gateway.providers` describes every upstream provider with its dialect, URL, key, and per request timeout.
 - `gateway.aliases` maps each client facing model name to a provider chain and a strategy. A step can pin its upstream model with `model-override`.
 - `spring.data.redis.*` controls the Redis connection and the Lettuce pool.
+- `spring.data.redis.sentinel.*`, `spring.data.redis.cluster.*`, and `spring.data.redis.masterreplica.*` switch the Redis connection used by the rate limiter and the circuit breaker to Sentinel, Cluster, or master/replica topology; the factories in `proxy/failover/CircuitBreakerConfig.java` derive the topology the same way Boot's auto-configuration does. Without any of these the gateway connects to a single host and port.
+- `gateway.circuit-breaker.redis-timeout` bounds how long the breaker waits on Redis before it fails closed to the local mirror. The default is 250ms. Setting `spring.application.instance-id` gives each instance a stable name used to arbitrate the single probe.
 - `spring.datasource.*` controls the PostgreSQL connection that backs the usage ledger and pricing catalog.
 - `gateway.pricing.source-url` and `gateway.pricing.refresh-cron` control where the LiteLLM pricing file is fetched from and how often. The default is a daily sync at 03:00.
 - `gateway.ledger.dead-letter-path` is where ledger records go when the database is unavailable.
@@ -260,9 +262,10 @@ Run the full suite with coverage and the packaging step:
 ./mvnw clean verify
 ```
 
-The suite currently has 381 tests:
+The suite currently has 415 tests:
 
 - Unit tests for hashing, key management, the rate limit engine, both filters, the body wrapper, the circuit breaker, the provider adapter, the orchestrator, the error handler, and the Phase 1 security components.
+- Distributed circuit breaker tests in `proxy/failover`: `RedisCircuitBreakerTest` and `CircuitBreakerCrossInstanceIntegrationTest` run against a real Redis container and verify shared state, the single flight probe, and the mirror fallback, while `CircuitBreakerConfigTest`, `CircuitBreakerMetricsTest`, `RedisCircuitBreakerFactoryTest`, and `RedisCircuitBreakerEdgeTest` cover configuration, metrics, and the slow or unavailable Redis paths.
 - Unit tests for the protocol layer in `proxy/protocol`: request translation, header construction, and stream normalization for the OpenAI, Anthropic, and Ollama dialects, including malformed input tolerance.
 - Unit tests for the ledger in `ledger`: cost calculation, catalog matching, the pricing sync, and the dead letter fallback.
 - MockWebServer based tests in `proxy/failover/FailoverOrchestratorTest` that stand in for real providers and verify failover on 500 and 429, no failover on 401 and 400, circuit opening and recovery, timeout behavior, and the RACE strategy.
@@ -280,6 +283,8 @@ The request body wrapper exists because Spring's `ContentCachingRequestWrapper` 
 The rate limiter uses a fixed window per key. Redis documents this as the simplest approach for per client quotas; its only weakness is a possible double burst at window boundaries, which is an acceptable trade for per minute limits. The entire check and consume sequence runs inside one Lua script so concurrent requests cannot overshoot the limit. See `src/main/resources/rate_limit.lua`.
 
 The circuit breaker follows the canonical pattern described by Fowler and the microservices community: closed, open, and half open states with a cooldown and a single probe. State lives in an atomic reference with compare and set transitions, so the hot path is lock free. No background thread or timer exists; transitions out of open happen lazily on the next attempt. See `proxy/failover/ProviderCircuitBreaker.java`.
+
+The distributed version in `proxy/failover/RedisCircuitBreaker.java` keeps that same state machine but stores state in a single Redis hash per provider. The open to half open transition and probe ownership are decided by an atomic Lua script, `src/main/resources/circuit_try_acquire.lua`, keyed on the instance id, so exactly one instance probes after a cooldown and a crashed probe owner is stolen after a lease. A dedicated Redis template with a short command timeout and a `Semaphore` bulkhead keep a slow Redis from stalling virtual threads; on a Redis error the in-memory mirror decides, so the gateway fails closed. Per provider state is exported to Prometheus through `proxy/failover/CircuitBreakerMetrics.java`.
 
 Failover happens only before the first byte. The orchestrator returns a response whose status and content type are already known, so the controller never begins streaming before a winner exists. In the RACE strategy every losing attempt is cancelled at the socket level, which also stops the upstream provider from generating and billing further tokens.
 

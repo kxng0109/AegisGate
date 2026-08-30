@@ -50,6 +50,18 @@
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
+        <!-- Phase 5: circuit breaker observability. actuator exposes the health and
+             Prometheus scrape endpoints; micrometer-registry-prometheus is
+             version-managed by the Spring Boot 4.1.1 BOM. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
         <!-- Phase 4: async usage and cost ledger. JPA persists the ledger and
              the pricing table to PostgreSQL, Flyway owns the schema, and
              Testcontainers PostgreSQL backs the integration tests. Versions

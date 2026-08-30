@@ -61,46 +61,32 @@ public class FailoverOrchestrator {
 	private final ProviderClientAdapter clientAdapter;
 	private final UpstreamUrlValidator urlValidator;
 	private final GatewayProperties gatewayProperties;
+	private final CircuitBreakerFactory circuitBreakerFactory;
 	private final Clock clock;
 
-	private final Map<String, ProviderCircuitBreaker> breakers = new ConcurrentHashMap<>();
 	private final Map<String, Boolean> validatedProviders = new ConcurrentHashMap<>();
 	private final Map<String, Boolean> blockedProviders = new ConcurrentHashMap<>();
 
 	/**
-	 * Creates the orchestrator with the system clock.
+	 * Creates the orchestrator with the shared circuit breaker factory and the system clock.
 	 *
-	 * @param clientAdapter     the provider client adapter
-	 * @param urlValidator      validates provider URLs before first use
-	 * @param gatewayProperties the configured providers and aliases
+	 * @param clientAdapter          the provider client adapter
+	 * @param urlValidator           validates provider URLs before first use
+	 * @param gatewayProperties      the configured providers and aliases
+	 * @param circuitBreakerFactory  the shared, Redis backed breaker store
 	 */
 	@Autowired
 	public FailoverOrchestrator(
 			ProviderClientAdapter clientAdapter,
 			UpstreamUrlValidator urlValidator,
-			GatewayProperties gatewayProperties
-	) {
-		this(clientAdapter, urlValidator, gatewayProperties, Clock.systemUTC());
-	}
-
-	/**
-	 * Creates the orchestrator with an explicit clock, primarily for tests.
-	 *
-	 * @param clientAdapter     the provider client adapter
-	 * @param urlValidator      validates provider URLs before first use
-	 * @param gatewayProperties the configured providers and aliases
-	 * @param clock             time source used by the circuit breakers
-	 */
-	public FailoverOrchestrator(
-			ProviderClientAdapter clientAdapter,
-			UpstreamUrlValidator urlValidator,
 			GatewayProperties gatewayProperties,
-			Clock clock
+			CircuitBreakerFactory circuitBreakerFactory
 	) {
 		this.clientAdapter = clientAdapter;
 		this.urlValidator = urlValidator;
 		this.gatewayProperties = gatewayProperties;
-		this.clock = clock;
+		this.circuitBreakerFactory = circuitBreakerFactory;
+		this.clock = Clock.systemUTC();
 	}
 
 	/**
@@ -143,7 +129,7 @@ public class FailoverOrchestrator {
 				ctx.tried(name + " (blocked by validation)");
 				continue;
 			}
-			ProviderCircuitBreaker breaker = breakerFor(config.name());
+			CircuitBreaker breaker = breakerFor(config.name());
 			if (!breaker.tryAcquire()) {
 				ctx.tried(name + " (circuit open)");
 				continue;
@@ -215,7 +201,7 @@ public class FailoverOrchestrator {
 				ctx.tried(name + " (blocked by validation)");
 				continue;
 			}
-			ProviderCircuitBreaker breaker = breakerFor(config.name());
+			CircuitBreaker breaker = breakerFor(config.name());
 			if (!breaker.tryAcquire()) {
 				ctx.tried(name + " (circuit open)");
 				continue;
@@ -310,13 +296,13 @@ attempt.response().whenComplete((response, error) -> {
 	 * between scenarios.
 	 */
 	public void resetCircuitBreakers() {
-		breakers.clear();
+		circuitBreakerFactory.reset();
 		validatedProviders.clear();
 		blockedProviders.clear();
 	}
 
-	private ProviderCircuitBreaker breakerFor(String providerName) {
-		return breakers.computeIfAbsent(providerName, name -> new ProviderCircuitBreaker(name, clock));
+	private CircuitBreaker breakerFor(String providerName) {
+		return circuitBreakerFactory.get(providerName);
 	}
 
 	private boolean isUsable(String name, ProviderConfig config) {
@@ -381,7 +367,7 @@ return response.headers().firstValue("Content-Type")
 
 	private record ProviderAttempt(
 			ProviderConfig config,
-			ProviderCircuitBreaker breaker,
+			CircuitBreaker breaker,
 			CompletableFuture<HttpResponse<Stream<String>>> response
 	) {
 	}

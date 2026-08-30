@@ -25,7 +25,7 @@ class ProviderCircuitBreakerTest {
 	@DisplayName("a fresh breaker is closed and admits calls")
 	void initiallyClosedAndAdmitting() {
 		ProviderCircuitBreaker breaker = new ProviderCircuitBreaker("p1", mutableClock());
-		assertEquals(ProviderCircuitBreaker.State.CLOSED, breaker.getState());
+		assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
 		assertTrue(breaker.tryAcquire());
 	}
 
@@ -38,7 +38,7 @@ class ProviderCircuitBreakerTest {
 		assertEquals(2, breaker.getFailureCount());
 		breaker.recordSuccess();
 		assertEquals(0, breaker.getFailureCount());
-		assertEquals(ProviderCircuitBreaker.State.CLOSED, breaker.getState());
+		assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
 	}
 
 	@Test
@@ -46,9 +46,9 @@ class ProviderCircuitBreakerTest {
 	void opensAfterThreshold() {
 		ProviderCircuitBreaker breaker = new ProviderCircuitBreaker("p1", mutableClock(), 2, Duration.ofSeconds(30));
 		breaker.recordFailure();
-		assertEquals(ProviderCircuitBreaker.State.CLOSED, breaker.getState());
+		assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
 		breaker.recordFailure();
-		assertEquals(ProviderCircuitBreaker.State.OPEN, breaker.getState());
+		assertEquals(CircuitBreaker.State.OPEN, breaker.getState());
 		assertFalse(breaker.tryAcquire());
 	}
 
@@ -58,7 +58,7 @@ class ProviderCircuitBreakerTest {
 		MutableClock clock = mutableClock();
 		ProviderCircuitBreaker breaker = new ProviderCircuitBreaker("p1", clock, 1, Duration.ofSeconds(30));
 		breaker.recordFailure();
-		assertEquals(ProviderCircuitBreaker.State.OPEN, breaker.getState());
+		assertEquals(CircuitBreaker.State.OPEN, breaker.getState());
 
 		clock.advance(Duration.ofSeconds(10));
 		assertFalse(breaker.tryAcquire(), "still inside the cooldown window");
@@ -76,7 +76,7 @@ class ProviderCircuitBreakerTest {
 		clock.advance(Duration.ofSeconds(31));
 
 		assertTrue(breaker.tryAcquire(), "first caller takes the probe");
-		assertEquals(ProviderCircuitBreaker.State.HALF_OPEN, breaker.getState());
+		assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState());
 		assertFalse(breaker.tryAcquire(), "second caller must wait for the probe to finish");
 	}
 
@@ -90,7 +90,7 @@ class ProviderCircuitBreakerTest {
 		assertTrue(breaker.tryAcquire());
 
 		breaker.recordSuccess();
-		assertEquals(ProviderCircuitBreaker.State.CLOSED, breaker.getState());
+		assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
 		assertTrue(breaker.tryAcquire(), "closed circuit admits calls again");
 	}
 
@@ -104,7 +104,7 @@ class ProviderCircuitBreakerTest {
 		assertTrue(breaker.tryAcquire());
 
 		breaker.recordFailure();
-		assertEquals(ProviderCircuitBreaker.State.OPEN, breaker.getState());
+		assertEquals(CircuitBreaker.State.OPEN, breaker.getState());
 		assertFalse(breaker.tryAcquire(), "cooldown restarted, still open");
 		clock.advance(Duration.ofSeconds(31));
 		assertTrue(breaker.tryAcquire(), "next probe allowed after the restarted cooldown");
@@ -118,7 +118,7 @@ class ProviderCircuitBreakerTest {
 		breaker.recordFailure();
 		breaker.recordSuccess();
 		breaker.recordFailure();
-		assertEquals(ProviderCircuitBreaker.State.OPEN, breaker.getState());
+		assertEquals(CircuitBreaker.State.OPEN, breaker.getState());
 	}
 
 	@Test
@@ -157,7 +157,7 @@ class ProviderCircuitBreakerTest {
 			executor.shutdownNow();
 		}
 		assertEquals(1, admitted.get(), "exactly one probe must be granted");
-		assertEquals(ProviderCircuitBreaker.State.HALF_OPEN, breaker.getState());
+		assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState());
 	}
 
 	@Test
@@ -169,7 +169,7 @@ class ProviderCircuitBreakerTest {
 		assertEquals(0, breaker.getFailureCount());
 		breaker.recordFailure();
 		assertEquals(1, breaker.getFailureCount());
-		assertEquals(ProviderCircuitBreaker.State.CLOSED, breaker.getState());
+		assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
 	}
 
 	@Test
@@ -191,7 +191,7 @@ class ProviderCircuitBreakerTest {
 	void singleArgumentConstructorDefaults() {
 		ProviderCircuitBreaker breaker = new ProviderCircuitBreaker("p1");
 		assertEquals("p1", breaker.getProviderName());
-		assertEquals(ProviderCircuitBreaker.State.CLOSED, breaker.getState());
+		assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
 		assertTrue(breaker.tryAcquire());
 	}
 
@@ -221,7 +221,7 @@ class ProviderCircuitBreakerTest {
 		breaker.recordFailure();
 		breaker.recordFailure();
 		breaker.recordFailure();
-		assertEquals(ProviderCircuitBreaker.State.OPEN, breaker.getState());
+		assertEquals(CircuitBreaker.State.OPEN, breaker.getState());
 	}
 
 	@Test
@@ -231,15 +231,15 @@ class ProviderCircuitBreakerTest {
 		ProviderCircuitBreaker breaker = new ProviderCircuitBreaker("p1", clock, 2, Duration.ofSeconds(30));
 		breaker.recordFailure();
 		breaker.recordFailure();
-		assertEquals(ProviderCircuitBreaker.State.OPEN, breaker.getState());
+		assertEquals(CircuitBreaker.State.OPEN, breaker.getState());
 
 		clock.advance(Duration.ofSeconds(31));
 		assertTrue(breaker.tryAcquire());
-		assertEquals(ProviderCircuitBreaker.State.HALF_OPEN, breaker.getState());
+		assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState());
 
 		breaker.recordFailure();
 		assertEquals(
-				ProviderCircuitBreaker.State.OPEN, breaker.getState(),
+				CircuitBreaker.State.OPEN, breaker.getState(),
 				"a failed probe must reopen the circuit"
 		);
 		assertFalse(breaker.tryAcquire(), "the reopened circuit must reject until the cooldown restarts");
@@ -258,7 +258,7 @@ class ProviderCircuitBreakerTest {
 		clock.advance(Duration.ofSeconds(31));
 		assertTrue(breaker.tryAcquire());
 		breaker.recordSuccess();
-		assertEquals(ProviderCircuitBreaker.State.CLOSED, breaker.getState());
+		assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
 	}
 
 	@Test

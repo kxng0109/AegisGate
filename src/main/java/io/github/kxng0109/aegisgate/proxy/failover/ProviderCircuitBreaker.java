@@ -10,6 +10,10 @@ import java.util.concurrent.atomic.AtomicReference;
  * A per provider trip switch that stops the gateway from wasting time and connection slots on a provider that is
  * clearly failing.
  *
+ * <p>This is the in-memory implementation of {@link CircuitBreaker}. It serves two purposes: a fast local mirror for the
+ * Redis-backed breaker (used as a read-through-with-timeout fallback when Redis is slow or unavailable) and a directly
+ * unit-testable model of the state machine.</p>
+ *
  * <p>The state machine follows the canonical circuit breaker pattern:</p>
  * <ul>
  *   <li><b>CLOSED</b> is normal operation. Failures are counted; a
@@ -37,7 +41,7 @@ import java.util.concurrent.atomic.AtomicReference;
  *       cooldown deterministically instead of sleeping.</li>
  * </ul>
  */
-public final class ProviderCircuitBreaker {
+public final class ProviderCircuitBreaker implements CircuitBreaker {
 
 	/**
 	 * How many consecutive failures trip the circuit, when not configured otherwise.
@@ -49,30 +53,12 @@ public final class ProviderCircuitBreaker {
 	 */
 	public static final Duration DEFAULT_COOLDOWN = Duration.ofSeconds(30);
 
-	/**
-	 * The three states of the state machine.
-	 */
-	public enum State {
-		/**
-		 * Normal operation; failures are being counted.
-		 */
-		CLOSED,
-		/**
-		 * Rejecting all attempts until the cooldown elapses.
-		 */
-		OPEN,
-		/**
-		 * Allowing exactly one probe to test the provider.
-		 */
-		HALF_OPEN
-	}
-
 	private final String providerName;
 	private final int failureThreshold;
 	private final Duration cooldown;
 	private final Clock clock;
 
-	private final AtomicReference<State> state = new AtomicReference<>(State.CLOSED);
+	private final AtomicReference<CircuitBreaker.State> state = new AtomicReference<>(CircuitBreaker.State.CLOSED);
 	private final AtomicInteger consecutiveFailures = new AtomicInteger();
 	private final AtomicInteger halfOpenProbes = new AtomicInteger();
 
@@ -141,16 +127,17 @@ public final class ProviderCircuitBreaker {
 	 *
 	 * @return {@code true} when the caller is permitted to attempt the call
 	 */
+	@Override
 	public boolean tryAcquire() {
 		while (true) {
-			State current = state.get();
+			CircuitBreaker.State current = state.get();
 			switch (current) {
 				case CLOSED -> {
 					return true;
 				}
 				case OPEN -> {
 					if (cooldownElapsed()) {
-						if (state.compareAndSet(State.OPEN, State.HALF_OPEN)) {
+						if (state.compareAndSet(CircuitBreaker.State.OPEN, CircuitBreaker.State.HALF_OPEN)) {
 							return halfOpenProbes.compareAndSet(0, 1);
 						}
 					} else {
@@ -170,11 +157,12 @@ public final class ProviderCircuitBreaker {
 	 * <p>In CLOSED the failure count is reset. In HALF_OPEN the circuit closes
 	 * and normal operation resumes. No effect in OPEN.</p>
 	 */
+	@Override
 	public void recordSuccess() {
 		while (true) {
-			State current = state.get();
-			if (current == State.HALF_OPEN) {
-				if (state.compareAndSet(State.HALF_OPEN, State.CLOSED)) {
+			CircuitBreaker.State current = state.get();
+			if (current == CircuitBreaker.State.HALF_OPEN) {
+				if (state.compareAndSet(CircuitBreaker.State.HALF_OPEN, CircuitBreaker.State.CLOSED)) {
 					halfOpenProbes.set(0);
 					consecutiveFailures.set(0);
 					return;
@@ -192,13 +180,14 @@ public final class ProviderCircuitBreaker {
 	 * <p>In CLOSED the failure count is incremented and the circuit opens when
 	 * it reaches the threshold. In HALF_OPEN the circuit reopens and the cooldown restarts. No effect in OPEN.</p>
 	 */
+	@Override
 	public void recordFailure() {
 		while (true) {
-			State current = state.get();
+			CircuitBreaker.State current = state.get();
 			switch (current) {
 				case CLOSED -> {
 					if (consecutiveFailures.incrementAndGet() >= failureThreshold) {
-						if (state.compareAndSet(State.CLOSED, State.OPEN)) {
+						if (state.compareAndSet(CircuitBreaker.State.CLOSED, CircuitBreaker.State.OPEN)) {
 							openedAt = clock.instant();
 							return;
 						}
@@ -207,7 +196,7 @@ public final class ProviderCircuitBreaker {
 					}
 				}
 				case HALF_OPEN -> {
-					if (state.compareAndSet(State.HALF_OPEN, State.OPEN)) {
+					if (state.compareAndSet(CircuitBreaker.State.HALF_OPEN, CircuitBreaker.State.OPEN)) {
 						openedAt = clock.instant();
 						halfOpenProbes.set(0);
 						return;
@@ -223,13 +212,15 @@ public final class ProviderCircuitBreaker {
 	/**
 	 * @return the current state, useful for logging and tests
 	 */
-	public State getState() {
+	@Override
+	public CircuitBreaker.State getState() {
 		return state.get();
 	}
 
 	/**
 	 * @return how many consecutive failures are currently recorded in CLOSED
 	 */
+	@Override
 	public int getFailureCount() {
 		return consecutiveFailures.get();
 	}
@@ -237,8 +228,24 @@ public final class ProviderCircuitBreaker {
 	/**
 	 * @return the provider this breaker protects
 	 */
+	@Override
 	public String getProviderName() {
 		return providerName;
+	}
+
+	/**
+	 * Directly sets the observable state of this mirror. Used by the Redis-backed breaker to keep the local mirror in
+	 * step with Redis after a successful read, so the fallback path reflects reality.
+	 *
+	 * @param mirrored      the state to mirror
+	 * @param failures      the failure count to mirror
+	 * @param mirroredOpenedAt the {@code openedAt} instant to mirror (only meaningful in OPEN)
+	 */
+	void syncFrom(CircuitBreaker.State mirrored, int failures, Instant mirroredOpenedAt) {
+		this.state.set(mirrored);
+		this.consecutiveFailures.set(failures);
+		this.openedAt = mirroredOpenedAt;
+		this.halfOpenProbes.set(mirrored == CircuitBreaker.State.HALF_OPEN ? 1 : 0);
 	}
 
 	private boolean cooldownElapsed() {
