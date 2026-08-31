@@ -1,0 +1,90 @@
+groups:
+  - name: aegisgate-alerts
+    rules:
+      # -----------------------------------------------------------------------
+      # 1. Circuit Breaker State (Tripped Open)
+      # -----------------------------------------------------------------------
+      - alert: UpstreamCircuitBreakerOpen
+        expr: aegis_circuit_breaker_state == 1
+        for: 15s
+        labels:
+          severity: critical
+          team: platform-core
+        annotations:
+          summary: "Circuit breaker OPEN for provider {{ $labels.provider }}"
+          description: "Provider {{ $labels.provider }} circuit breaker is OPEN due to consecutive upstream failures or timeouts. Gateway is failing over."
+
+      # -----------------------------------------------------------------------
+      # 2. SSE Flush Lag Spike (Streaming Delay)
+      # -----------------------------------------------------------------------
+      - alert: SseFlushLagSpike
+        expr: sse_flush_lag_max_ms > 250
+        for: 30s
+        labels:
+          severity: warning
+          team: platform-core
+        annotations:
+          summary: "High SSE flush latency: {{ $value }}ms"
+          description: "Maximum observed SSE flush lag is {{ $value }}ms (threshold: 250ms). Clients may experience token delivery latency."
+
+      # -----------------------------------------------------------------------
+      # 3. Downstream Client Backpressure Aborts
+      # -----------------------------------------------------------------------
+      - alert: HighSseBackpressureAborts
+        expr: sum(rate(sse_flush_backpressure_count_total[1m])) > 1.0
+        for: 1m
+        labels:
+          severity: warning
+          team: platform-core
+        annotations:
+          summary: "Elevated SSE backpressure stream terminations"
+          description: "Downstream clients are experiencing slow read buffers at {{ $value | humanize }} aborts/sec."
+
+      # -----------------------------------------------------------------------
+      # 4. SSE Line Guard Violations / Rejections
+      # -----------------------------------------------------------------------
+      - alert: SseLineGuardRejectionSpike
+        expr: sum by (reason, provider) (rate(sse_line_rejected_count_total[1m])) > 0.5
+        for: 30s
+        labels:
+          severity: warning
+          team: security-ops
+        annotations:
+          summary: "SSE line guard rejections on {{ $labels.provider }} ({{ $labels.reason }})"
+          description: "Upstream stream from {{ $labels.provider }} was guarded and truncated due to {{ $labels.reason }} limit."
+
+      # -----------------------------------------------------------------------
+      # 5. Database Connection Pool (HikariCP) Near Exhaustion
+      # -----------------------------------------------------------------------
+      - alert: HikariPoolNearExhaustion
+        expr: (hikaricp_connections_active / hikaricp_connections_max) > 0.85
+        for: 1m
+        labels:
+          severity: critical
+          team: data-infra
+        annotations:
+          summary: "HikariCP database pool utilization > 85%"
+          description: "Database connection pool is nearly saturated on {{ $labels.instance }}."
+
+      - alert: HikariPoolThreadsPending
+        expr: hikaricp_connections_pending > 0
+        for: 15s
+        labels:
+          severity: critical
+          team: data-infra
+        annotations:
+          summary: "Threads blocked waiting for database connection"
+          description: "{{ $value }} threads are waiting for a database connection to write to usage ledger."
+
+      # -----------------------------------------------------------------------
+      # 6. Ledger Dead Letter Failures
+      # -----------------------------------------------------------------------
+      - alert: LedgerDeadLetterWrite
+        expr: sum(rate(aegis_ledger_dead_letter_total[1m])) > 0
+        for: 10s
+        labels:
+          severity: critical
+          team: billing-ops
+        annotations:
+          summary: "Usage ledger records spilling to dead-letter log"
+          description: "Database writes for token accounting failed and are writing to dead-letter file."

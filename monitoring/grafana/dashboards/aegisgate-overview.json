@@ -1,0 +1,1238 @@
+{
+	"annotations": {
+		"list": [
+			{
+				"builtIn": 1,
+				"datasource": {
+					"type": "grafana",
+					"uid": "-- Grafana --"
+				},
+				"enable": true,
+				"hide": true,
+				"name": "Annotations & Alerts",
+				"type": "dashboard"
+			}
+		]
+	},
+	"editable": true,
+	"fiscalYearStartMonth": 0,
+	"graphTooltip": 1,
+	"id": null,
+	"links": [],
+	"panels": [
+		{
+			"collapsed": false,
+			"gridPos": {
+				"h": 1,
+				"w": 24,
+				"x": 0,
+				"y": 0
+			},
+			"id": 100,
+			"title": "System Overview & Key Health Indicators",
+			"type": "row"
+		},
+		{
+			"datasource": {
+				"type": "prometheus",
+				"uid": "aegisgate-prometheus"
+			},
+			"fieldConfig": {
+				"defaults": {
+					"color": {
+						"mode": "palette-classic"
+					},
+					"mappings": [],
+					"thresholds": {
+						"mode": "absolute",
+						"steps": [
+							{
+								"color": "green",
+								"value": null
+							},
+							{
+								"color": "yellow",
+								"value": 50
+							},
+							{
+								"color": "red",
+								"value": 200
+							}
+						]
+					},
+					"unit": "short"
+				},
+				"overrides": []
+			},
+			"gridPos": {
+				"h": 4,
+				"w": 4,
+				"x": 0,
+				"y": 1
+			},
+			"id": 1,
+			"options": {
+				"colorMode": "value",
+				"graphMode": "area",
+				"justifyMode": "auto",
+				"orientation": "auto",
+				"reduceOptions": {
+					"calcs": [
+						"lastNotNull"
+					],
+					"fields": "",
+					"values": false
+				},
+				"textMode": "auto"
+			},
+			"pluginVersion": "11.1.0",
+			"targets": [
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "aegisgate-prometheus"
+					},
+					"editorMode": "code",
+					"expr": "sse_connection_active or vector(0)",
+					"instant": false,
+					"range": true,
+					"refId": "A"
+				}
+			],
+			"title": "Active SSE Connections",
+			"type": "stat"
+		},
+		{
+			"datasource": {
+				"type": "prometheus",
+				"uid": "aegisgate-prometheus"
+			},
+			"fieldConfig": {
+				"defaults": {
+					"color": {
+						"mode": "palette-classic"
+					},
+					"mappings": [],
+					"thresholds": {
+						"mode": "absolute",
+						"steps": [
+							{
+								"color": "blue",
+								"value": null
+							},
+							{
+								"color": "green",
+								"value": 10
+							},
+							{
+								"color": "orange",
+								"value": 100
+							}
+						]
+					},
+					"unit": "reqps"
+				},
+				"overrides": []
+			},
+			"gridPos": {
+				"h": 4,
+				"w": 5,
+				"x": 4,
+				"y": 1
+			},
+			"id": 2,
+			"options": {
+				"colorMode": "value",
+				"graphMode": "area",
+				"justifyMode": "auto",
+				"orientation": "auto",
+				"reduceOptions": {
+					"calcs": [
+						"lastNotNull"
+					],
+					"fields": "",
+					"values": false
+				},
+				"textMode": "auto"
+			},
+			"pluginVersion": "11.1.0",
+			"targets": [
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "aegisgate-prometheus"
+					},
+					"editorMode": "code",
+					"expr": "sum(rate(http_server_requests_seconds_count[1m])) or vector(0)",
+					"instant": false,
+					"range": true,
+					"refId": "A"
+				}
+			],
+			"title": "Ingress Throughput (QPS)",
+			"type": "stat"
+		},
+		{
+			"datasource": {
+				"type": "prometheus",
+				"uid": "aegisgate-prometheus"
+			},
+			"fieldConfig": {
+				"defaults": {
+					"color": {
+						"mode": "palette-classic"
+					},
+					"mappings": [],
+					"thresholds": {
+						"mode": "absolute",
+						"steps": [
+							{
+								"color": "green",
+								"value": null
+							},
+							{
+								"color": "yellow",
+								"value": 1
+							},
+							{
+								"color": "red",
+								"value": 5
+							}
+						]
+					},
+					"unit": "percent"
+				},
+				"overrides": []
+			},
+			"gridPos": {
+				"h": 4,
+				"w": 5,
+				"x": 9,
+				"y": 1
+			},
+			"id": 3,
+			"options": {
+				"colorMode": "value",
+				"graphMode": "area",
+				"justifyMode": "auto",
+				"orientation": "auto",
+				"reduceOptions": {
+					"calcs": [
+						"lastNotNull"
+					],
+					"fields": "",
+					"values": false
+				},
+				"textMode": "auto"
+			},
+			"pluginVersion": "11.1.0",
+			"targets": [
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "aegisgate-prometheus"
+					},
+					"editorMode": "code",
+					"expr": "((sum(rate(http_server_requests_seconds_count{status=~\"5..|429\"}[1m])) or vector(0)) / (sum(rate(http_server_requests_seconds_count[1m])) > 0 or vector(1))) * 100",
+					"instant": false,
+					"range": true,
+					"refId": "A"
+				}
+			],
+			"title": "Error Rate (5xx & 429)",
+			"type": "stat"
+		},
+		{
+			"datasource": {
+				"type": "prometheus",
+				"uid": "aegisgate-prometheus"
+			},
+			"fieldConfig": {
+				"defaults": {
+					"color": {
+						"mode": "palette-classic"
+					},
+					"mappings": [
+						{
+							"options": {
+								"0": {
+									"color": "green",
+									"text": "All Closed (Healthy)"
+								}
+							},
+							"type": "value"
+						}
+					],
+					"thresholds": {
+						"mode": "absolute",
+						"steps": [
+							{
+								"color": "green",
+								"value": null
+							},
+							{
+								"color": "red",
+								"value": 1
+							}
+						]
+					},
+					"unit": "short"
+				},
+				"overrides": []
+			},
+			"gridPos": {
+				"h": 4,
+				"w": 5,
+				"x": 14,
+				"y": 1
+			},
+			"id": 4,
+			"options": {
+				"colorMode": "value",
+				"graphMode": "none",
+				"justifyMode": "auto",
+				"orientation": "auto",
+				"reduceOptions": {
+					"calcs": [
+						"lastNotNull"
+					],
+					"fields": "",
+					"values": false
+				},
+				"textMode": "auto"
+			},
+			"pluginVersion": "11.1.0",
+			"targets": [
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "aegisgate-prometheus"
+					},
+					"editorMode": "code",
+					"expr": "count(aegis_circuit_breaker_state == 1) or vector(0)",
+					"instant": false,
+					"range": true,
+					"refId": "A"
+				}
+			],
+			"title": "Open Circuit Breakers",
+			"type": "stat"
+		},
+		{
+			"datasource": {
+				"type": "prometheus",
+				"uid": "aegisgate-prometheus"
+			},
+			"fieldConfig": {
+				"defaults": {
+					"color": {
+						"mode": "palette-classic"
+					},
+					"mappings": [],
+					"thresholds": {
+						"mode": "absolute",
+						"steps": [
+							{
+								"color": "green",
+								"value": null
+							},
+							{
+								"color": "yellow",
+								"value": 10
+							},
+							{
+								"color": "red",
+								"value": 50
+							}
+						]
+					},
+					"unit": "currencyUSD"
+				},
+				"overrides": []
+			},
+			"gridPos": {
+				"h": 4,
+				"w": 5,
+				"x": 19,
+				"y": 1
+			},
+			"id": 5,
+			"options": {
+				"colorMode": "value",
+				"graphMode": "area",
+				"justifyMode": "auto",
+				"orientation": "auto",
+				"reduceOptions": {
+					"calcs": [
+						"lastNotNull"
+					],
+					"fields": "",
+					"values": false
+				},
+				"textMode": "auto"
+			},
+			"pluginVersion": "11.1.0",
+			"targets": [
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "aegisgate-prometheus"
+					},
+					"editorMode": "code",
+					"expr": "sum(rate(aegis_cost_micros_total[5m])) * 0.000001 * 3600 or vector(0)",
+					"instant": false,
+					"range": true,
+					"refId": "A"
+				}
+			],
+			"title": "Spend Velocity ($/hr)",
+			"type": "stat"
+		},
+		{
+			"collapsed": false,
+			"gridPos": {
+				"h": 1,
+				"w": 24,
+				"x": 0,
+				"y": 5
+			},
+			"id": 101,
+			"title": "Latency & Request Performance",
+			"type": "row"
+		},
+		{
+			"datasource": {
+				"type": "prometheus",
+				"uid": "aegisgate-prometheus"
+			},
+			"fieldConfig": {
+				"defaults": {
+					"custom": {
+						"drawStyle": "line",
+						"lineInterpolation": "smooth",
+						"lineWidth": 2,
+						"pointSize": 5,
+						"showPoints": "never",
+						"spanNulls": false
+					},
+					"unit": "s"
+				},
+				"overrides": []
+			},
+			"gridPos": {
+				"h": 8,
+				"w": 12,
+				"x": 0,
+				"y": 6
+			},
+			"id": 6,
+			"options": {
+				"legend": {
+					"calcs": [
+						"mean",
+						"max",
+						"lastNotNull"
+					],
+					"displayMode": "table",
+					"placement": "bottom"
+				},
+				"tooltip": {
+					"mode": "multi",
+					"sort": "desc"
+				}
+			},
+			"targets": [
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "aegisgate-prometheus"
+					},
+					"editorMode": "code",
+					"expr": "histogram_quantile(0.50, sum by (le) (rate(http_server_requests_seconds_bucket{uri=~\"/v1/.*\"}[5m])))",
+					"legendFormat": "P50 Latency",
+					"refId": "A"
+				},
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "aegisgate-prometheus"
+					},
+					"editorMode": "code",
+					"expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{uri=~\"/v1/.*\"}[5m])))",
+					"legendFormat": "P95 Latency",
+					"refId": "B"
+				},
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "aegisgate-prometheus"
+					},
+					"editorMode": "code",
+					"expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_requests_seconds_bucket{uri=~\"/v1/.*\"}[5m])))",
+					"legendFormat": "P99 Latency",
+					"refId": "C"
+				}
+			],
+			"title": "HTTP Request Latency (P50, P95, P99)",
+			"type": "timeseries"
+		},
+		{
+			"datasource": {
+				"type": "prometheus",
+				"uid": "aegisgate-prometheus"
+			},
+			"fieldConfig": {
+				"defaults": {
+					"custom": {
+						"drawStyle": "bars",
+						"lineInterpolation": "linear",
+						"lineWidth": 1,
+						"pointSize": 5,
+						"showPoints": "never",
+						"spanNulls": false,
+						"stacking": {
+							"group": "A",
+							"mode": "normal"
+						}
+					},
+					"unit": "reqps"
+				},
+				"overrides": []
+			},
+			"gridPos": {
+				"h": 8,
+				"w": 12,
+				"x": 12,
+				"y": 6
+			},
+			"id": 7,
+			"options": {
+				"legend": {
+					"calcs": [
+						"mean",
+						"lastNotNull"
+					],
+					"displayMode": "table",
+					"placement": "bottom"
+				},
+				"tooltip": {
+					"mode": "multi",
+					"sort": "desc"
+				}
+			},
+			"targets": [
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "aegisgate-prometheus"
+					},
+					"editorMode": "code",
+					"expr": "sum by (status) (rate(http_server_requests_seconds_count[1m]))",
+					"legendFormat": "Status {{status}}",
+					"refId": "A"
+				}
+			],
+			"title": "Request Rate by HTTP Status",
+			"type": "timeseries"
+		},
+		{
+			"collapsed": false,
+			"gridPos": {
+				"h": 1,
+				"w": 24,
+				"x": 0,
+				"y": 14
+			},
+			"id": 102,
+			"title": "LLM Token Economics & Cost Tracking",
+			"type": "row"
+		},
+		{
+			"datasource": {
+				"type": "prometheus",
+				"uid": "aegisgate-prometheus"
+			},
+			"fieldConfig": {
+				"defaults": {
+					"custom": {
+						"drawStyle": "line",
+						"lineInterpolation": "smooth",
+						"lineWidth": 2,
+						"pointSize": 5,
+						"showPoints": "never",
+						"spanNulls": false
+					},
+					"unit": "short"
+				},
+				"overrides": []
+			},
+			"gridPos": {
+				"h": 8,
+				"w": 12,
+				"x": 0,
+				"y": 15
+			},
+			"id": 8,
+			"options": {
+				"legend": {
+					"calcs": [
+						"mean",
+						"lastNotNull"
+					],
+					"displayMode": "table",
+					"placement": "bottom"
+				},
+				"tooltip": {
+					"mode": "multi",
+					"sort": "desc"
+				}
+			},
+			"targets": [
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "aegisgate-prometheus"
+					},
+					"editorMode": "code",
+					"expr": "sum by (model, type) (rate(aegis_tokens_total[5m]))",
+					"legendFormat": "{{model}} ({{type}})",
+					"refId": "A"
+				}
+			],
+			"title": "Token Generation Rate by Model (tokens/sec)",
+			"type": "timeseries"
+		},
+		{
+			"datasource": {
+				"type": "prometheus",
+				"uid": "aegisgate-prometheus"
+			},
+			"fieldConfig": {
+				"defaults": {
+					"custom": {
+						"drawStyle": "line",
+						"lineInterpolation": "smooth",
+						"lineWidth": 2,
+						"pointSize": 5,
+						"showPoints": "never",
+						"spanNulls": false
+					},
+					"unit": "currencyUSD"
+				},
+				"overrides": []
+			},
+			"gridPos": {
+				"h": 8,
+				"w": 12,
+				"x": 12,
+				"y": 15
+			},
+			"id": 9,
+			"options": {
+				"legend": {
+					"calcs": [
+						"mean",
+						"lastNotNull"
+					],
+					"displayMode": "table",
+					"placement": "bottom"
+				},
+				"tooltip": {
+					"mode": "multi",
+					"sort": "desc"
+				}
+			},
+			"targets": [
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "aegisgate-prometheus"
+					},
+					"editorMode": "code",
+					"expr": "sum by (provider) (rate(aegis_cost_micros_total[5m])) * 0.000001 * 3600",
+					"legendFormat": "{{provider}} ($/hr)",
+					"refId": "A"
+				}
+			],
+			"title": "Cost Burn Rate by Provider ($/hr)",
+			"type": "timeseries"
+		},
+		{
+			"collapsed": false,
+			"gridPos": {
+				"h": 1,
+				"w": 24,
+				"x": 0,
+				"y": 23
+			},
+			"id": 103,
+			"title": "Resilience, Failover & Circuit Breakers",
+			"type": "row"
+		},
+		{
+			"datasource": {
+				"type": "prometheus",
+				"uid": "aegisgate-prometheus"
+			},
+			"fieldConfig": {
+				"defaults": {
+					"custom": {
+						"fillOpacity": 80,
+						"lineWidth": 1
+					},
+					"mappings": [
+						{
+							"options": {
+								"0": {
+									"color": "green",
+									"text": "CLOSED (Healthy)"
+								},
+								"1": {
+									"color": "red",
+									"text": "OPEN (Failing Over)"
+								},
+								"2": {
+									"color": "yellow",
+									"text": "HALF-OPEN (Testing)"
+								}
+							},
+							"type": "value"
+						}
+					],
+					"thresholds": {
+						"mode": "absolute",
+						"steps": [
+							{
+								"color": "green",
+								"value": null
+							},
+							{
+								"color": "red",
+								"value": 1
+							},
+							{
+								"color": "yellow",
+								"value": 2
+							}
+						]
+					}
+				},
+				"overrides": []
+			},
+			"gridPos": {
+				"h": 6,
+				"w": 14,
+				"x": 0,
+				"y": 24
+			},
+			"id": 10,
+			"options": {
+				"alignValue": "left",
+				"legend": {
+					"displayMode": "list",
+					"placement": "bottom"
+				},
+				"mergeValues": true,
+				"rowHeight": 0.8,
+				"showValue": "auto",
+				"tooltip": {
+					"mode": "single",
+					"sort": "none"
+				}
+			},
+			"targets": [
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "aegisgate-prometheus"
+					},
+					"editorMode": "code",
+					"expr": "aegis_circuit_breaker_state",
+					"legendFormat": "{{provider}} Circuit",
+					"refId": "A"
+				}
+			],
+			"title": "Provider Circuit Breaker States",
+			"type": "state-timeline"
+		},
+		{
+			"datasource": {
+				"type": "prometheus",
+				"uid": "aegisgate-prometheus"
+			},
+			"fieldConfig": {
+				"defaults": {
+					"custom": {
+						"drawStyle": "line",
+						"lineInterpolation": "linear",
+						"lineWidth": 2,
+						"pointSize": 5,
+						"showPoints": "auto",
+						"spanNulls": false
+					},
+					"unit": "short"
+				},
+				"overrides": []
+			},
+			"gridPos": {
+				"h": 6,
+				"w": 10,
+				"x": 14,
+				"y": 24
+			},
+			"id": 11,
+			"options": {
+				"legend": {
+					"calcs": [
+						"sum",
+						"lastNotNull"
+					],
+					"displayMode": "table",
+					"placement": "bottom"
+				},
+				"tooltip": {
+					"mode": "multi",
+					"sort": "desc"
+				}
+			},
+			"targets": [
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "aegisgate-prometheus"
+					},
+					"editorMode": "code",
+					"expr": "sum by (provider) (rate(sse_upstream_cancelled_count_total[1m]))",
+					"legendFormat": "{{provider}} Cancellations",
+					"refId": "A"
+				}
+			],
+			"title": "Upstream Exchange Cancellations (RST_STREAM)",
+			"type": "timeseries"
+		},
+		{
+			"collapsed": false,
+			"gridPos": {
+				"h": 1,
+				"w": 24,
+				"x": 0,
+				"y": 30
+			},
+			"id": 104,
+			"title": "Streaming Engine, SSE Flush Lag & Line Defense",
+			"type": "row"
+		},
+		{
+			"datasource": {
+				"type": "prometheus",
+				"uid": "aegisgate-prometheus"
+			},
+			"fieldConfig": {
+				"defaults": {
+					"custom": {
+						"drawStyle": "line",
+						"lineInterpolation": "smooth",
+						"lineWidth": 2,
+						"pointSize": 5,
+						"showPoints": "never",
+						"spanNulls": false
+					},
+					"unit": "ms"
+				},
+				"overrides": []
+			},
+			"gridPos": {
+				"h": 8,
+				"w": 8,
+				"x": 0,
+				"y": 31
+			},
+			"id": 12,
+			"options": {
+				"legend": {
+					"calcs": [
+						"mean",
+						"max",
+						"lastNotNull"
+					],
+					"displayMode": "table",
+					"placement": "bottom"
+				},
+				"tooltip": {
+					"mode": "multi",
+					"sort": "desc"
+				}
+			},
+			"targets": [
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "aegisgate-prometheus"
+					},
+					"editorMode": "code",
+					"expr": "sse_flush_lag_max_ms",
+					"legendFormat": "Max Flush Lag (ms)",
+					"refId": "A"
+				}
+			],
+			"title": "SSE Flush Lag (ms)",
+			"type": "timeseries"
+		},
+		{
+			"datasource": {
+				"type": "prometheus",
+				"uid": "aegisgate-prometheus"
+			},
+			"fieldConfig": {
+				"defaults": {
+					"custom": {
+						"drawStyle": "line",
+						"lineInterpolation": "smooth",
+						"lineWidth": 2,
+						"pointSize": 5,
+						"showPoints": "never",
+						"spanNulls": false
+					},
+					"unit": "bytes"
+				},
+				"overrides": []
+			},
+			"gridPos": {
+				"h": 8,
+				"w": 8,
+				"x": 8,
+				"y": 31
+			},
+			"id": 13,
+			"options": {
+				"legend": {
+					"calcs": [
+						"mean",
+						"max",
+						"lastNotNull"
+					],
+					"displayMode": "table",
+					"placement": "bottom"
+				},
+				"tooltip": {
+					"mode": "multi",
+					"sort": "desc"
+				}
+			},
+			"targets": [
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "aegisgate-prometheus"
+					},
+					"editorMode": "code",
+					"expr": "sse_buffer_bytes",
+					"legendFormat": "Buffered Unflushed Bytes",
+					"refId": "A"
+				}
+			],
+			"title": "SSE In-Flight Buffered Memory (Bytes)",
+			"type": "timeseries"
+		},
+		{
+			"datasource": {
+				"type": "prometheus",
+				"uid": "aegisgate-prometheus"
+			},
+			"fieldConfig": {
+				"defaults": {
+					"custom": {
+						"drawStyle": "bars",
+						"lineInterpolation": "linear",
+						"lineWidth": 1,
+						"pointSize": 5,
+						"showPoints": "never",
+						"spanNulls": false,
+						"stacking": {
+							"group": "A",
+							"mode": "normal"
+						}
+					},
+					"unit": "short"
+				},
+				"overrides": []
+			},
+			"gridPos": {
+				"h": 8,
+				"w": 8,
+				"x": 16,
+				"y": 31
+			},
+			"id": 14,
+			"options": {
+				"legend": {
+					"calcs": [
+						"sum",
+						"lastNotNull"
+					],
+					"displayMode": "table",
+					"placement": "bottom"
+				},
+				"tooltip": {
+					"mode": "multi",
+					"sort": "desc"
+				}
+			},
+			"targets": [
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "aegisgate-prometheus"
+					},
+					"editorMode": "code",
+					"expr": "sum by (reason, provider) (rate(sse_line_rejected_count_total[1m]))",
+					"legendFormat": "{{provider}} ({{reason}})",
+					"refId": "A"
+				},
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "aegisgate-prometheus"
+					},
+					"editorMode": "code",
+					"expr": "sum by (provider) (rate(sse_flush_backpressure_count_total[1m]))",
+					"legendFormat": "{{provider}} Backpressure Aborts",
+					"refId": "B"
+				}
+			],
+			"title": "Line Guard Rejections & Backpressure Aborts",
+			"type": "timeseries"
+		},
+		{
+			"collapsed": false,
+			"gridPos": {
+				"h": 1,
+				"w": 24,
+				"x": 0,
+				"y": 39
+			},
+			"id": 105,
+			"title": "JVM, Virtual Threads & Infrastructure",
+			"type": "row"
+		},
+		{
+			"datasource": {
+				"type": "prometheus",
+				"uid": "aegisgate-prometheus"
+			},
+			"fieldConfig": {
+				"defaults": {
+					"custom": {
+						"drawStyle": "line",
+						"lineInterpolation": "smooth",
+						"lineWidth": 2,
+						"pointSize": 5,
+						"showPoints": "never",
+						"spanNulls": false
+					},
+					"unit": "bytes"
+				},
+				"overrides": []
+			},
+			"gridPos": {
+				"h": 7,
+				"w": 8,
+				"x": 0,
+				"y": 40
+			},
+			"id": 15,
+			"options": {
+				"legend": {
+					"calcs": [
+						"mean",
+						"max",
+						"lastNotNull"
+					],
+					"displayMode": "table",
+					"placement": "bottom"
+				},
+				"tooltip": {
+					"mode": "multi",
+					"sort": "desc"
+				}
+			},
+			"targets": [
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "aegisgate-prometheus"
+					},
+					"editorMode": "code",
+					"expr": "jvm_memory_used_bytes{area=\"heap\"}",
+					"legendFormat": "Heap Memory Used",
+					"refId": "A"
+				},
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "aegisgate-prometheus"
+					},
+					"editorMode": "code",
+					"expr": "jvm_memory_used_bytes{area=\"nonheap\"}",
+					"legendFormat": "Non-Heap Memory Used",
+					"refId": "B"
+				}
+			],
+			"title": "JVM Heap & Non-Heap Memory",
+			"type": "timeseries"
+		},
+		{
+			"datasource": {
+				"type": "prometheus",
+				"uid": "aegisgate-prometheus"
+			},
+			"fieldConfig": {
+				"defaults": {
+					"custom": {
+						"drawStyle": "line",
+						"lineInterpolation": "smooth",
+						"lineWidth": 2,
+						"pointSize": 5,
+						"showPoints": "never",
+						"spanNulls": false
+					},
+					"unit": "s"
+				},
+				"overrides": []
+			},
+			"gridPos": {
+				"h": 7,
+				"w": 8,
+				"x": 8,
+				"y": 40
+			},
+			"id": 16,
+			"options": {
+				"legend": {
+					"calcs": [
+						"sum",
+						"max",
+						"lastNotNull"
+					],
+					"displayMode": "table",
+					"placement": "bottom"
+				},
+				"tooltip": {
+					"mode": "multi",
+					"sort": "desc"
+				}
+			},
+			"targets": [
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "aegisgate-prometheus"
+					},
+					"editorMode": "code",
+					"expr": "sum(rate(jvm_gc_pause_seconds_sum[1m]))",
+					"legendFormat": "GC Pause Rate (s/s)",
+					"refId": "A"
+				}
+			],
+			"title": "JVM Garbage Collection Pause Latency",
+			"type": "timeseries"
+		},
+		{
+			"datasource": {
+				"type": "prometheus",
+				"uid": "aegisgate-prometheus"
+			},
+			"fieldConfig": {
+				"defaults": {
+					"custom": {
+						"drawStyle": "line",
+						"lineInterpolation": "stepAfter",
+						"lineWidth": 2,
+						"pointSize": 5,
+						"showPoints": "never",
+						"spanNulls": false
+					},
+					"unit": "short"
+				},
+				"overrides": []
+			},
+			"gridPos": {
+				"h": 7,
+				"w": 8,
+				"x": 16,
+				"y": 40
+			},
+			"id": 17,
+			"options": {
+				"legend": {
+					"calcs": [
+						"mean",
+						"max",
+						"lastNotNull"
+					],
+					"displayMode": "table",
+					"placement": "bottom"
+				},
+				"tooltip": {
+					"mode": "multi",
+					"sort": "desc"
+				}
+			},
+			"targets": [
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "aegisgate-prometheus"
+					},
+					"editorMode": "code",
+					"expr": "hikaricp_connections_active",
+					"legendFormat": "Active DB Connections",
+					"refId": "A"
+				},
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "aegisgate-prometheus"
+					},
+					"editorMode": "code",
+					"expr": "hikaricp_connections_idle",
+					"legendFormat": "Idle DB Connections",
+					"refId": "B"
+				},
+				{
+					"datasource": {
+						"type": "prometheus",
+						"uid": "aegisgate-prometheus"
+					},
+					"editorMode": "code",
+					"expr": "hikaricp_connections_pending",
+					"legendFormat": "Pending Threads Waiting",
+					"refId": "C"
+				}
+			],
+			"title": "HikariCP Connection Pool",
+			"type": "timeseries"
+		}
+	],
+	"refresh": "5s",
+	"schemaVersion": 39,
+	"tags": [
+		"aegisgate",
+		"llm-gateway",
+		"reverse-proxy",
+		"spring-boot-4",
+		"virtual-threads"
+	],
+	"templating": {
+		"list": []
+	},
+	"time": {
+		"from": "now-15m",
+		"to": "now"
+	},
+	"timepicker": {},
+	"timezone": "browser",
+	"title": "AegisGate — Production Operations",
+	"uid": "aegisgate-overview",
+	"version": 1
+}

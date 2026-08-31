@@ -164,6 +164,20 @@
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
                 <version>0.8.15</version>
+                <configuration>
+                    <excludes>
+                        <exclude>**/AegisGateApplication.*</exclude>
+                        <exclude>**/AegisGateApplication$*</exclude>
+                        <!-- The circuit breaker and orchestrator retry/race
+                             coordination branches (compare-and-set spins, winner
+                             and loser race interleavings) cannot be reached
+                             deterministically; the state transitions and failover
+                             semantics themselves are fully covered by
+                             ProviderCircuitBreakerTest and FailoverOrchestratorTest. -->
+                        <exclude>**/ProviderCircuitBreaker*</exclude>
+                        <exclude>**/FailoverOrchestrator*</exclude>
+                    </excludes>
+                </configuration>
                 <executions>
                     <execution>
                         <goals>
@@ -176,11 +190,6 @@
                         <goals>
                             <goal>report</goal>
                         </goals>
-                        <configuration>
-                            <excludes>
-                                <exclude>**/AegisGateApplication.*</exclude>
-                            </excludes>
-                        </configuration>
                     </execution>
                     <execution>
                         <id>check</id>
@@ -189,17 +198,6 @@
                             <goal>check</goal>
                         </goals>
                         <configuration>
-                            <excludes>
-                                <exclude>**/AegisGateApplication*</exclude>
-                                <!-- The circuit breaker and orchestrator retry/race
-                                     coordination branches (compare-and-set spins, winner
-                                     and loser race interleavings) cannot be reached
-                                     deterministically; the state transitions and failover
-                                     semantics themselves are fully covered by
-                                     ProviderCircuitBreakerTest and FailoverOrchestratorTest. -->
-                                <exclude>**/ProviderCircuitBreaker*</exclude>
-                                <exclude>**/FailoverOrchestrator*</exclude>
-                            </excludes>
                             <rules>
                                 <rule>
                                     <element>BUNDLE</element>

@@ -142,6 +142,123 @@ class UsageLedgerListenerTest {
 		verify(repository).save(argThat(entry -> entry.getPromptTokens() == Integer.MAX_VALUE));
 	}
 
+	@Test
+	@DisplayName("records Micrometer metrics for tokens, cost, and dead letters")
+	void recordsMicrometerMetrics() {
+		UsageLedgerRepository repository = mock(UsageLedgerRepository.class);
+		io.micrometer.core.instrument.simple.SimpleMeterRegistry registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+		UsageLedgerListener listener = new UsageLedgerListener(
+				repository,
+				tempDir.resolve("deadletter.log").toString(),
+				registry
+		);
+
+		TokenUsageEvent event = new TokenUsageEvent(
+				UUID.randomUUID(), "owner-1", "openai", "gpt-5.6-sol",
+				100, 50, 150, 1200, 2500, Instant.now()
+		);
+
+		listener.onTokenUsage(event);
+
+		org.junit.jupiter.api.Assertions.assertEquals(
+				100.0,
+				registry.get("aegis.tokens").tag("type", "prompt").tag("provider", "openai").counter().count()
+		);
+		org.junit.jupiter.api.Assertions.assertEquals(
+				50.0,
+				registry.get("aegis.tokens").tag("type", "completion").tag("provider", "openai").counter().count()
+		);
+		org.junit.jupiter.api.Assertions.assertEquals(
+				2500.0,
+				registry.get("aegis.cost.micros").tag("provider", "openai").counter().count()
+		);
+	}
+
+	@Test
+	@DisplayName("records dead letter metric when database save fails")
+	void recordsDeadLetterMetricOnFailure() {
+		UsageLedgerRepository repository = mock(UsageLedgerRepository.class);
+		when(repository.save(any(UsageLedgerEntry.class)))
+				.thenThrow(new DataAccessResourceFailureException("db down"));
+		io.micrometer.core.instrument.simple.SimpleMeterRegistry registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+		UsageLedgerListener listener = new UsageLedgerListener(
+				repository,
+				tempDir.resolve("deadletter.log").toString(),
+				registry
+		);
+
+		TokenUsageEvent event = new TokenUsageEvent(
+				UUID.randomUUID(), "owner-1", "anthropic", "claude-sonnet-5",
+				10, 20, 30, 500, 800, Instant.now()
+		);
+
+		listener.onTokenUsage(event);
+
+		org.junit.jupiter.api.Assertions.assertEquals(
+				1.0,
+				registry.get("aegis.ledger.dead_letter").tag("provider", "anthropic").counter().count()
+		);
+	}
+
+	@Test
+	@DisplayName("handles null registry and blank provider/model gracefully in metrics")
+	void handlesNullRegistryAndBlankProvider() {
+		UsageLedgerRepository repository = mock(UsageLedgerRepository.class);
+		UsageLedgerListener listener = new UsageLedgerListener(
+				repository,
+				tempDir.resolve("deadletter.log").toString(),
+				null
+		);
+
+		TokenUsageEvent event = new TokenUsageEvent(
+				UUID.randomUUID(), "owner-1", "", "   ",
+				0, 0, 0, 0, 100, Instant.now()
+		);
+
+		assertDoesNotThrow(() -> listener.onTokenUsage(event));
+	}
+
+	@Test
+	@DisplayName("handles null provider and model in metrics and dead letter")
+	void handlesNullProviderAndModelInMetrics() {
+		UsageLedgerRepository repository = mock(UsageLedgerRepository.class);
+		io.micrometer.core.instrument.simple.SimpleMeterRegistry registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+		UsageLedgerListener listener = new UsageLedgerListener(
+				repository,
+				tempDir.resolve("deadletter.log").toString(),
+				registry
+		);
+
+		TokenUsageEvent event = new TokenUsageEvent(
+				UUID.randomUUID(), "owner-1", null, null,
+				10, 5, 15, 100, 200, Instant.now()
+		);
+
+		listener.onTokenUsage(event);
+
+		org.junit.jupiter.api.Assertions.assertEquals(
+				10.0,
+				registry.get("aegis.tokens").tag("type", "prompt").tag("provider", "unknown").tag("model", "unknown")
+				        .counter().count()
+		);
+
+		// Also trigger dead letter with null provider
+		when(repository.save(any(UsageLedgerEntry.class)))
+				.thenThrow(new DataAccessResourceFailureException("db down"));
+
+		TokenUsageEvent failureEvent = new TokenUsageEvent(
+				UUID.randomUUID(), "owner-1", null, null,
+				0, 0, 0, 100, 0, Instant.now()
+		);
+
+		listener.onTokenUsage(failureEvent);
+
+		org.junit.jupiter.api.Assertions.assertEquals(
+				1.0,
+				registry.get("aegis.ledger.dead_letter").tag("provider", "unknown").counter().count()
+		);
+	}
+
 	private static TokenUsageEvent event() {
 		return new TokenUsageEvent(
 				UUID.randomUUID(), "owner-1", "openai", "gpt-5.6-sol",

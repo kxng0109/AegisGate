@@ -184,17 +184,24 @@ The Maven wrapper is included, so no separate Maven installation is needed.
 
 ### Running with Docker Compose
 
-The easiest way to run the backing dependencies (Redis 7 and PostgreSQL 16) is with Docker Compose:
+The gateway includes production-ready multi-stage containers and pre-configured Docker Compose profiles:
 
 ```bash
-# Start only the dependencies (for running the gateway locally from Maven or IntelliJ)
+# Start only the dependencies (Redis 7 & PostgreSQL 16 for local IDE development)
 docker compose --profile deps up -d
 
-# Or start the entire stack including the containerized gateway
+# Start the gateway with backing databases and the full observability stack (Prometheus & Grafana)
+docker compose --profile monitoring up -d
+
+# Start the full containerized stack
 docker compose --profile all up -d --build
 ```
 
-You can copy `.env.docker.example` to `.env` to customize ports and supply your provider API keys.
+Copy `.env.docker.example` to `.env` to configure ports, provider API keys, and Grafana credentials:
+
+- **AegisGate Gateway**: `http://localhost:8080` (Actuator & Health: `http://localhost:8080/actuator/health`)
+- **Grafana Dashboard**: `http://localhost:3000` (Pre-configured `AegisGate — Production Operations` dashboard)
+- **Prometheus TSDB**: `http://localhost:9090` (Scraping `/actuator/prometheus` with pre-loaded alert rules)
 
 ### Running manually
 
@@ -303,7 +310,7 @@ Run the full suite with coverage and the packaging step:
 ./mvnw clean verify
 ```
 
-The suite currently has 552 tests:
+The suite currently has 556 tests:
 
 - Unit tests for hashing, key management, the rate limit engine, both filters, the body wrapper, the circuit breaker, the provider adapter, the orchestrator, the error handler, and the Phase 1 security components.
 - Distributed circuit breaker tests in `proxy/failover`: `RedisCircuitBreakerTest` and `CircuitBreakerCrossInstanceIntegrationTest` run against a real Redis container and verify shared state, the single flight probe, and the mirror fallback, while `CircuitBreakerConfigTest`, `CircuitBreakerMetricsTest`, `RedisCircuitBreakerFactoryTest`, and `RedisCircuitBreakerEdgeTest` cover configuration, metrics, and the slow or unavailable Redis paths.

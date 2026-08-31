@@ -26,6 +26,7 @@ services:
       - redis_data:/data
     profiles:
       - deps
+      - monitoring
       - all
     deploy:
       resources:
@@ -67,6 +68,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
     profiles:
       - deps
+      - monitoring
       - all
     deploy:
       resources:
@@ -139,6 +141,7 @@ services:
       GATEWAY_DATABASE_MIGRATE_INTERVAL: 30s
     profiles:
       - app
+      - monitoring
       - all
     deploy:
       resources:
@@ -157,11 +160,119 @@ services:
     networks:
       - aegisgate-network
 
+  # ---------------------------------------------------------------------------
+  # Prometheus 3 - Metrics Aggregator & Alerting Engine
+  # ---------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v3.2.1
+    container_name: aegisgate-prometheus
+    restart: unless-stopped
+    user: "65534:65534"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--storage.tsdb.retention.size=20GB"
+      - "--storage.tsdb.wal-compression"
+      - "--web.enable-lifecycle"
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus_data:/prometheus
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://127.0.0.1:9090/-/healthy" ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    profiles:
+      - monitoring
+      - all
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1024M
+        reservations:
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - aegisgate-network
+
+  # ---------------------------------------------------------------------------
+  # Grafana 11 - Operational Dashboards & Real-Time Visualization
+  # ---------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana-enterprise:11.5.2
+    container_name: aegisgate-grafana
+    restart: unless-stopped
+    user: "472:0"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-aegisgate_secret}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: ${GRAFANA_AUTH_ANONYMOUS_ENABLED:-true}
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -fsS http://127.0.0.1:3000/api/health || exit 1" ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+    profiles:
+      - monitoring
+      - all
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - aegisgate-network
+
 volumes:
   postgres_data:
     name: aegisgate_postgres_data
   redis_data:
     name: aegisgate_redis_data
+  prometheus_data:
+    name: aegisgate_prometheus_data
+  grafana_data:
+    name: aegisgate_grafana_data
 
 networks:
   aegisgate-network:
