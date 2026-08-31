@@ -454,7 +454,36 @@ class FailoverOrchestratorTest {
 				new AnthropicAdapter(mapper),
 				new OllamaAdapter(mapper)
 		);
-		return new ProviderClientAdapter(httpClient, resolver);
+		return new ProviderClientAdapter(httpClient, resolver, testLineGuardFactory());
+	}
+
+	private io.github.kxng0109.aegisgate.proxy.sse.SseLineGuardAutoConfig.SseLineGuardFactory testLineGuardFactory() {
+		io.micrometer.core.instrument.MeterRegistry registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+		ObjectMapper mapper = new ObjectMapper();
+		io.github.kxng0109.aegisgate.proxy.sse.SseLineGuardProperties props =
+				io.github.kxng0109.aegisgate.proxy.sse.SseLineGuardProperties.DEFAULTS;
+		io.github.kxng0109.aegisgate.proxy.sse.SseLineGuardAutoConfig.SseLineGuardFactory base =
+				new io.github.kxng0109.aegisgate.proxy.sse.DefaultSseLineGuardFactory(props, registry, mapper);
+		return new io.github.kxng0109.aegisgate.proxy.sse.SseLineGuardAutoConfig.SseLineGuardFactory() {
+			@Override
+			public io.github.kxng0109.aegisgate.proxy.sse.DefaultSseLineGuard newGuard(
+					io.github.kxng0109.aegisgate.proxy.sse.SseLineGuard.ProviderType t, String n, java.util.UUID id
+			) {
+				return base.newGuard(t, n, id);
+			}
+
+			@Override
+			public io.github.kxng0109.aegisgate.proxy.sse.BoundedLineBodyHandler bodyHandlerForProvider(
+					io.github.kxng0109.aegisgate.proxy.sse.SseLineGuard.ProviderType t
+			) {
+				return base.bodyHandlerForProvider(t);
+			}
+
+			@Override
+			public io.github.kxng0109.aegisgate.proxy.sse.SseLineGuardProperties properties() {
+				return props;
+			}
+		};
 	}
 
 	private GatewayProperties properties() {

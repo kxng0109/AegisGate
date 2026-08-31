@@ -3,6 +3,8 @@ package io.github.kxng0109.aegisgate.proxy.failover;
 import io.github.kxng0109.aegisgate.contracts.ProviderConfig;
 import io.github.kxng0109.aegisgate.proxy.protocol.ProtocolAdapter;
 import io.github.kxng0109.aegisgate.proxy.protocol.ProtocolAdapterResolver;
+import io.github.kxng0109.aegisgate.proxy.sse.BoundedLineBodyHandler;
+import io.github.kxng0109.aegisgate.proxy.sse.SseLineGuardAutoConfig;
 import lombok.RequiredArgsConstructor;
 import org.jspecify.annotations.Nullable;
 import org.springframework.stereotype.Service;
@@ -29,6 +31,7 @@ public class ProviderClientAdapter {
 
 	private final HttpClient proxyHttpClient;
 	private final ProtocolAdapterResolver adapterResolver;
+	private final SseLineGuardAutoConfig.SseLineGuardFactory lineGuardFactory;
 
 	/**
 	 * Sends the chat completion request to the provider without blocking.
@@ -57,6 +60,9 @@ public class ProviderClientAdapter {
 		                                         ));
 		adapter.buildRequestHeaders(config).forEach(builder::header);
 
-		return proxyHttpClient.sendAsync(builder.build(), HttpResponse.BodyHandlers.ofLines());
+		BoundedLineBodyHandler handler = lineGuardFactory.bodyHandlerForProvider(
+				io.github.kxng0109.aegisgate.proxy.sse.SseLineGuard.ProviderType.from(config.type())
+		);
+		return proxyHttpClient.sendAsync(builder.build(), handler);
 	}
 }

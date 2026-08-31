@@ -13,7 +13,13 @@ import io.github.kxng0109.aegisgate.proxy.protocol.OpenAiChatRequest;
 import io.github.kxng0109.aegisgate.proxy.protocol.ProtocolAdapter;
 import io.github.kxng0109.aegisgate.proxy.protocol.ProtocolAdapterResolver;
 import io.github.kxng0109.aegisgate.proxy.protocol.SseNormalizer;
+import io.github.kxng0109.aegisgate.proxy.sse.LineTooLongException;
+import io.github.kxng0109.aegisgate.proxy.sse.SseConnectionLimitException;
+import io.github.kxng0109.aegisgate.proxy.sse.SseFlushStrategy;
+import io.github.kxng0109.aegisgate.proxy.sse.SseLineGuard;
+import io.github.kxng0109.aegisgate.proxy.sse.SseLineGuardAutoConfig.SseLineGuardFactory;
 import io.github.kxng0109.aegisgate.security.filter.KeyAuthFilter;
+import jakarta.servlet.ServletOutputStream;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.Nullable;
@@ -61,6 +67,8 @@ public class ProxyController {
 	private final ProtocolAdapterResolver adapterResolver;
 	private final CostCalculator costCalculator;
 	private final ApplicationEventPublisher eventPublisher;
+	private final SseFlushStrategy flushStrategy;
+	private final SseLineGuardFactory lineGuardFactory;
 
 	/**
 	 * @param failoverOrchestrator resolves the winning provider for a request
@@ -69,6 +77,8 @@ public class ProxyController {
 	 * @param adapterResolver      picks the protocol adapter for a provider
 	 * @param costCalculator       computes the cost of a completed stream
 	 * @param eventPublisher       delivers the usage event to the ledger
+	 * @param flushStrategy        batches and periodically flushes SSE lines to the downstream client
+	 * @param lineGuardFactory     creates per-stream line guards
 	 */
 	public ProxyController(
 			FailoverOrchestrator failoverOrchestrator,
@@ -76,7 +86,9 @@ public class ProxyController {
 			ObjectMapper objectMapper,
 			ProtocolAdapterResolver adapterResolver,
 			CostCalculator costCalculator,
-			ApplicationEventPublisher eventPublisher
+			ApplicationEventPublisher eventPublisher,
+			SseFlushStrategy flushStrategy,
+			SseLineGuardFactory lineGuardFactory
 	) {
 		this.failoverOrchestrator = failoverOrchestrator;
 		this.gatewayProperties = gatewayProperties;
@@ -84,6 +96,8 @@ public class ProxyController {
 		this.adapterResolver = adapterResolver;
 		this.costCalculator = costCalculator;
 		this.eventPublisher = eventPublisher;
+		this.flushStrategy = flushStrategy;
+		this.lineGuardFactory = lineGuardFactory;
 	}
 
 	/**
@@ -165,23 +179,78 @@ public class ProxyController {
 			String requestedModel
 	) throws IOException {
 		long startedNanos = System.nanoTime();
-		try (var lines = providerResponse.response().body()) {
-			for (String line : (Iterable<String>) lines::iterator) {
-				List<String> normalized = normalizer.normalizeLine(line);
-				for (String toWrite : normalized) {
-					out.write(toWrite.getBytes(StandardCharsets.UTF_8));
-					out.write('\n');
-					out.flush();
-				}
-				if (normalizer.isDone()) {
-					break;
+		ServletOutputStream servletOut = out instanceof ServletOutputStream candidate ? candidate : null;
+		SseFlushStrategy.FlushHandle flushHandle = null;
+		if (servletOut != null) {
+			try {
+				flushHandle = flushStrategy.register(servletOut);
+			} catch (SseConnectionLimitException ex) {
+				log.warn("SSE stream rejected, connection limit reached: {}", ex.getMessage());
+				return;
+			}
+		}
+
+		// Create per-stream line guard
+		SseLineGuard lineGuard = lineGuardFactory.newGuard(
+				io.github.kxng0109.aegisgate.proxy.sse.SseLineGuard.ProviderType.from(providerType),
+				providerName,
+				java.util.UUID.randomUUID()
+		);
+		SseLineGuard.ProviderType guardProviderType = io.github.kxng0109.aegisgate.proxy.sse.SseLineGuard.ProviderType.from(
+				providerType);
+
+		try {
+			try (var lines = providerResponse.response().body()) {
+				for (String line : (Iterable<String>) lines::iterator) {
+					// Guard the raw upstream line before normalization
+					List<String> guarded = lineGuard.checkLine(
+							line,
+							io.github.kxng0109.aegisgate.proxy.sse.SseLineGuard.ProviderType.from(providerType)
+					);
+
+					if (lineGuard.isRejected()) {
+						// Write SSE error event and close
+						for (String s : guarded) {
+							writeSse(out, s);
+						}
+						out.flush();
+						lineGuard.onStreamAbort("line_too_long");
+						return;
+					}
+					if (guarded.isEmpty()) {
+						continue; // line dropped (REJECT_LINE_CONTINUE)
+					}
+
+					List<String> normalized = normalizer.normalizeLine(line);
+					for (String toWrite : normalized) {
+						byte[] bytes = toWrite.getBytes(StandardCharsets.UTF_8);
+						out.write(bytes);
+						out.write('\n');
+						if (flushHandle != null && servletOut != null) {
+							if (flushStrategy.onWrite(servletOut, bytes.length + 1)) {
+								return;
+							}
+						} else {
+							out.flush();
+						}
+					}
+					if (normalizer.isDone()) {
+						break;
+					}
 				}
 			}
-		} catch (IOException ex) {
-			// The downstream client went away; the upstream stream is closed by
-			// the try with resources, so nothing leaks. Token usage cannot be
-			// trusted on an aborted stream, so nothing is recorded.
+		} catch (LineTooLongException ex) {
+			// Body handler detected oversized line during byte decoding
+			writeSseError(out, ex.limitBytes(), ex.actualBytes(), ex.provider());
+			lineGuard.onStreamAbort("line_too_long");
 			return;
+		} catch (IOException ex) {
+			// Downstream client disconnected
+			return;
+		} finally {
+			if (flushHandle != null) {
+				flushStrategy.unregister(flushHandle);
+			}
 		}
 
 		SseNormalizer.UsageInfo usage = normalizer.usage();
@@ -200,7 +269,8 @@ public class ProxyController {
 			));
 		}
 	}
-private void relayRaw(ProviderResponse providerResponse, OutputStream out) {
+
+	private void relayRaw(ProviderResponse providerResponse, OutputStream out) {
 		try (var lines = providerResponse.response().body()) {
 			for (String line : (Iterable<String>) lines::iterator) {
 				out.write(line.getBytes(StandardCharsets.UTF_8));
@@ -241,5 +311,19 @@ private void relayRaw(ProviderResponse providerResponse, OutputStream out) {
 		return ResponseEntity.status(status)
 		                     .contentType(MediaType.APPLICATION_JSON)
 		                     .body(out -> out.write(body.getBytes(StandardCharsets.UTF_8)));
+	}
+
+	private void writeSse(OutputStream out, String line) throws IOException {
+		out.write(line.getBytes(StandardCharsets.UTF_8));
+		out.write('\n');
+	}
+
+	private void writeSseError(OutputStream out, int limitBytes, int actualBytes, String provider) throws IOException {
+		String json = "{\"code\":\"LINE_TOO_LONG\",\"message\":\"SSE line exceeds configured maximum of " + limitBytes
+				+ " bytes (actual: " + actualBytes + ")\",\"limit\":" + limitBytes + ",\"actual\":" + actualBytes
+				+ ",\"provider\":\"" + provider + "\"}";
+		writeSse(out, "event: error");
+		writeSse(out, "data: " + json);
+		writeSse(out, "");
 	}
 }

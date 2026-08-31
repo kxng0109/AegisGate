@@ -11,6 +11,11 @@ import io.github.kxng0109.aegisgate.proxy.protocol.AnthropicAdapter;
 import io.github.kxng0109.aegisgate.proxy.protocol.OllamaAdapter;
 import io.github.kxng0109.aegisgate.proxy.protocol.OpenAiPassthroughAdapter;
 import io.github.kxng0109.aegisgate.proxy.protocol.ProtocolAdapterResolver;
+import io.github.kxng0109.aegisgate.proxy.sse.SseConnectionLimitException;
+import io.github.kxng0109.aegisgate.proxy.sse.SseFlushStrategy;
+import io.github.kxng0109.aegisgate.proxy.sse.SseLineGuard;
+import io.github.kxng0109.aegisgate.proxy.sse.SseLineGuardAutoConfig;
+import io.github.kxng0109.aegisgate.proxy.sse.TestServletOutputStreams.RecordingServletOutputStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -36,9 +41,10 @@ import java.util.concurrent.CompletionException;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.anyLong;
+import static org.mockito.Mockito.eq;
 
 /**
  * Unit tests for {@link ProxyController}: request validation, alias resolution, streaming of the winning provider's SSE
@@ -57,6 +63,52 @@ class ProxyControllerTest {
 	private final ObjectMapper objectMapper = new ObjectMapper();
 	private final CostCalculator costCalculator = mock(CostCalculator.class);
 	private final ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
+	private final SseFlushStrategy flushStrategy = mock(SseFlushStrategy.class);
+	private final SseLineGuardAutoConfig.SseLineGuardFactory lineGuardFactory = mock(SseLineGuardAutoConfig.SseLineGuardFactory.class);
+
+	{
+		when(flushStrategy.register(any())).thenReturn(null);
+		SseLineGuard noopGuard = new SseLineGuard() {
+			@Override
+			public java.util.List<String> checkLine(String line, SseLineGuard.ProviderType provider) {
+				return java.util.List.of(line);
+			}
+
+			@Override
+			public boolean isRejected() {
+				return false;
+			}
+
+			@Override
+			public void onStreamComplete() {
+			}
+
+			@Override
+			public void onStreamAbort(String reason) {
+			}
+
+			@Override
+			public SseLineGuard.ConfigSnapshot config() {
+				return new SseLineGuard.ConfigSnapshot(
+						16384,
+						java.util.Map.of(),
+						10,
+						SseLineGuard.Action.REJECT_LINE_AND_CLOSE
+				);
+			}
+		};
+		// The factory's newGuard returns DefaultSseLineGuard; we mock it to return a no-op guard.
+		io.github.kxng0109.aegisgate.proxy.sse.DefaultSseLineGuard noopDefault =
+				mock(io.github.kxng0109.aegisgate.proxy.sse.DefaultSseLineGuard.class);
+		when(noopDefault.checkLine(anyString(), any(SseLineGuard.ProviderType.class)))
+				.thenAnswer(inv -> java.util.List.of((String) inv.getArgument(0)));
+		when(noopDefault.isRejected()).thenReturn(false);
+		when(lineGuardFactory.newGuard(
+				any(SseLineGuard.ProviderType.class),
+				anyString(),
+				any()
+		)).thenReturn(noopDefault);
+	}
 
 	private ProxyController controller;
 
@@ -79,8 +131,68 @@ class ProxyControllerTest {
 		);
 		controller = new ProxyController(
 				orchestrator, gatewayProperties, objectMapper,
-				resolver, costCalculator, eventPublisher
+				resolver, costCalculator, eventPublisher, flushStrategy, lineGuardFactory
 		);
+	}
+
+	@Test
+	@DisplayName("an unparseable body is rejected with 400")
+	void unparseableJsonBodyRejected() {
+		ResponseEntity<StreamingResponseBody> response = controller.proxyChatCompletions("not-json", request());
+		assertEquals(400, response.getStatusCode().value());
+	}
+
+	@Test
+	@DisplayName("a non-object json body is rejected with 400")
+	void nonObjectJsonBodyRejected() {
+		ResponseEntity<StreamingResponseBody> response = controller.proxyChatCompletions("123", request());
+		assertEquals(400, response.getStatusCode().value());
+	}
+
+	@Test
+	@DisplayName("a non-string model field is rejected with 400")
+	void nonStringModelRejected() {
+		ResponseEntity<StreamingResponseBody> response = controller.proxyChatCompletions("{\"model\": 123}", request());
+		assertEquals(400, response.getStatusCode().value());
+	}
+
+	@Test
+	@DisplayName("an orchestrator exception with null cause is wrapped as upstream unavailable")
+	void orchestratorNullCauseWrapped() {
+		when(orchestrator.execute(any(), anyString()))
+				.thenReturn(CompletableFuture.failedFuture(new CompletionException(null)));
+		assertThrows(
+				UpstreamUnavailableException.class, () ->
+						controller.proxyChatCompletions(PATH_BODY, request())
+		);
+	}
+
+	@Test
+	@DisplayName("an orchestrator exception with UpstreamUnavailableException is rethrown directly")
+	void orchestratorUpstreamUnavailableRethrown() {
+		when(orchestrator.execute(any(), anyString()))
+				.thenReturn(CompletableFuture.failedFuture(
+						new CompletionException(new UpstreamUnavailableException("direct", null, false, false))
+				));
+		UpstreamUnavailableException thrown = assertThrows(
+				UpstreamUnavailableException.class, () ->
+						controller.proxyChatCompletions(PATH_BODY, request())
+		);
+		assertEquals("direct", thrown.getMessage());
+	}
+
+	@Test
+	@DisplayName("an orchestrator exception with non-null non-upstream cause is wrapped")
+	void orchestratorGenericCauseWrapped() {
+		when(orchestrator.execute(any(), anyString()))
+				.thenReturn(CompletableFuture.failedFuture(
+						new CompletionException(new RuntimeException("general network error"))
+				));
+		UpstreamUnavailableException thrown = assertThrows(
+				UpstreamUnavailableException.class, () ->
+						controller.proxyChatCompletions(PATH_BODY, request())
+		);
+		assertEquals("upstream request failed unexpectedly", thrown.getMessage());
 	}
 
 	@Test
@@ -483,6 +595,161 @@ class ProxyControllerTest {
 		ArgumentCaptor<TokenUsageEvent> captor = ArgumentCaptor.forClass(TokenUsageEvent.class);
 		verify(eventPublisher).publishEvent(captor.capture());
 		assertNull(captor.getValue().ownerId());
+	}
+
+	@Test
+	@DisplayName("a servlet output stream is registered, reported per line, and unregistered")
+	void relaySseDrivesTheFlushStrategyLifecycle() throws Exception {
+		ProviderResponse response = providerResponse(
+				"openai", 200, sseHeaders(),
+				Stream.of("data: {\"content\":\"hello\"}", "data: {\"content\":\" world\"}", "data: [DONE]")
+		);
+		when(orchestrator.execute(any(), anyString()))
+				.thenReturn(CompletableFuture.completedFuture(response));
+		SseFlushStrategy.FlushHandle handle = mock(SseFlushStrategy.FlushHandle.class);
+		when(flushStrategy.register(any())).thenReturn(handle);
+		when(flushStrategy.onWrite(any(), anyInt())).thenReturn(false);
+
+		ResponseEntity<StreamingResponseBody> responseEntity = controller.proxyChatCompletions(PATH_BODY, request());
+		RecordingServletOutputStream out = new RecordingServletOutputStream();
+		responseEntity.getBody().writeTo(out);
+
+		assertTrue(out.writtenUtf8().contains("data: {\"content\":\"hello\"}"));
+		verify(flushStrategy).register(any());
+		verify(flushStrategy, times(3)).onWrite(any(), anyInt());
+		verify(flushStrategy).unregister(handle);
+	}
+
+	@Test
+	@DisplayName("a backpressure abort stops the stream and still unregisters the handle")
+	void backpressureAbortStopsTheStream() throws Exception {
+		ProviderResponse response = providerResponse(
+				"openai", 200, sseHeaders(),
+				Stream.of("data: {\"content\":\"hello\"}", "data: {\"content\":\" world\"}", "data: [DONE]")
+		);
+		when(orchestrator.execute(any(), anyString()))
+				.thenReturn(CompletableFuture.completedFuture(response));
+		SseFlushStrategy.FlushHandle handle = mock(SseFlushStrategy.FlushHandle.class);
+		when(flushStrategy.register(any())).thenReturn(handle);
+		when(flushStrategy.onWrite(any(), anyInt())).thenReturn(true);
+
+		ResponseEntity<StreamingResponseBody> responseEntity = controller.proxyChatCompletions(PATH_BODY, request());
+		RecordingServletOutputStream out = new RecordingServletOutputStream();
+		responseEntity.getBody().writeTo(out);
+
+		assertTrue(out.writtenUtf8().contains("data: {\"content\":\"hello\"}"));
+		verify(flushStrategy, times(1)).onWrite(any(), anyInt());
+		verify(flushStrategy).unregister(handle);
+	}
+
+	@Test
+	@DisplayName("a connection-limit rejection sheds the stream without touching the flush path")
+	void connectionLimitRejectionShedsTheStream() throws Exception {
+		ProviderResponse response = providerResponse(
+				"openai", 200, sseHeaders(),
+				Stream.of("data: {\"content\":\"hello\"}", "data: [DONE]")
+		);
+		when(orchestrator.execute(any(), anyString()))
+				.thenReturn(CompletableFuture.completedFuture(response));
+		when(flushStrategy.register(any())).thenThrow(new SseConnectionLimitException("limit"));
+
+		ResponseEntity<StreamingResponseBody> responseEntity = controller.proxyChatCompletions(PATH_BODY, request());
+		RecordingServletOutputStream out = new RecordingServletOutputStream();
+		responseEntity.getBody().writeTo(out);
+
+		assertEquals("", out.writtenUtf8());
+		verify(flushStrategy, never()).onWrite(any(), anyInt());
+		verify(flushStrategy, never()).unregister(any());
+	}
+
+	@Test
+	@DisplayName("a line-too-long error event is written and the stream aborted when guard rejects")
+	void guardRejectionEmitsErrorEvent() throws Exception {
+		ProviderResponse response = providerResponse(
+				"openai", 200, sseHeaders(),
+				Stream.of("data: {\"content\":\"oversized\"}", "data: [DONE]")
+		);
+		when(orchestrator.execute(any(), anyString()))
+				.thenReturn(CompletableFuture.completedFuture(response));
+
+		io.github.kxng0109.aegisgate.proxy.sse.DefaultSseLineGuard rejectingGuard =
+				mock(io.github.kxng0109.aegisgate.proxy.sse.DefaultSseLineGuard.class);
+		when(rejectingGuard.checkLine(anyString(), any()))
+				.thenReturn(List.of("event: error", "data: {\"code\":\"LINE_TOO_LONG\"}", ""));
+		when(rejectingGuard.isRejected()).thenReturn(true);
+		when(lineGuardFactory.newGuard(any(), anyString(), any())).thenReturn(rejectingGuard);
+
+		ResponseEntity<StreamingResponseBody> responseEntity = controller.proxyChatCompletions(PATH_BODY, request());
+		RecordingServletOutputStream out = new RecordingServletOutputStream();
+		responseEntity.getBody().writeTo(out);
+
+		assertTrue(out.writtenUtf8().contains("event: error"));
+		assertTrue(out.writtenUtf8().contains("LINE_TOO_LONG"));
+		verify(rejectingGuard).onStreamAbort("line_too_long");
+	}
+
+	@Test
+	@DisplayName("a line dropped by REJECT_LINE_CONTINUE is skipped")
+	void guardContinueSkipsLine() throws Exception {
+		ProviderResponse response = providerResponse(
+				"openai", 200, sseHeaders(),
+				Stream.of("data: {\"content\":\"dropped\"}", "data: {\"content\":\"kept\"}", "data: [DONE]")
+		);
+		when(orchestrator.execute(any(), anyString()))
+				.thenReturn(CompletableFuture.completedFuture(response));
+
+		io.github.kxng0109.aegisgate.proxy.sse.DefaultSseLineGuard dropGuard =
+				mock(io.github.kxng0109.aegisgate.proxy.sse.DefaultSseLineGuard.class);
+		when(dropGuard.checkLine(eq("data: {\"content\":\"dropped\"}"), any()))
+				.thenReturn(List.of());
+		when(dropGuard.checkLine(eq("data: {\"content\":\"kept\"}"), any()))
+				.thenReturn(List.of("data: {\"content\":\"kept\"}"));
+		when(dropGuard.checkLine(eq("data: [DONE]"), any()))
+				.thenReturn(List.of("data: [DONE]"));
+		when(dropGuard.isRejected()).thenReturn(false);
+		when(lineGuardFactory.newGuard(any(), anyString(), any())).thenReturn(dropGuard);
+
+		ResponseEntity<StreamingResponseBody> responseEntity = controller.proxyChatCompletions(PATH_BODY, request());
+		RecordingServletOutputStream out = new RecordingServletOutputStream();
+		responseEntity.getBody().writeTo(out);
+
+		assertFalse(out.writtenUtf8().contains("dropped"));
+		assertTrue(out.writtenUtf8().contains("kept"));
+	}
+
+	@Test
+	@DisplayName("LineTooLongException from the body stream writes SSE error event")
+	void bodyStreamLineTooLongExceptionWritesSseError() throws Exception {
+		Stream<String> throwingStream = Stream.generate(() -> {
+			throw new io.github.kxng0109.aegisgate.proxy.sse.LineTooLongException(100, 200, "openai");
+		});
+		ProviderResponse response = providerResponse("openai", 200, sseHeaders(), throwingStream);
+		when(orchestrator.execute(any(), anyString()))
+				.thenReturn(CompletableFuture.completedFuture(response));
+
+		ResponseEntity<StreamingResponseBody> responseEntity = controller.proxyChatCompletions(PATH_BODY, request());
+		RecordingServletOutputStream out = new RecordingServletOutputStream();
+		responseEntity.getBody().writeTo(out);
+
+		assertTrue(out.writtenUtf8().contains("event: error"));
+		assertTrue(out.writtenUtf8().contains("LINE_TOO_LONG"));
+	}
+
+	@Test
+	@DisplayName("relaySse writes to non-ServletOutputStream without flush strategy")
+	void relaySseWithNonServletOutputStream() throws Exception {
+		ProviderResponse response = providerResponse(
+				"openai", 200, sseHeaders(),
+				Stream.of("data: {\"content\":\"plain\"}", "data: [DONE]")
+		);
+		when(orchestrator.execute(any(), anyString()))
+				.thenReturn(CompletableFuture.completedFuture(response));
+
+		ResponseEntity<StreamingResponseBody> responseEntity = controller.proxyChatCompletions(PATH_BODY, request());
+		ByteArrayOutputStream out = new ByteArrayOutputStream();
+		responseEntity.getBody().writeTo(out);
+
+		assertTrue(out.toString(StandardCharsets.UTF_8).contains("data: {\"content\":\"plain\"}"));
 	}
 
 	// ---------------------------------------------------------------------

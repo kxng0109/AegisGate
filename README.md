@@ -2,7 +2,17 @@
 
 AegisGate is an AI gateway built in Java 25 on Spring Boot 4.1. It sits between your applications and large language model providers, exposing a single OpenAI compatible chat completions endpoint while handling authentication, rate limiting, secure upstream forwarding, protocol normalization, and usage based cost accounting.
 
-The project is developed in phases. Phase 1 delivered a transparent SSE streaming proxy with SSRF defense and header sanitization. Phase 2 added virtual API key authentication and distributed rate limiting backed by Redis. Phase 3 added resilient multi provider failover: every model now maps to a chain of providers with automatic failover, per provider circuit breakers, and an optional race strategy. Phase 4 added protocol normalization and an asynchronous usage and cost ledger. The gateway now serves OpenAI shaped SSE to your client no matter which provider dialect answers the request, and it records the tokens and estimated cost of every completed stream in PostgreSQL with prices refreshed daily from the LiteLLM catalog. Phase 5 made the per provider circuit breaker distributed across gateway instances: breaker state lives in Redis so every instance agrees on which providers are healthy, with an in-memory mirror that keeps the gateway fail closed when Redis is slow or unavailable, following the architectural master plan.
+The project is developed in phases. Phase 1 delivered a transparent SSE streaming proxy with SSRF defense and header
+sanitization. Phase 2 added virtual API key authentication and distributed rate limiting backed by Redis. Phase 3 added
+resilient multi provider failover: every model now maps to a chain of providers with automatic failover, per provider
+circuit breakers, and an optional race strategy. Phase 4 added protocol normalization and an asynchronous usage and cost
+ledger. The gateway now serves OpenAI shaped SSE to your client no matter which provider dialect answers the request,
+and it records the tokens and estimated cost of every completed stream in PostgreSQL with prices refreshed daily from
+the LiteLLM catalog. Phase 5 made the per provider circuit breaker distributed across gateway instances: breaker state
+lives in Redis so every instance agrees on which providers are healthy, with an in-memory mirror that keeps the gateway
+fail closed when Redis is slow or unavailable, following the architectural master plan. Subsequent hardening added an
+adaptive SSE flush timer with backpressure detection and a bounded line body handler that enforces per-line byte caps
+and per-stream rate limits during byte decoding to prevent memory exhaustion from oversized upstream events.
 
 ## What it does
 
@@ -17,6 +27,10 @@ The project is developed in phases. Phase 1 delivered a transparent SSE streamin
 - Validates upstream URLs against private, loopback, link local, multicast, and cloud metadata ranges before any connection is attempted.
 - Strips client supplied identity and authorization headers and injects the configured upstream key.
 - Never logs key material. Every sensitive value is wrapped so that its string representation is masked.
+- Enforces a hard byte limit on every upstream SSE line during byte decoding before string materialization, immediately
+  cancelling the upstream connection with an RST_STREAM frame if an oversized line arrives. See `proxy/sse`.
+- Protects downstream clients with an adaptive SSE flush strategy that batches lines and flushes on line count or
+  elapsed time, paired with a write watchdog and hot-reloadable configuration.
 - Normalizes every provider dialect to the OpenAI SSE contract, so one client endpoint works with OpenAI compatible, Anthropic, and Ollama upstreams. See `proxy/protocol`.
 - Records the token usage and estimated cost of every completed stream into a PostgreSQL ledger. Recording runs asynchronously on its own executor, so billing can never slow a response.
 - Keeps prices current without manual edits. The gateway syncs the LiteLLM model pricing catalog into the database once a day, and the price table is seeded at first migration.
@@ -134,6 +148,10 @@ The code is organized by responsibility under `src/main/java/io/github/kxng0109/
 - `security/ratelimit` contains the distributed limiter: `RateLimitEngine`, `RateLimitScriptConfig`, `KeyManagementService`, and `BootstrapKeySeeder`.
 - `proxy/failover` contains the routing and resilience layer: `FailoverOrchestrator`, `CircuitBreaker`, `CircuitBreakerFactory`, `RedisCircuitBreaker`, `RedisCircuitBreakerFactory`, `ProviderCircuitBreaker`, `CircuitBreakerConfig`, `CircuitBreakerMetrics`, `CircuitBreakerProperties`, `InstanceId`, `ProviderClientAdapter`, `ProviderResponse`, `UpstreamUnavailableException`, and `GatewayExceptionHandler`.
 - `proxy/protocol` contains the Phase 4 dialect layer: `ProtocolAdapterResolver`, the request adapters, and the SSE normalizers for the OpenAI, Anthropic, and Ollama dialects.
+- `proxy/sse` contains the streaming protection and guard layer: `BoundedLineBodyHandler`, `DefaultSseLineGuard`,
+  `DefaultSseLineGuardFactory`, `SseLineGuardProperties`, `SseLineGuardAutoConfig`, `AdaptiveSseFlushStrategy`,
+  `SseFlushStrategy`, `SseFlushProperties`, `SseFlushAutoConfig`, `SseFlushConfigReloader`, `SseFlushHealthIndicator`,
+  `TokenBucket`, and `LineTooLongException`.
 - `ledger` contains the Phase 4 usage and cost ledger: `UsageLedgerListener`, `UsageLedgerRepository`, `CostCalculator`, `ModelPriceCatalog`, `ModelPricingRepository`, and `PricingSyncService`.
 - `proxy` contains the controller and the shared `HttpClient` bean in `proxy/config/HttpClientConfig.java`.
 - `config` contains the `SensitiveString` value wrapper and the retrying `DatabaseMigrator`.
@@ -209,6 +227,13 @@ All configuration lives in `src/main/resources/application.yml`. The most import
 - `gateway.ledger.dead-letter-path` is where ledger records go when the database is unavailable.
 - `gateway.database-migrate-enabled` and `gateway.database-migrate-interval` control the non fatal migration retry.
 - `gateway.bootstrap-keys-seed-interval` controls how often key seeding is retried if Redis was unavailable at startup.
+- `aegisgate.sse.flush.*` controls the adaptive downstream SSE flush strategy: `max-lines-per-flush` (default 16),
+  `max-interval-ms` (default 100ms), `flush-backpressure-threshold-ms` (default 500ms), `max-buffer-bytes` (default
+  64KB), `max-flushes-per-second` (default 1000), `enabled` (default true), and `reload-interval` (default 30s).
+- `aegisgate.sse.line-guard.*` controls the upstream SSE line guard: `global-default-bytes` (default 16KB),
+  `safety-margin-percent` (default 10%), `action` (`REJECT_LINE_AND_CLOSE` or `REJECT_LINE_CONTINUE`), `per-provider`
+  (overrides for `OPENAI`, `ANTHROPIC`, `OLLAMA`), `write-timeout` (default 30s), `write-timeout-check-interval`
+  (default 5s), and `reload-interval` (default 30s).
 
 The per provider `request-timeout` bounds the time to the first byte of the response for that attempt. It is the failover timer; it does not limit a long lived SSE stream. Per provider `connect-timeout` bounds connection establishment. The shared `HttpClient` in `proxy/config/HttpClientConfig.java` applies a conservative connect timeout and never follows redirects.
 
@@ -262,10 +287,15 @@ Run the full suite with coverage and the packaging step:
 ./mvnw clean verify
 ```
 
-The suite currently has 415 tests:
+The suite currently has 538 tests:
 
 - Unit tests for hashing, key management, the rate limit engine, both filters, the body wrapper, the circuit breaker, the provider adapter, the orchestrator, the error handler, and the Phase 1 security components.
 - Distributed circuit breaker tests in `proxy/failover`: `RedisCircuitBreakerTest` and `CircuitBreakerCrossInstanceIntegrationTest` run against a real Redis container and verify shared state, the single flight probe, and the mirror fallback, while `CircuitBreakerConfigTest`, `CircuitBreakerMetricsTest`, `RedisCircuitBreakerFactoryTest`, and `RedisCircuitBreakerEdgeTest` cover configuration, metrics, and the slow or unavailable Redis paths.
+- Unit tests for the streaming protection and guard layer in `proxy/sse`: `AdaptiveSseFlushStrategyTest`,
+  `SseFlushConfigReloaderTest`, `SseFlushHealthIndicatorTest`, `SseFlushLoadTest`, `SseFlushSecurityTest`,
+  `BoundedLineBodyHandlerTest`, `DefaultSseLineGuardTest`, `TokenBucketTest`, `SseLineGuardPropertiesTest`, and
+  `E12CoverageSupportTest` covering adaptive flushing, rate-limit token buckets, bounded byte decoding, OOM prevention,
+  and hot-reload.
 - Unit tests for the protocol layer in `proxy/protocol`: request translation, header construction, and stream normalization for the OpenAI, Anthropic, and Ollama dialects, including malformed input tolerance.
 - Unit tests for the ledger in `ledger`: cost calculation, catalog matching, the pricing sync, and the dead letter fallback.
 - MockWebServer based tests in `proxy/failover/FailoverOrchestratorTest` that stand in for real providers and verify failover on 500 and 429, no failover on 401 and 400, circuit opening and recovery, timeout behavior, and the RACE strategy.

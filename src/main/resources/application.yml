@@ -137,6 +137,28 @@ gateway:
   circuit-breaker:
     redis-timeout: 250ms
 
+aegisgate:
+  sse:
+    flush:
+      # Adaptive dual-trigger SSE flushing: a flush is issued when this many lines
+      # are buffered or when this many milliseconds elapsed since the last flush,
+      # whichever comes first. Batching keeps the flush syscall rate flat at
+      # 1000+ req/min while bounding downstream latency.
+      max-lines-per-flush: 16
+      max-interval-ms: 100
+      # A flush slower than this counts as downstream backpressure; the stream is
+      # aborted so the upstream exchange is cancelled instead of piling memory.
+      flush-backpressure-threshold-ms: 500
+      # Per-connection cap on buffered-but-unflushed bytes; exceeding it aborts the
+      # stream (guards against a malicious upstream flooding tiny lines).
+      max-buffer-bytes: 65536
+      # Per-connection token-bucket cap on flush syscalls.
+      max-flushes-per-second: 1000
+      enabled: true
+      # How often the hot-reload bridge re-binds this section from the Environment.
+      # Not part of the flush record itself; read directly by the reloader.
+      reload-interval: 30s
+
 management:
   endpoints:
     web:

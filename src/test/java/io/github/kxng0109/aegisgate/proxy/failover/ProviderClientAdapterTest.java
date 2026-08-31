@@ -7,6 +7,12 @@ import io.github.kxng0109.aegisgate.proxy.protocol.AnthropicAdapter;
 import io.github.kxng0109.aegisgate.proxy.protocol.OllamaAdapter;
 import io.github.kxng0109.aegisgate.proxy.protocol.OpenAiPassthroughAdapter;
 import io.github.kxng0109.aegisgate.proxy.protocol.ProtocolAdapterResolver;
+import io.github.kxng0109.aegisgate.proxy.sse.BoundedLineBodyHandler;
+import io.github.kxng0109.aegisgate.proxy.sse.SseLineGuard;
+import io.github.kxng0109.aegisgate.proxy.sse.SseLineGuardAutoConfig;
+import io.github.kxng0109.aegisgate.proxy.sse.SseLineGuardProperties;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
@@ -20,7 +26,9 @@ import tools.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -47,7 +55,33 @@ class ProviderClientAdapterTest {
 				new AnthropicAdapter(mapper),
 				new OllamaAdapter(mapper)
 		);
-		adapter = new ProviderClientAdapter(httpClient(), resolver);
+		adapter = new ProviderClientAdapter(httpClient(), resolver, testLineGuardFactory());
+	}
+
+	private static SseLineGuardAutoConfig.SseLineGuardFactory testLineGuardFactory() {
+		MeterRegistry registry = new SimpleMeterRegistry();
+		ObjectMapper mapper = new ObjectMapper();
+		SseLineGuardProperties props = SseLineGuardProperties.DEFAULTS;
+		SseLineGuardAutoConfig.SseLineGuardFactory baseFactory =
+				new io.github.kxng0109.aegisgate.proxy.sse.DefaultSseLineGuardFactory(props, registry, mapper);
+		return new SseLineGuardAutoConfig.SseLineGuardFactory() {
+			@Override
+			public io.github.kxng0109.aegisgate.proxy.sse.DefaultSseLineGuard newGuard(
+					SseLineGuard.ProviderType providerType, String providerName, UUID requestId
+			) {
+				return baseFactory.newGuard(providerType, providerName, requestId);
+			}
+
+			@Override
+			public BoundedLineBodyHandler bodyHandlerForProvider(SseLineGuard.ProviderType type) {
+				return new BoundedLineBodyHandler(props.globalDefaultBytes(), StandardCharsets.UTF_8);
+			}
+
+			@Override
+			public SseLineGuardProperties properties() {
+				return props;
+			}
+		};
 	}
 
 	@AfterEach
