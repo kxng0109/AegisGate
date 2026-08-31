@@ -1,0 +1,169 @@
+name: aegisgate
+
+services:
+  # ---------------------------------------------------------------------------
+  # Redis 7 - Distributed Token Bucket Rate Limiting & Circuit Breaker State
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: aegisgate-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: >
+      redis-server
+      --appendonly yes
+      --save 60 1
+      --maxmemory 256mb
+      --maxmemory-policy noeviction
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    volumes:
+      - redis_data:/data
+    profiles:
+      - deps
+      - all
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - aegisgate-network
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL 16 - Usage & Cost Ledger and Model Pricing Catalog
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: aegisgate-postgres
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-aegisgate}
+      POSTGRES_USER: ${POSTGRES_USER:-aegisgate}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aegisgate_secret}
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-aegisgate} -d $${POSTGRES_DB:-aegisgate}" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    profiles:
+      - deps
+      - all
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1024M
+        reservations:
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - aegisgate-network
+
+  # ---------------------------------------------------------------------------
+  # AegisGate - Reverse Proxy, Token Bucket Rate Limiter, Resilient Router
+  # ---------------------------------------------------------------------------
+  aegisgate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: aegisgate:latest
+    container_name: aegisgate-app
+    restart: unless-stopped
+    ports:
+      - "${GATEWAY_PORT:-8080}:8080"
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health || exit 1" ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+    environment:
+      # Infrastructure Connections (matching docker network services)
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_POOL_MAX_ACTIVE: ${REDIS_POOL_MAX_ACTIVE:-20}
+      POSTGRES_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-aegisgate}
+      POSTGRES_USER: ${POSTGRES_USER:-aegisgate}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aegisgate_secret}
+
+      # Upstream Provider Keys
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+
+      # Virtual Bootstrap Key for local testing
+      GATEWAY_BOOTSTRAPKEYS_0_OWNERID: ${GATEWAY_BOOTSTRAPKEYS_0_OWNERID:-local}
+      GATEWAY_BOOTSTRAPKEYS_0_NAME: ${GATEWAY_BOOTSTRAPKEYS_0_NAME:-local-dev}
+      GATEWAY_BOOTSTRAPKEYS_0_PLAINTEXTKEY: ${GATEWAY_BOOTSTRAPKEYS_0_PLAINTEXTKEY:-gw-localdevmasterkey0123456789abc}
+      GATEWAY_BOOTSTRAPKEYS_0_RPMLIMIT: ${GATEWAY_BOOTSTRAPKEYS_0_RPMLIMIT:-120}
+      GATEWAY_BOOTSTRAPKEYS_0_TPMLIMIT: ${GATEWAY_BOOTSTRAPKEYS_0_TPMLIMIT:-500000}
+      GATEWAY_BOOTSTRAPKEYS_0_ALLOWEDMODELS: ${GATEWAY_BOOTSTRAPKEYS_0_ALLOWEDMODELS:-}
+      GATEWAY_BOOTSTRAPKEYS_0_ALLOWEDPROVIDERS: ${GATEWAY_BOOTSTRAPKEYS_0_ALLOWEDPROVIDERS:-}
+
+      # Pricing & Ledger Settings
+      GATEWAY_PRICING_URL: ${GATEWAY_PRICING_URL:-https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json}
+      GATEWAY_PRICING_REFRESH_CRON: ${GATEWAY_PRICING_REFRESH_CRON:-0 0 3 * * *}
+      GATEWAY_LEDGER_DEAD_LETTER_PATH: ${GATEWAY_LEDGER_DEAD_LETTER_PATH:-logs/ledger-deadletter.log}
+      GATEWAY_DATABASE_MIGRATE_ENABLED: "true"
+      GATEWAY_DATABASE_MIGRATE_INTERVAL: 30s
+    profiles:
+      - app
+      - all
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1536M
+        reservations:
+          memory: 512M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - aegisgate-network
+
+volumes:
+  postgres_data:
+    name: aegisgate_postgres_data
+  redis_data:
+    name: aegisgate_redis_data
+
+networks:
+  aegisgate-network:
+    name: aegisgate_network
+    driver: bridge

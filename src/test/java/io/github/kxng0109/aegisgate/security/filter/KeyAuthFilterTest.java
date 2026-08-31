@@ -624,10 +624,37 @@ class KeyAuthFilterTest {
 	}
 
 	@Test
-	@DisplayName("isWellFormedKey rejects null")
-	void isWellFormedKeyRejectsNull() {
-		assertFalse(KeyAuthFilter.isWellFormedKey(null));
-		assertTrue(KeyAuthFilter.isWellFormedKey(VALID_KEY));
+	@DisplayName("shouldNotFilter skips non-POST and non-target paths")
+	void shouldNotFilterEdgeCases() throws Exception {
+		MockHttpServletRequest getReq = new MockHttpServletRequest("GET", "/v1/chat/completions");
+		MockHttpServletResponse getResp = new MockHttpServletResponse();
+		MockClientChain chain1 = new MockClientChain();
+		filter.doFilter(getReq, getResp, chain1.chain());
+		assertEquals(200, getResp.getStatus());
+
+		MockHttpServletRequest postOther = new MockHttpServletRequest("POST", "/v1/models");
+		MockHttpServletResponse postOtherResp = new MockHttpServletResponse();
+		MockClientChain chain2 = new MockClientChain();
+		filter.doFilter(postOther, postOtherResp, chain2.chain());
+		assertEquals(200, postOtherResp.getStatus());
+	}
+
+	@Test
+	@DisplayName("null JSON literal body is handled safely")
+	void nullJsonLiteralBody() throws Exception {
+		stubKeyPresent();
+		stubAllowed(10, 9, 1000, 900);
+		MockClientChain chain = new MockClientChain();
+		MockHttpServletResponse response = new MockHttpServletResponse();
+		filter.doFilterInternal(request("Bearer " + VALID_KEY, "null"), response, chain.chain());
+		assertEquals(200, response.getStatus());
+	}
+
+	@Test
+	@DisplayName("Bearer with only spaces -> 401")
+	void bearerOnlySpaces() throws Exception {
+		MockHttpServletResponse response = invoke(request("Bearer   ", "{}"), filter);
+		assertEquals(401, response.getStatus());
 	}
 
 	// ---------------------------------------------------------------------

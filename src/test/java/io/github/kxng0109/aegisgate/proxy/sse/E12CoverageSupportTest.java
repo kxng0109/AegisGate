@@ -8,6 +8,7 @@ import org.springframework.validation.beanvalidation.LocalValidatorFactoryBean;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
+import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpHeaders;
 import java.net.http.HttpResponse;
@@ -24,6 +25,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -287,6 +289,204 @@ class E12CoverageSupportTest {
 		List<String> third = guard.checkLine("a".repeat(50), SseLineGuard.ProviderType.OPENAI);
 		assertThat(third).isEmpty();
 		assertThat(guard.isRejected()).isFalse();
+	}
+
+	@Test
+	@DisplayName("SseLineGuard.ProviderType from contract mappings")
+	void testProviderTypeMappings() {
+		assertThat(SseLineGuard.ProviderType.from(null)).isEqualTo(SseLineGuard.ProviderType.UNKNOWN);
+		assertThat(SseLineGuard.ProviderType.from(io.github.kxng0109.aegisgate.contracts.ProviderType.OPENAI)).isEqualTo(
+				SseLineGuard.ProviderType.OPENAI);
+		assertThat(SseLineGuard.ProviderType.from(io.github.kxng0109.aegisgate.contracts.ProviderType.ANTHROPIC)).isEqualTo(
+				SseLineGuard.ProviderType.ANTHROPIC);
+		assertThat(SseLineGuard.ProviderType.from(io.github.kxng0109.aegisgate.contracts.ProviderType.OLLAMA)).isEqualTo(
+				SseLineGuard.ProviderType.OLLAMA);
+	}
+
+	@Test
+	@DisplayName("ProxyController extractModel and request error edge cases")
+	void testProxyControllerEdgeBranches() throws Exception {
+		io.github.kxng0109.aegisgate.proxy.failover.FailoverOrchestrator orchestrator = mock(io.github.kxng0109.aegisgate.proxy.failover.FailoverOrchestrator.class);
+		io.github.kxng0109.aegisgate.contracts.GatewayProperties props = new io.github.kxng0109.aegisgate.contracts.GatewayProperties();
+		io.github.kxng0109.aegisgate.contracts.ModelAlias alias = new io.github.kxng0109.aegisgate.contracts.ModelAlias(
+				List.of(new io.github.kxng0109.aegisgate.contracts.ProviderRef("openai-p", null)),
+				io.github.kxng0109.aegisgate.contracts.FailoverStrategy.SEQUENTIAL
+		);
+		props.getAliases().put("test-model", alias);
+		props.getProviders().put(
+				"openai-p", new io.github.kxng0109.aegisgate.contracts.ProviderConfig(
+						"openai-p",
+						io.github.kxng0109.aegisgate.contracts.ProviderType.OPENAI,
+						URI.create("https://api.openai.com"),
+						new io.github.kxng0109.aegisgate.config.SensitiveString("sk-test"),
+						Duration.ofSeconds(5),
+						Duration.ofSeconds(30)
+				)
+		);
+
+		io.github.kxng0109.aegisgate.ledger.CostCalculator costCalc = mock(io.github.kxng0109.aegisgate.ledger.CostCalculator.class);
+		org.springframework.context.ApplicationEventPublisher publisher = mock(org.springframework.context.ApplicationEventPublisher.class);
+		SseFlushStrategy flush = mock(SseFlushStrategy.class);
+		DefaultSseLineGuardFactory lineGuardFactory = new DefaultSseLineGuardFactory(
+				SseLineGuardProperties.DEFAULTS,
+				new SimpleMeterRegistry(),
+				new ObjectMapper()
+		);
+		io.github.kxng0109.aegisgate.proxy.protocol.ProtocolAdapterResolver resolver = new io.github.kxng0109.aegisgate.proxy.protocol.ProtocolAdapterResolver(
+				new io.github.kxng0109.aegisgate.proxy.protocol.OpenAiPassthroughAdapter(new ObjectMapper()),
+				new io.github.kxng0109.aegisgate.proxy.protocol.AnthropicAdapter(new ObjectMapper()),
+				new io.github.kxng0109.aegisgate.proxy.protocol.OllamaAdapter(new ObjectMapper())
+		);
+
+		io.github.kxng0109.aegisgate.proxy.ProxyController controller = new io.github.kxng0109.aegisgate.proxy.ProxyController(
+				orchestrator,
+				props,
+				new ObjectMapper(),
+				resolver,
+				costCalc,
+				publisher,
+				flush,
+				lineGuardFactory
+		);
+
+		org.springframework.mock.web.MockHttpServletRequest req = new org.springframework.mock.web.MockHttpServletRequest();
+
+		// Array body instead of object
+		var res1 = controller.proxyChatCompletions("[1, 2, 3]", req);
+		assertThat(res1.getStatusCode().value()).isEqualTo(400);
+
+		// Object without string model (number instead)
+		var res2 = controller.proxyChatCompletions("{\"model\": 123}", req);
+		assertThat(res2.getStatusCode().value()).isEqualTo(400);
+
+		// CompletionException with generic RuntimeException
+		when(orchestrator.execute(any(), any())).thenReturn(java.util.concurrent.CompletableFuture.failedFuture(
+				new java.util.concurrent.CompletionException(new IllegalStateException("simulated unexpected boom"))
+		));
+		assertThatThrownBy(() -> controller.proxyChatCompletions("{\"model\": \"test-model\"}", req))
+				.isInstanceOf(io.github.kxng0109.aegisgate.proxy.failover.UpstreamUnavailableException.class)
+				.hasMessageContaining("upstream request failed unexpectedly");
+
+		// Non-200 upstream response relaying raw body with client disconnect
+		HttpResponse<java.util.stream.Stream<String>> errHttpResp = mock(HttpResponse.class);
+		when(errHttpResp.statusCode()).thenReturn(500);
+		when(errHttpResp.body()).thenReturn(java.util.stream.Stream.of("error line 1", "error line 2"));
+		when(orchestrator.execute(any(), any())).thenReturn(java.util.concurrent.CompletableFuture.completedFuture(
+				new io.github.kxng0109.aegisgate.proxy.failover.ProviderResponse("openai-p", errHttpResp)
+		));
+
+		var res3 = controller.proxyChatCompletions("{\"model\": \"test-model\"}", req);
+		assertThat(res3.getStatusCode().value()).isEqualTo(500);
+		// Simulate client disconnect during error body write
+		res3.getBody().writeTo(new java.io.OutputStream() {
+			@Override
+			public void write(int b) throws java.io.IOException {
+				throw new java.io.IOException("client gone");
+			}
+		});
+
+		// 200 upstream response with SseConnectionLimitException in flush strategy
+		when(flush.register(any())).thenThrow(new SseConnectionLimitException("limit reached"));
+		HttpResponse<java.util.stream.Stream<String>> okHttpResp = mock(HttpResponse.class);
+		when(okHttpResp.statusCode()).thenReturn(200);
+		when(okHttpResp.body()).thenReturn(java.util.stream.Stream.of(
+				"data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}",
+				"data: [DONE]"
+		));
+		when(orchestrator.execute(any(), any())).thenReturn(java.util.concurrent.CompletableFuture.completedFuture(
+				new io.github.kxng0109.aegisgate.proxy.failover.ProviderResponse("openai-p", okHttpResp)
+		));
+
+		var res4 = controller.proxyChatCompletions("{\"model\": \"test-model\"}", req);
+		assertThat(res4.getStatusCode().value()).isEqualTo(200);
+		// Writing to servlet output stream triggers connection limit branch and cleanly returns
+		res4.getBody()
+		    .writeTo(new io.github.kxng0109.aegisgate.proxy.sse.TestServletOutputStreams.RecordingServletOutputStream());
+
+		// 200 upstream response with LineTooLongException thrown during stream iteration
+		org.mockito.Mockito.doReturn(null).when(flush).register(any());
+		HttpResponse<java.util.stream.Stream<String>> oomHttpResp = mock(HttpResponse.class);
+		when(oomHttpResp.statusCode()).thenReturn(200);
+		java.util.stream.Stream<String> throwingStream = java.util.stream.Stream.generate(() -> {
+			throw new LineTooLongException(100, 200, "openai-p");
+		});
+		when(oomHttpResp.body()).thenReturn(throwingStream);
+		when(orchestrator.execute(any(), any())).thenReturn(java.util.concurrent.CompletableFuture.completedFuture(
+				new io.github.kxng0109.aegisgate.proxy.failover.ProviderResponse("openai-p", oomHttpResp)
+		));
+
+		var res5 = controller.proxyChatCompletions("{\"model\": \"test-model\"}", req);
+		java.io.ByteArrayOutputStream out5 = new java.io.ByteArrayOutputStream();
+		res5.getBody().writeTo(out5);
+		assertThat(out5.toString(StandardCharsets.UTF_8)).contains("event: error").contains("LINE_TOO_LONG");
+	}
+
+	@Test
+	@DisplayName("CachedBodyHttpServletRequest stream accessors and SHA256Hash equals branches")
+	void testCachedBodyAndHashEdgeCases() throws Exception {
+		org.springframework.mock.web.MockHttpServletRequest mockReq = new org.springframework.mock.web.MockHttpServletRequest();
+		mockReq.setContent("test content".getBytes(StandardCharsets.UTF_8));
+		io.github.kxng0109.aegisgate.security.filter.CachedBodyHttpServletRequest wrapped =
+				new io.github.kxng0109.aegisgate.security.filter.CachedBodyHttpServletRequest(mockReq, 1024);
+
+		var stream = wrapped.getInputStream();
+		assertThat(stream.isReady()).isTrue();
+		assertThat(stream.isFinished()).isFalse();
+		assertThat(stream.read()).isEqualTo('t');
+		assertThatThrownBy(() -> stream.setReadListener(null))
+				.isInstanceOf(UnsupportedOperationException.class);
+
+		io.github.kxng0109.aegisgate.contracts.SHA256Hash h1 = io.github.kxng0109.aegisgate.contracts.SHA256Hash.fromRawKey(
+				"gw-key1");
+		io.github.kxng0109.aegisgate.contracts.SHA256Hash h2 = io.github.kxng0109.aegisgate.contracts.SHA256Hash.fromRawKey(
+				"gw-key2");
+		assertThat(h1.equals(null)).isFalse();
+		assertThat(h1.equals("string")).isFalse();
+		assertThat(h1.equals(h2)).isFalse();
+		assertThat(h1.equals(h1)).isTrue();
+		assertThat(h1.hashCode()).isEqualTo(h1.hashCode());
+		assertThat(h1.toString()).isEqualTo("****");
+	}
+
+	@Test
+	@DisplayName("AdaptiveSseFlushStrategy metrics and ModelPriceCatalog lookup branches")
+	void testAdaptiveSseFlushAndCatalogBranches() throws Exception {
+		SseFlushProperties props = new SseFlushProperties(16, 100, 500, 65536, 1000, true);
+		SimpleMeterRegistry registry = new SimpleMeterRegistry();
+		AdaptiveSseFlushStrategy strategy = new AdaptiveSseFlushStrategy(props, registry);
+
+		assertThat(strategy.registeredConnectionCount()).isEqualTo(0);
+		assertThat(strategy.activeWatchdogCount()).isEqualTo(0);
+		assertThat(strategy.backpressureActiveConnections()).isEqualTo(0);
+		assertThat(strategy.bufferedBytes()).isEqualTo(0);
+		assertThat(strategy.maxFlushLagMs()).isGreaterThanOrEqualTo(0);
+
+		// onWrite with unregistered stream returns false
+		TestServletOutputStreams.RecordingServletOutputStream unregistered = new TestServletOutputStreams.RecordingServletOutputStream();
+		assertThat(strategy.onWrite(unregistered, 10)).isFalse();
+
+		// unregister unknown handle
+		strategy.unregister(new SseFlushStrategy.FlushHandle() {
+			@Override
+			public long connectionId() {
+				return 999999L;
+			}
+
+			@Override
+			public jakarta.servlet.ServletOutputStream outputStream() {
+				return unregistered;
+			}
+		});
+
+		strategy.close();
+
+		// ModelPriceCatalog lookup null and blank
+		io.github.kxng0109.aegisgate.ledger.ModelPricingRepository repo = mock(io.github.kxng0109.aegisgate.ledger.ModelPricingRepository.class);
+		io.github.kxng0109.aegisgate.ledger.ModelPriceCatalog catalog = new io.github.kxng0109.aegisgate.ledger.ModelPriceCatalog(
+				repo);
+		assertThat(catalog.lookup(io.github.kxng0109.aegisgate.contracts.ProviderType.OPENAI, null)).isEmpty();
+		assertThat(catalog.lookup(io.github.kxng0109.aegisgate.contracts.ProviderType.OPENAI, "   ")).isEmpty();
+		catalog.invalidate();
 	}
 
 	private static final class MockSub implements Flow.Subscription {

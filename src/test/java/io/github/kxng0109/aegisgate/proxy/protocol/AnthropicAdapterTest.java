@@ -312,7 +312,7 @@ class AnthropicAdapterTest {
 	void buildsUrlAndHeaders() {
 		ProviderConfig config = new ProviderConfig(
 				"p", ProviderType.ANTHROPIC,
-				URI.create("https://api.anthropic.com"),
+				URI.create("https://api.anthropic.com/"),
 				new SensitiveString("sk-ant"),
 				Duration.ofSeconds(3), Duration.ofSeconds(30)
 		);
@@ -321,5 +321,46 @@ class AnthropicAdapterTest {
 		assertEquals("sk-ant", headers.get("x-api-key"));
 		assertEquals(AnthropicAdapter.ANTHROPIC_VERSION, headers.get("anthropic-version"));
 		assertEquals("application/json", headers.get("Content-Type"));
+	}
+
+	@Test
+	@DisplayName("translates array system message and ignores non-text stop sequences")
+	void translatesArraySystemAndNonStringStop() {
+		String body = """
+				{"model":"claude-sonnet-5",
+				 "stop": 123,
+				 "messages":[
+				  {"role":"system","content":[{"type":"text","text":"Part 1"},{"type":"image","url":"..."},{"type":"text","text":"Part 2"}]},
+				  {"role":"user","content":[{"type":"image","url":"..."},{"type":"text","text":"Hello"}]}
+				]}""";
+		JsonNode result = objectMapper.readTree(adapter.buildRequestBody(body, null));
+		assertEquals("Part 1\nPart 2", result.get("system").asString());
+		assertFalse(result.has("stop_sequences"));
+		JsonNode userContent = result.get("messages").get(0).get("content");
+		assertEquals(1, userContent.size());
+		assertEquals("Hello", userContent.get(0).get("text").asString());
+	}
+
+	@Test
+	@DisplayName("tolerates non-array non-string stop sequences in stop array")
+	void toleratesNonStringArrayStop() {
+		String body = """
+				{"model":"claude-sonnet-5",
+				 "stop": ["STOP", 123, null],
+				 "messages":[{"role":"user","content":"hi"}]
+				}""";
+		JsonNode result = objectMapper.readTree(adapter.buildRequestBody(body, null));
+		JsonNode stop = result.get("stop_sequences");
+		assertEquals(1, stop.size());
+		assertEquals("STOP", stop.get(0).asString());
+	}
+
+	@Test
+	@DisplayName("tolerates null messages array in request body")
+	void toleratesNullMessages() {
+		String body = "{\"model\":\"claude-sonnet-5\"}";
+		JsonNode result = objectMapper.readTree(adapter.buildRequestBody(body, null));
+		assertEquals("claude-sonnet-5", result.get("model").asString());
+		assertEquals(0, result.get("messages").size());
 	}
 }

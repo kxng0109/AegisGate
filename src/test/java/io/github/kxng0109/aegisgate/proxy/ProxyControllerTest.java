@@ -752,6 +752,78 @@ class ProxyControllerTest {
 		assertTrue(out.toString(StandardCharsets.UTF_8).contains("data: {\"content\":\"plain\"}"));
 	}
 
+	@Test
+	@DisplayName("blank model string returns 400 bad request")
+	void blankModelReturnsBadRequest() throws Exception {
+		ResponseEntity<StreamingResponseBody> response = controller.proxyChatCompletions(
+				"{\"model\":\"   \"}",
+				request()
+		);
+		assertEquals(400, response.getStatusCode().value());
+		assertTrue(body(response).contains("model is required"));
+	}
+
+	@Test
+	@DisplayName("normalizer specific upstream model overrides requested alias in ledger event")
+	void normalizerSpecificUpstreamModelUsedInLedger() throws Exception {
+		// Use Anthropic dialect where upstream model is captured from message_start
+		ProviderConfig anthropicConfig = new ProviderConfig(
+				"anthropic-p", ProviderType.ANTHROPIC, URI.create("https://api.anthropic.com"),
+				new SensitiveString("sk-ant"), Duration.ofSeconds(5), Duration.ofSeconds(60)
+		);
+		Map<String, ProviderConfig> newProviders = new java.util.LinkedHashMap<>(gatewayProperties.getProviders());
+		newProviders.put("anthropic-p", anthropicConfig);
+		gatewayProperties.setProviders(newProviders);
+
+		ModelAlias anthropicAlias = new ModelAlias(
+				List.of(new ProviderRef("anthropic-p", null)),
+				FailoverStrategy.SEQUENTIAL
+		);
+		Map<String, ModelAlias> newAliases = new java.util.LinkedHashMap<>(gatewayProperties.getAliases());
+		newAliases.put("claude-alias", anthropicAlias);
+		gatewayProperties.setAliases(newAliases);
+
+		Stream<String> sseLines = Stream.of(
+				"event: message_start",
+				"data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"model\":\"claude-sonnet-5-20260601\",\"usage\":{\"input_tokens\":10}}}",
+				"event: message_delta",
+				"data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":20}}",
+				"event: message_stop",
+				"data: {\"type\":\"message_stop\"}"
+		);
+		ProviderResponse providerResp = providerResponse("anthropic-p", 200, sseHeaders(), sseLines);
+		when(orchestrator.execute(any(), anyString())).thenReturn(CompletableFuture.completedFuture(providerResp));
+
+		ResponseEntity<StreamingResponseBody> response = controller.proxyChatCompletions(
+				"{\"model\":\"claude-alias\",\"messages\":[],\"stream_options\":{\"include_usage\":true}}",
+				request()
+		);
+		RecordingServletOutputStream out = new RecordingServletOutputStream();
+		response.getBody().writeTo(out);
+
+		ArgumentCaptor<TokenUsageEvent> eventCaptor = ArgumentCaptor.forClass(TokenUsageEvent.class);
+		verify(eventPublisher).publishEvent(eventCaptor.capture());
+		assertEquals("claude-sonnet-5-20260601", eventCaptor.getValue().model());
+	}
+
+	@Test
+	@DisplayName("relaySse with ServletOutputStream when flushHandle is null flushes directly")
+	void relaySseWithServletOutputStreamNullFlushHandle() throws Exception {
+		when(flushStrategy.register(any())).thenReturn(null);
+		ProviderResponse response = providerResponse(
+				"openai", 200, sseHeaders(),
+				Stream.of("data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}", "data: [DONE]")
+		);
+		when(orchestrator.execute(any(), anyString()))
+				.thenReturn(CompletableFuture.completedFuture(response));
+
+		ResponseEntity<StreamingResponseBody> responseEntity = controller.proxyChatCompletions(PATH_BODY, request());
+		RecordingServletOutputStream out = new RecordingServletOutputStream();
+		responseEntity.getBody().writeTo(out);
+
+		assertTrue(out.writtenUtf8().contains("data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}"));
+	}
+
 	// ---------------------------------------------------------------------
 	// Helpers
 	// ---------------------------------------------------------------------

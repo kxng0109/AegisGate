@@ -160,5 +160,31 @@ class CircuitBreakerConfigTest {
 		Semaphore bulkhead = config.circuitBreakerBulkhead(
 				new CircuitBreakerProperties(Duration.ofMillis(250), 3, Duration.ofSeconds(30), Duration.ofSeconds(60), 256));
 		assertThat(bulkhead.availablePermits()).isEqualTo(256);
+
+		CircuitBreakerProperties cbProps = new CircuitBreakerProperties(
+				Duration.ofMillis(250),
+				3,
+				Duration.ofSeconds(30),
+				Duration.ofSeconds(60),
+				256
+		);
+		DataRedisProperties redisProps = new DataRedisProperties();
+		LettuceConnectionFactory cbFactory = config.circuitBreakerRedisConnectionFactory(redisProps, cbProps);
+		assertThat(cbFactory).isNotNull();
+
+		var template = config.circuitBreakerRedisTemplate(cbFactory);
+		assertThat(template).isNotNull();
+
+		var factory = config.circuitBreakerFactory(
+				template,
+				config.circuitTryAcquireScript(),
+				config.circuitRecordFailureScript(),
+				config.circuitRecordSuccessScript(),
+				cbProps,
+				InstanceId.generate(),
+				new io.github.kxng0109.aegisgate.contracts.GatewayProperties(),
+				bulkhead
+		);
+		assertThat(factory).isNotNull();
 	}
 }

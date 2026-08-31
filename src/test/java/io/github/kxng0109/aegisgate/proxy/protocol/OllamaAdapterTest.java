@@ -138,7 +138,7 @@ class OllamaAdapterTest {
 	@DisplayName("builds the chat URL and sends no credentials")
 	void buildsUrlAndHeaders() {
 		ProviderConfig config = new ProviderConfig(
-				"p", ProviderType.OLLAMA, URI.create("http://localhost:11434"), null,
+				"p", ProviderType.OLLAMA, URI.create("http://localhost:11434/"), null,
 				Duration.ofSeconds(3), Duration.ofSeconds(120)
 		);
 		assertEquals("http://localhost:11434/api/chat", adapter.buildUpstreamUrl(config).toString());
@@ -146,5 +146,27 @@ class OllamaAdapterTest {
 		assertEquals("application/json", headers.get("Content-Type"));
 		assertFalse(headers.containsKey("Authorization"), "local Ollama needs no credentials");
 		assertFalse(headers.containsKey("x-api-key"));
+	}
+
+	@Test
+	@DisplayName("translates array message content with text and non-text parts")
+	void translatesArrayMessageContent() {
+		String body = """
+				{"model":"llama3.2","messages":[
+				  {"role":"user","content":[{"type":"text","text":"Line 1"},{"type":"image","url":"..."},{"type":"text","text":"Line 2"}]}
+				]}""";
+		JsonNode result = objectMapper.readTree(adapter.buildRequestBody(body, null));
+		assertEquals(1, result.get("messages").size());
+		assertEquals("Line 1\nLine 2", result.get("messages").get(0).get("content").asString());
+	}
+
+	@Test
+	@DisplayName("tolerates null messages and zero max tokens")
+	void toleratesNullMessagesAndZeroMaxTokens() {
+		String body = "{\"model\":\"llama3.2\",\"max_tokens\":0}";
+		JsonNode result = objectMapper.readTree(adapter.buildRequestBody(body, null));
+		assertEquals("llama3.2", result.get("model").asString());
+		assertEquals(0, result.get("messages").size());
+		assertFalse(result.path("options").has("num_predict"));
 	}
 }

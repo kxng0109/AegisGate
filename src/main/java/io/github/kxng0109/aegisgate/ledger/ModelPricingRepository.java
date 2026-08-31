@@ -35,8 +35,8 @@ public interface ModelPricingRepository extends JpaRepository<ModelPricingEntity
 			     cache_read_input_token_cost, cache_creation_input_token_cost,
 			     max_input_tokens, max_output_tokens, source_url, updated_at)
 			VALUES (:modelId, :provider, :mode, :inputCost, :outputCost,
-			        NULLIF(:cacheReadCost, 0)::numeric, NULLIF(:cacheCreationCost, 0)::numeric,
-			        NULLIF(:maxInput, 0)::bigint, NULLIF(:maxOutput, 0)::bigint, :sourceUrl, now())
+			        CAST(NULLIF(:cacheReadCost, 0) AS numeric), CAST(NULLIF(:cacheCreationCost, 0) AS numeric),
+			        CAST(NULLIF(:maxInput, 0) AS bigint), CAST(NULLIF(:maxOutput, 0) AS bigint), :sourceUrl, CURRENT_TIMESTAMP)
 			ON CONFLICT (model_id) DO UPDATE SET
 			    litellm_provider = EXCLUDED.litellm_provider,
 			    mode = EXCLUDED.mode,
