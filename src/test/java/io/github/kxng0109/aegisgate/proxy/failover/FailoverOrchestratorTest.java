@@ -6,7 +6,11 @@ import io.github.kxng0109.aegisgate.proxy.protocol.AnthropicAdapter;
 import io.github.kxng0109.aegisgate.proxy.protocol.OllamaAdapter;
 import io.github.kxng0109.aegisgate.proxy.protocol.OpenAiPassthroughAdapter;
 import io.github.kxng0109.aegisgate.proxy.protocol.ProtocolAdapterResolver;
+import io.github.kxng0109.aegisgate.proxy.sse.*;
+import io.github.kxng0109.aegisgate.proxy.sse.SseLineGuardAutoConfig.SseLineGuardFactory;
 import io.github.kxng0109.aegisgate.security.SsrfViolationException;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import org.junit.jupiter.api.AfterEach;
@@ -19,10 +23,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.time.Clock;
 import java.time.Duration;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
@@ -457,30 +458,28 @@ class FailoverOrchestratorTest {
 		return new ProviderClientAdapter(httpClient, resolver, testLineGuardFactory());
 	}
 
-	private io.github.kxng0109.aegisgate.proxy.sse.SseLineGuardAutoConfig.SseLineGuardFactory testLineGuardFactory() {
-		io.micrometer.core.instrument.MeterRegistry registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+	private SseLineGuardFactory testLineGuardFactory() {
+		MeterRegistry registry = new SimpleMeterRegistry();
 		ObjectMapper mapper = new ObjectMapper();
-		io.github.kxng0109.aegisgate.proxy.sse.SseLineGuardProperties props =
-				io.github.kxng0109.aegisgate.proxy.sse.SseLineGuardProperties.DEFAULTS;
-		io.github.kxng0109.aegisgate.proxy.sse.SseLineGuardAutoConfig.SseLineGuardFactory base =
-				new io.github.kxng0109.aegisgate.proxy.sse.DefaultSseLineGuardFactory(props, registry, mapper);
-		return new io.github.kxng0109.aegisgate.proxy.sse.SseLineGuardAutoConfig.SseLineGuardFactory() {
+		SseLineGuardProperties props = SseLineGuardProperties.DEFAULTS;
+		SseLineGuardFactory base = new DefaultSseLineGuardFactory(props, registry, mapper);
+		return new SseLineGuardFactory() {
 			@Override
-			public io.github.kxng0109.aegisgate.proxy.sse.DefaultSseLineGuard newGuard(
-					io.github.kxng0109.aegisgate.proxy.sse.SseLineGuard.ProviderType t, String n, java.util.UUID id
+			public DefaultSseLineGuard newGuard(
+					SseLineGuard.ProviderType t, String n, UUID id
 			) {
 				return base.newGuard(t, n, id);
 			}
 
 			@Override
-			public io.github.kxng0109.aegisgate.proxy.sse.BoundedLineBodyHandler bodyHandlerForProvider(
-					io.github.kxng0109.aegisgate.proxy.sse.SseLineGuard.ProviderType t
+			public BoundedLineBodyHandler bodyHandlerForProvider(
+					SseLineGuard.ProviderType t
 			) {
 				return base.bodyHandlerForProvider(t);
 			}
 
 			@Override
-			public io.github.kxng0109.aegisgate.proxy.sse.SseLineGuardProperties properties() {
+			public SseLineGuardProperties properties() {
 				return props;
 			}
 		};

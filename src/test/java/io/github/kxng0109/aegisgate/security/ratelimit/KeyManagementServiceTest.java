@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.HashOperations;
+import org.springframework.data.redis.core.SetOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
 import java.time.Instant;
@@ -17,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
+@SuppressWarnings("DataFlowIssue")
 class KeyManagementServiceTest {
 
 	private static final String URL_SAFE_ALPHABET =
@@ -26,7 +28,7 @@ class KeyManagementServiceTest {
 
 	private final StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
 	private final HashOperations<String, String, String> hashOps = mock(HashOperations.class);
-	private final org.springframework.data.redis.core.SetOperations<String, String> setOps = mock(org.springframework.data.redis.core.SetOperations.class);
+	private final SetOperations<String, String> setOps = mock(SetOperations.class);
 
 	private KeyManagementService newService() {
 		when(redisTemplate.<String, String>opsForHash()).thenReturn(hashOps);
@@ -474,14 +476,14 @@ class KeyManagementServiceTest {
 
 		List<VirtualApiKey> all = service.listKeys(null);
 		assertEquals(2, all.size());
-		assertEquals(hash2, all.get(0).keyHash()); // newer timestamp first
+		assertEquals(hash2, all.getFirst().keyHash()); // newer timestamp first
 
 		List<VirtualApiKey> blankOwner = service.listKeys("   ");
 		assertEquals(2, blankOwner.size());
 
 		List<VirtualApiKey> filtered = service.listKeys("owner-1");
 		assertEquals(1, filtered.size());
-		assertEquals("owner-1", filtered.get(0).ownerId());
+		assertEquals("owner-1", filtered.getFirst().ownerId());
 
 		// Empty set in Redis
 		when(setOps.members("admin:keys")).thenReturn(Set.of());

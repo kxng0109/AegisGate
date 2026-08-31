@@ -11,10 +11,7 @@ import io.github.kxng0109.aegisgate.proxy.protocol.AnthropicAdapter;
 import io.github.kxng0109.aegisgate.proxy.protocol.OllamaAdapter;
 import io.github.kxng0109.aegisgate.proxy.protocol.OpenAiPassthroughAdapter;
 import io.github.kxng0109.aegisgate.proxy.protocol.ProtocolAdapterResolver;
-import io.github.kxng0109.aegisgate.proxy.sse.SseConnectionLimitException;
-import io.github.kxng0109.aegisgate.proxy.sse.SseFlushStrategy;
-import io.github.kxng0109.aegisgate.proxy.sse.SseLineGuard;
-import io.github.kxng0109.aegisgate.proxy.sse.SseLineGuardAutoConfig;
+import io.github.kxng0109.aegisgate.proxy.sse.*;
 import io.github.kxng0109.aegisgate.proxy.sse.TestServletOutputStreams.RecordingServletOutputStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -34,6 +31,7 @@ import java.net.http.HttpHeaders;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -52,6 +50,7 @@ import static org.mockito.Mockito.eq;
  * after a completed stream.
  */
 @DisplayName("ProxyController")
+@SuppressWarnings("DataFlowIssue")
 class ProxyControllerTest {
 
 	private static final String PATH_BODY = "{\"model\":\"gpt-5.6-luna\",\"messages\":[]}";
@@ -70,8 +69,8 @@ class ProxyControllerTest {
 		when(flushStrategy.register(any())).thenReturn(null);
 		SseLineGuard noopGuard = new SseLineGuard() {
 			@Override
-			public java.util.List<String> checkLine(String line, SseLineGuard.ProviderType provider) {
-				return java.util.List.of(line);
+			public List<String> checkLine(String line, SseLineGuard.ProviderType provider) {
+				return List.of(line);
 			}
 
 			@Override
@@ -91,17 +90,16 @@ class ProxyControllerTest {
 			public SseLineGuard.ConfigSnapshot config() {
 				return new SseLineGuard.ConfigSnapshot(
 						16384,
-						java.util.Map.of(),
+						Map.of(),
 						10,
 						SseLineGuard.Action.REJECT_LINE_AND_CLOSE
 				);
 			}
 		};
 		// The factory's newGuard returns DefaultSseLineGuard; we mock it to return a no-op guard.
-		io.github.kxng0109.aegisgate.proxy.sse.DefaultSseLineGuard noopDefault =
-				mock(io.github.kxng0109.aegisgate.proxy.sse.DefaultSseLineGuard.class);
+		DefaultSseLineGuard noopDefault = mock(DefaultSseLineGuard.class);
 		when(noopDefault.checkLine(anyString(), any(SseLineGuard.ProviderType.class)))
-				.thenAnswer(inv -> java.util.List.of((String) inv.getArgument(0)));
+				.thenAnswer(inv -> List.of((String) inv.getArgument(0)));
 		when(noopDefault.isRejected()).thenReturn(false);
 		when(lineGuardFactory.newGuard(
 				any(SseLineGuard.ProviderType.class),
@@ -771,7 +769,7 @@ class ProxyControllerTest {
 				"anthropic-p", ProviderType.ANTHROPIC, URI.create("https://api.anthropic.com"),
 				new SensitiveString("sk-ant"), Duration.ofSeconds(5), Duration.ofSeconds(60)
 		);
-		Map<String, ProviderConfig> newProviders = new java.util.LinkedHashMap<>(gatewayProperties.getProviders());
+		Map<String, ProviderConfig> newProviders = new LinkedHashMap<>(gatewayProperties.getProviders());
 		newProviders.put("anthropic-p", anthropicConfig);
 		gatewayProperties.setProviders(newProviders);
 
@@ -779,7 +777,7 @@ class ProxyControllerTest {
 				List.of(new ProviderRef("anthropic-p", null)),
 				FailoverStrategy.SEQUENTIAL
 		);
-		Map<String, ModelAlias> newAliases = new java.util.LinkedHashMap<>(gatewayProperties.getAliases());
+		Map<String, ModelAlias> newAliases = new LinkedHashMap<>(gatewayProperties.getAliases());
 		newAliases.put("claude-alias", anthropicAlias);
 		gatewayProperties.setAliases(newAliases);
 

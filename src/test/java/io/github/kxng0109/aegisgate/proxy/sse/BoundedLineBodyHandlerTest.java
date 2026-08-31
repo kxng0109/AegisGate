@@ -9,12 +9,13 @@ import java.net.http.HttpHeaders;
 import java.net.http.HttpResponse;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Flow;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -27,6 +28,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * publisher.</p>
  */
 @DisplayName("BoundedLineBodyHandler")
+@SuppressWarnings("DataFlowIssue")
 class BoundedLineBodyHandlerTest {
 
 	private static final HttpResponse.ResponseInfo INFO = new HttpResponse.ResponseInfo() {
@@ -37,7 +39,7 @@ class BoundedLineBodyHandlerTest {
 
 		@Override
 		public HttpHeaders headers() {
-			Map<String, List<String>> empty = java.util.Collections.emptyMap();
+			Map<String, List<String>> empty = Collections.emptyMap();
 			return HttpHeaders.of(empty, (k, v) -> true);
 		}
 
@@ -189,7 +191,7 @@ class BoundedLineBodyHandlerTest {
 		// 10 MB is enough to prove the byte-level guard prevents OOM
 		// (a 100 MB test was also validated but is too slow for CI).
 		byte[] huge = new byte[10_000_000];
-		java.util.Arrays.fill(huge, (byte) 'x');
+		Arrays.fill(huge, (byte) 'x');
 
 		// Drive the producer in a separate thread so the publisher does not
 		// block the test thread when the queue is full.
@@ -204,8 +206,8 @@ class BoundedLineBodyHandlerTest {
 		producer.start();
 
 		// Iterate the stream and expect LineTooLongException to surface.
-		java.util.concurrent.CompletionStage<java.util.stream.Stream<String>> bodyStage = sub.getBody();
-		java.util.stream.Stream<String> stream = bodyStage.toCompletableFuture().join();
+		CompletionStage<Stream<String>> bodyStage = sub.getBody();
+		Stream<String> stream = bodyStage.toCompletableFuture().join();
 
 		boolean caught = false;
 		try {
@@ -386,11 +388,11 @@ class BoundedLineBodyHandlerTest {
 	@DisplayName("onNext handles unexpected runtime exception in buffer processing")
 	void onNextUnexpectedException() {
 		BoundedLineBodyHandler handler = new BoundedLineBodyHandler(10, StandardCharsets.UTF_8);
-		HttpResponse.BodySubscriber<java.util.stream.Stream<String>> sub = handler.apply(INFO);
+		HttpResponse.BodySubscriber<Stream<String>> sub = handler.apply(INFO);
 		sub.onSubscribe(new MockSubscription());
 
 		// A list that throws on iteration
-		List<ByteBuffer> failingList = new java.util.AbstractList<>() {
+		List<ByteBuffer> failingList = new AbstractList<>() {
 			@Override
 			public ByteBuffer get(int index) {
 				throw new IllegalStateException("corrupted item");

@@ -10,6 +10,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("Admin DTO Tests")
+@SuppressWarnings("DataFlowIssue")
 class AdminDtoTest {
 
 	@Test

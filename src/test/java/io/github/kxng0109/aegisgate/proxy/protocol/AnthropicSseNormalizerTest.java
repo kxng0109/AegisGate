@@ -40,7 +40,7 @@ class AnthropicSseNormalizerTest {
 		lines.addAll(normalizer.normalizeLine("data: {\"type\":\"message_stop\"}"));
 
 		assertEquals(4, lines.size(), "two content chunks, the final chunk, and DONE");
-		JsonNode first = chunk(lines.get(0));
+		JsonNode first = chunk(lines.getFirst());
 		assertEquals("Hello", first.path("choices").get(0).path("delta").path("content").asString());
 		JsonNode second = chunk(lines.get(1));
 		assertEquals(" world", second.path("choices").get(0).path("delta").path("content").asString());

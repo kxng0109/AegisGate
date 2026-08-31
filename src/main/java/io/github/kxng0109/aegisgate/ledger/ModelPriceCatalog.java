@@ -94,12 +94,12 @@ public class ModelPriceCatalog {
 			if (sameProvider.isPresent()) {
 				return sameProvider;
 			}
-			return Optional.of(exact.get(0));
+			return Optional.of(exact.getFirst());
 		}
 
 		List<ModelPricingEntry> composite = byModelId.get(provider + "/" + model);
 		if (composite != null && !composite.isEmpty()) {
-			return Optional.of(composite.get(0));
+			return Optional.of(composite.getFirst());
 		}
 
 		String longestPrefix = byModelId.keySet().stream()
@@ -107,7 +107,7 @@ public class ModelPriceCatalog {
 		                                .max(Comparator.comparingInt(String::length))
 		                                .orElse(null);
 		if (longestPrefix != null) {
-			return Optional.of(byModelId.get(longestPrefix).get(0));
+			return Optional.of(byModelId.get(longestPrefix).getFirst());
 		}
 
 		return Optional.empty();

@@ -127,7 +127,7 @@ public class RateLimitEngine {
 			throw new RateLimitUnavailableException("Unexpected rate-limit result from Redis: " + size);
 		}
 
-		long allowed = parseLong(result.get(0));
+		long allowed = parseLong(result.getFirst());
 		long rpmRemaining = parseLong(result.get(1));
 		long rpmResetSeconds = parseLong(result.get(2));
 		long tpmRemaining = parseLong(result.get(3));

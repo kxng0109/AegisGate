@@ -1,13 +1,29 @@
 package io.github.kxng0109.aegisgate.proxy.sse;
 
+import io.github.kxng0109.aegisgate.config.SensitiveString;
+import io.github.kxng0109.aegisgate.contracts.ProviderConfig;
+import io.github.kxng0109.aegisgate.contracts.ProviderType;
+import io.github.kxng0109.aegisgate.contracts.SHA256Hash;
+import io.github.kxng0109.aegisgate.ledger.CostCalculator;
+import io.github.kxng0109.aegisgate.proxy.ProxyController;
+import io.github.kxng0109.aegisgate.proxy.failover.ProviderResponse;
+import io.github.kxng0109.aegisgate.proxy.protocol.AnthropicAdapter;
+import io.github.kxng0109.aegisgate.proxy.protocol.OllamaAdapter;
+import io.github.kxng0109.aegisgate.proxy.protocol.OpenAiPassthroughAdapter;
+import io.github.kxng0109.aegisgate.proxy.protocol.ProtocolAdapterResolver;
+import io.github.kxng0109.aegisgate.proxy.sse.TestServletOutputStreams.RecordingServletOutputStream;
+import io.github.kxng0109.aegisgate.security.filter.CachedBodyHttpServletRequest;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.mock.env.MockEnvironment;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.validation.beanvalidation.LocalValidatorFactoryBean;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
+import java.io.ByteArrayOutputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpHeaders;
@@ -19,20 +35,22 @@ import java.util.List;
 import java.util.Map;
 import java.util.Spliterator;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Flow;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 /**
  * Targeted tests for E12 helpers, factories, and exception accessors to satisfy JaCoCo branch coverage.
  */
 @DisplayName("E12 Coverage Support")
+@SuppressWarnings("DataFlowIssue")
 class E12CoverageSupportTest {
 
 	private static final HttpResponse.ResponseInfo INFO = new HttpResponse.ResponseInfo() {
@@ -314,31 +332,31 @@ class E12CoverageSupportTest {
 		);
 		props.getAliases().put("test-model", alias);
 		props.getProviders().put(
-				"openai-p", new io.github.kxng0109.aegisgate.contracts.ProviderConfig(
+				"openai-p", new ProviderConfig(
 						"openai-p",
-						io.github.kxng0109.aegisgate.contracts.ProviderType.OPENAI,
+						ProviderType.OPENAI,
 						URI.create("https://api.openai.com"),
-						new io.github.kxng0109.aegisgate.config.SensitiveString("sk-test"),
+						new SensitiveString("sk-test"),
 						Duration.ofSeconds(5),
 						Duration.ofSeconds(30)
 				)
 		);
 
-		io.github.kxng0109.aegisgate.ledger.CostCalculator costCalc = mock(io.github.kxng0109.aegisgate.ledger.CostCalculator.class);
-		org.springframework.context.ApplicationEventPublisher publisher = mock(org.springframework.context.ApplicationEventPublisher.class);
+		CostCalculator costCalc = mock(CostCalculator.class);
+		ApplicationEventPublisher publisher = mock(ApplicationEventPublisher.class);
 		SseFlushStrategy flush = mock(SseFlushStrategy.class);
 		DefaultSseLineGuardFactory lineGuardFactory = new DefaultSseLineGuardFactory(
 				SseLineGuardProperties.DEFAULTS,
 				new SimpleMeterRegistry(),
 				new ObjectMapper()
 		);
-		io.github.kxng0109.aegisgate.proxy.protocol.ProtocolAdapterResolver resolver = new io.github.kxng0109.aegisgate.proxy.protocol.ProtocolAdapterResolver(
-				new io.github.kxng0109.aegisgate.proxy.protocol.OpenAiPassthroughAdapter(new ObjectMapper()),
-				new io.github.kxng0109.aegisgate.proxy.protocol.AnthropicAdapter(new ObjectMapper()),
-				new io.github.kxng0109.aegisgate.proxy.protocol.OllamaAdapter(new ObjectMapper())
+		ProtocolAdapterResolver resolver = new ProtocolAdapterResolver(
+				new OpenAiPassthroughAdapter(new ObjectMapper()),
+				new AnthropicAdapter(new ObjectMapper()),
+				new OllamaAdapter(new ObjectMapper())
 		);
 
-		io.github.kxng0109.aegisgate.proxy.ProxyController controller = new io.github.kxng0109.aegisgate.proxy.ProxyController(
+		ProxyController controller = new ProxyController(
 				orchestrator,
 				props,
 				new ObjectMapper(),
@@ -349,7 +367,7 @@ class E12CoverageSupportTest {
 				lineGuardFactory
 		);
 
-		org.springframework.mock.web.MockHttpServletRequest req = new org.springframework.mock.web.MockHttpServletRequest();
+		MockHttpServletRequest req = new MockHttpServletRequest();
 
 		// Array body instead of object
 		var res1 = controller.proxyChatCompletions("[1, 2, 3]", req);
@@ -401,22 +419,22 @@ class E12CoverageSupportTest {
 		assertThat(res4.getStatusCode().value()).isEqualTo(200);
 		// Writing to servlet output stream triggers connection limit branch and cleanly returns
 		res4.getBody()
-		    .writeTo(new io.github.kxng0109.aegisgate.proxy.sse.TestServletOutputStreams.RecordingServletOutputStream());
+		    .writeTo(new RecordingServletOutputStream());
 
 		// 200 upstream response with LineTooLongException thrown during stream iteration
-		org.mockito.Mockito.doReturn(null).when(flush).register(any());
-		HttpResponse<java.util.stream.Stream<String>> oomHttpResp = mock(HttpResponse.class);
+		doReturn(null).when(flush).register(any());
+		HttpResponse<Stream<String>> oomHttpResp = mock(HttpResponse.class);
 		when(oomHttpResp.statusCode()).thenReturn(200);
-		java.util.stream.Stream<String> throwingStream = java.util.stream.Stream.generate(() -> {
+		Stream<String> throwingStream = Stream.generate(() -> {
 			throw new LineTooLongException(100, 200, "openai-p");
 		});
 		when(oomHttpResp.body()).thenReturn(throwingStream);
-		when(orchestrator.execute(any(), any())).thenReturn(java.util.concurrent.CompletableFuture.completedFuture(
-				new io.github.kxng0109.aegisgate.proxy.failover.ProviderResponse("openai-p", oomHttpResp)
+		when(orchestrator.execute(any(), any())).thenReturn(CompletableFuture.completedFuture(
+				new ProviderResponse("openai-p", oomHttpResp)
 		));
 
 		var res5 = controller.proxyChatCompletions("{\"model\": \"test-model\"}", req);
-		java.io.ByteArrayOutputStream out5 = new java.io.ByteArrayOutputStream();
+		ByteArrayOutputStream out5 = new ByteArrayOutputStream();
 		res5.getBody().writeTo(out5);
 		assertThat(out5.toString(StandardCharsets.UTF_8)).contains("event: error").contains("LINE_TOO_LONG");
 	}
@@ -424,10 +442,10 @@ class E12CoverageSupportTest {
 	@Test
 	@DisplayName("CachedBodyHttpServletRequest stream accessors and SHA256Hash equals branches")
 	void testCachedBodyAndHashEdgeCases() throws Exception {
-		org.springframework.mock.web.MockHttpServletRequest mockReq = new org.springframework.mock.web.MockHttpServletRequest();
+		MockHttpServletRequest mockReq = new MockHttpServletRequest();
 		mockReq.setContent("test content".getBytes(StandardCharsets.UTF_8));
-		io.github.kxng0109.aegisgate.security.filter.CachedBodyHttpServletRequest wrapped =
-				new io.github.kxng0109.aegisgate.security.filter.CachedBodyHttpServletRequest(mockReq, 1024);
+		CachedBodyHttpServletRequest wrapped =
+				new CachedBodyHttpServletRequest(mockReq, 1024);
 
 		var stream = wrapped.getInputStream();
 		assertThat(stream.isReady()).isTrue();
@@ -436,10 +454,8 @@ class E12CoverageSupportTest {
 		assertThatThrownBy(() -> stream.setReadListener(null))
 				.isInstanceOf(UnsupportedOperationException.class);
 
-		io.github.kxng0109.aegisgate.contracts.SHA256Hash h1 = io.github.kxng0109.aegisgate.contracts.SHA256Hash.fromRawKey(
-				"gw-key1");
-		io.github.kxng0109.aegisgate.contracts.SHA256Hash h2 = io.github.kxng0109.aegisgate.contracts.SHA256Hash.fromRawKey(
-				"gw-key2");
+		SHA256Hash h1 = SHA256Hash.fromRawKey("gw-key1");
+		SHA256Hash h2 = SHA256Hash.fromRawKey("gw-key2");
 		assertThat(h1.equals(null)).isFalse();
 		assertThat(h1.equals("string")).isFalse();
 		assertThat(h1.equals(h2)).isFalse();

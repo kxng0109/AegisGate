@@ -75,7 +75,7 @@ class DefaultSseLineGuardTest {
 		String longLine = "x".repeat(100);
 		List<String> result = guard.checkLine(longLine, SseLineGuard.ProviderType.OPENAI);
 		assertThat(result).hasSize(3);
-		assertThat(result.get(0)).isEqualTo("event: error");
+		assertThat(result.getFirst()).isEqualTo("event: error");
 		assertThat(result.get(1)).startsWith("data: ");
 		assertThat(result.get(2)).isEmpty();
 		assertThat(guard.isRejected()).isTrue();

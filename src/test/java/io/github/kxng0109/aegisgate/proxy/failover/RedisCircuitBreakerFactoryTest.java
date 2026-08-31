@@ -5,6 +5,7 @@ import io.github.kxng0109.aegisgate.contracts.GatewayProperties;
 import io.github.kxng0109.aegisgate.contracts.ProviderConfig;
 import io.github.kxng0109.aegisgate.contracts.ProviderType;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.QueryTimeoutException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
@@ -14,6 +15,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Semaphore;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -83,7 +85,7 @@ class RedisCircuitBreakerFactoryTest {
 				new StringRedisTemplate() {
 					@Override
 					public Boolean delete(String key) {
-						throw new org.springframework.dao.QueryTimeoutException("redis timeout");
+						throw new QueryTimeoutException("redis timeout");
 					}
 				},
 				script(), script(), script(),
@@ -111,8 +113,8 @@ class RedisCircuitBreakerFactoryTest {
 			}
 
 			@Override
-			public java.util.Set<String> providerNames() {
-				return java.util.Set.of("openai");
+			public Set<String> providerNames() {
+				return Set.of("openai");
 			}
 
 			@Override

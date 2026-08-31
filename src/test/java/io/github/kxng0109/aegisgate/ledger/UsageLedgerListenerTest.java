@@ -19,6 +19,7 @@ import static org.mockito.Mockito.*;
  * fails, and the never throw contract.
  */
 @DisplayName("UsageLedgerListener")
+@SuppressWarnings("DataFlowIssue")
 class UsageLedgerListenerTest {
 
 	@TempDir

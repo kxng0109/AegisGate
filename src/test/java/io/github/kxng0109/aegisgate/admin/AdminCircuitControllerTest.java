@@ -17,6 +17,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 @DisplayName("AdminCircuitController")
+@SuppressWarnings("DataFlowIssue")
 class AdminCircuitControllerTest {
 
 	private final CircuitBreakerFactory factory = mock(CircuitBreakerFactory.class);
@@ -34,8 +35,8 @@ class AdminCircuitControllerTest {
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(response.getBody()).hasSize(2);
-		assertThat(response.getBody().get(0).provider()).isEqualTo("anthropic");
-		assertThat(response.getBody().get(0).state()).isEqualTo("OPEN");
+		assertThat(response.getBody().getFirst().provider()).isEqualTo("anthropic");
+		assertThat(response.getBody().getFirst().state()).isEqualTo("OPEN");
 		assertThat(response.getBody().get(1).provider()).isEqualTo("openai");
 		assertThat(response.getBody().get(1).state()).isEqualTo("CLOSED");
 	}

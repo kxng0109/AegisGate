@@ -14,6 +14,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 
 @DisplayName("AdminAuthFilter")
+@SuppressWarnings("DataFlowIssue")
 class AdminAuthFilterTest {
 
 	private final ObjectMapper objectMapper = new ObjectMapper();

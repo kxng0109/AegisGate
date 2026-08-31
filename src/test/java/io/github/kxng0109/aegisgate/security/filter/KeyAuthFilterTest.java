@@ -33,6 +33,7 @@ import static org.mockito.Mockito.*;
  * allow-list, token estimation, and rate-limit decision header mapping.
  */
 @DisplayName("KeyAuthFilter")
+@SuppressWarnings("DataFlowIssue")
 class KeyAuthFilterTest {
 
 	private static final String PATH = "/v1/chat/completions";

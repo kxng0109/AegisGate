@@ -19,6 +19,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * translation, max tokens defaulting, and dropping of parameters Anthropic has no equivalent for.
  */
 @DisplayName("AnthropicAdapter")
+@SuppressWarnings("DataFlowIssue")
 class AnthropicAdapterTest {
 
 	private final ObjectMapper objectMapper = new ObjectMapper();

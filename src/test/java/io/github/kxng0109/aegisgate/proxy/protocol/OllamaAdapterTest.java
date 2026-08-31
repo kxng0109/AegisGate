@@ -18,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * the keyless header set.
  */
 @DisplayName("OllamaAdapter")
+@SuppressWarnings("DataFlowIssue")
 class OllamaAdapterTest {
 
 	private final ObjectMapper objectMapper = new ObjectMapper();

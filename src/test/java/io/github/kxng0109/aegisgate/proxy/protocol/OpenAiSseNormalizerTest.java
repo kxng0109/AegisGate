@@ -61,8 +61,8 @@ class OpenAiSseNormalizerTest {
 		List<String> lines = normalizer.normalizeLine(usageChunk(10, 5));
 
 		assertEquals(1, lines.size());
-		assertTrue(lines.get(0).startsWith("data: "));
-		JsonNode node = objectMapper.readTree(lines.get(0).substring("data: ".length()));
+		assertTrue(lines.getFirst().startsWith("data: "));
+		JsonNode node = objectMapper.readTree(lines.getFirst().substring("data: ".length()));
 		assertEquals(0, node.get("choices").size());
 		assertEquals(15, node.path("usage").path("total_tokens").asLong());
 	}
