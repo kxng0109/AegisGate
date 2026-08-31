@@ -35,6 +35,7 @@ import java.util.stream.Collectors;
 public class KeyManagementService {
 
 	private static final String REDIS_KEY_PREFIX = "apikey:";
+	private static final String INDEX_KEY = "admin:keys";
 	private static final String KEY_PREFIX_RAW = "gw-";
 	private static final int RANDOM_SUFFIX_LENGTH = 32;
 	private static final char[] URL_SAFE_ALPHABET =
@@ -89,6 +90,17 @@ public class KeyManagementService {
 	}
 
 	/**
+	 * Value object returned only upon key generation, pairing the cryptographic hash with the single-exposure
+	 * plaintext.
+	 *
+	 * @param hash         SHA-256 digest of the key
+	 * @param plaintextKey plaintext token (shown only once)
+	 * @param key          stored key metadata
+	 */
+	public record CreatedKey(SHA256Hash hash, String plaintextKey, VirtualApiKey key) {
+	}
+
+	/**
 	 * Generates a brand-new virtual API key from a {@link BootstrapKey} template and stores only its metadata hash in
 	 * Redis.
 	 *
@@ -108,6 +120,139 @@ public class KeyManagementService {
 				template.allowedProviders()
 		);
 		return plaintext;
+	}
+
+	/**
+	 * Creates a new virtual API key with the given parameters, persists it in Redis, adds it to the admin index, and
+	 * returns the single-exposure plaintext along with metadata.
+	 *
+	 * @param ownerId          owner identifier
+	 * @param name             label for the key
+	 * @param rpmLimit         requests per minute limit (0 = unlimited)
+	 * @param tpmLimit         tokens per minute limit (0 = unlimited)
+	 * @param allowedModels    allowed model names (empty = all)
+	 * @param allowedProviders allowed provider names (empty = all)
+	 * @return the created key object containing the plaintext and metadata
+	 */
+	public CreatedKey createKey(
+			String ownerId,
+			String name,
+			int rpmLimit,
+			int tpmLimit,
+			Set<String> allowedModels,
+			Set<String> allowedProviders
+	) {
+		String plaintext = randomPlaintext();
+		Instant now = Instant.now();
+		SHA256Hash hash = SHA256Hash.fromRawKey(plaintext);
+		String keyPrefix = prefixOf(plaintext);
+		VirtualApiKey metadata = new VirtualApiKey(
+				hash,
+				keyPrefix,
+				ownerId,
+				name,
+				rpmLimit,
+				tpmLimit,
+				allowedModels,
+				allowedProviders,
+				true,
+				now
+		);
+		storeKey(plaintext, ownerId, name, rpmLimit, tpmLimit, allowedModels, allowedProviders);
+		return new CreatedKey(hash, plaintext, metadata);
+	}
+
+	/**
+	 * Lists all virtual API keys registered in the gateway, optionally filtered by owner ID.
+	 *
+	 * @param ownerId optional owner ID to filter by; if null or blank, returns all keys
+	 * @return list of virtual API keys sorted by creation time descending
+	 */
+	public List<VirtualApiKey> listKeys(String ownerId) {
+		Set<String> hexes = redisTemplate.opsForSet().members(INDEX_KEY);
+		if (hexes == null || hexes.isEmpty()) {
+			return List.of();
+		}
+		List<VirtualApiKey> keys = new ArrayList<>();
+		for (String hex : hexes) {
+			try {
+				SHA256Hash hash = SHA256Hash.fromHex(hex);
+				findByHash(hash).ifPresent(key -> {
+					if (ownerId == null || ownerId.isBlank() || ownerId.equals(key.ownerId())) {
+						keys.add(key);
+					}
+				});
+			} catch (IllegalArgumentException ignored) {
+				// skip invalid hex entry in index
+			}
+		}
+		keys.sort(Comparator.comparing(VirtualApiKey::createdAt).reversed());
+		return Collections.unmodifiableList(keys);
+	}
+
+	/**
+	 * Updates an existing key's metadata, invalidating the local cache.
+	 *
+	 * @param hash             key hash to update
+	 * @param name             new name (or null to keep)
+	 * @param rpmLimit         new RPM limit (or null to keep)
+	 * @param tpmLimit         new TPM limit (or null to keep)
+	 * @param allowedModels    new allowed models (or null to keep)
+	 * @param allowedProviders new allowed providers (or null to keep)
+	 * @param enabled          new enabled state (or null to keep)
+	 * @return the updated key metadata, or empty if key was not found
+	 */
+	public Optional<VirtualApiKey> updateKey(
+			SHA256Hash hash,
+			String name,
+			Integer rpmLimit,
+			Integer tpmLimit,
+			Set<String> allowedModels,
+			Set<String> allowedProviders,
+			Boolean enabled
+	) {
+		String key = redisKey(hash);
+		if (Boolean.FALSE.equals(redisTemplate.hasKey(key))) {
+			return Optional.empty();
+		}
+		Map<String, String> updates = new LinkedHashMap<>();
+		if (name != null) {
+			updates.put("name", name);
+		}
+		if (rpmLimit != null) {
+			updates.put("rpmLimit", Integer.toString(rpmLimit));
+		}
+		if (tpmLimit != null) {
+			updates.put("tpmLimit", Integer.toString(tpmLimit));
+		}
+		if (allowedModels != null) {
+			updates.put("allowedModels", toCsv(allowedModels));
+		}
+		if (allowedProviders != null) {
+			updates.put("allowedProviders", toCsv(allowedProviders));
+		}
+		if (enabled != null) {
+			updates.put("enabled", enabled.toString());
+		}
+		if (!updates.isEmpty()) {
+			redisTemplate.opsForHash().putAll(key, updates);
+			cache.invalidate(hash);
+		}
+		return findByHash(hash);
+	}
+
+	/**
+	 * Permanently deletes a virtual API key from Redis and removes it from the index set.
+	 *
+	 * @param hash key hash to delete
+	 * @return true if key was deleted, false if not found
+	 */
+	public boolean deleteKey(SHA256Hash hash) {
+		String key = redisKey(hash);
+		Boolean deleted = redisTemplate.delete(key);
+		redisTemplate.opsForSet().remove(INDEX_KEY, hash.hex());
+		cache.invalidate(hash);
+		return Boolean.TRUE.equals(deleted);
 	}
 
 	/**
@@ -166,7 +311,7 @@ public class KeyManagementService {
 		}
 	}
 
-	private void storeKey(
+	private SHA256Hash storeKey(
 			String plaintextKey,
 			String ownerId,
 			String name,
@@ -187,7 +332,9 @@ public class KeyManagementService {
 		fields.put("createdAt", Instant.now().toString());
 		fields.put("keyPrefix", prefixOf(plaintextKey));
 		redisTemplate.opsForHash().putAll(redisKey(hash), fields);
+		redisTemplate.opsForSet().add(INDEX_KEY, hash.hex());
 		cache.invalidate(hash);
+		return hash;
 	}
 
 	private Optional<VirtualApiKey> loadFromRedis(SHA256Hash hash) {

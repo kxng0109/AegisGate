@@ -26,9 +26,11 @@ class KeyManagementServiceTest {
 
 	private final StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
 	private final HashOperations<String, String, String> hashOps = mock(HashOperations.class);
+	private final org.springframework.data.redis.core.SetOperations<String, String> setOps = mock(org.springframework.data.redis.core.SetOperations.class);
 
 	private KeyManagementService newService() {
 		when(redisTemplate.<String, String>opsForHash()).thenReturn(hashOps);
+		when(redisTemplate.<String, String>opsForSet()).thenReturn(setOps);
 		return new KeyManagementService(redisTemplate);
 	}
 
@@ -437,5 +439,106 @@ class KeyManagementServiceTest {
 		stubPresent(hash, bad);
 
 		assertTrue(service.findByHash(hash).isEmpty());
+	}
+
+	@Test
+	void createKeyPersistsAndReturnsPlaintext() {
+		KeyManagementService service = newService();
+
+		KeyManagementService.CreatedKey created = service.createKey(
+				"owner-test", "key-name", 60, 5000, Set.of("m1"), Set.of("p1")
+		);
+
+		assertNotNull(created);
+		assertNotNull(created.plaintextKey());
+		assertTrue(created.plaintextKey().startsWith("gw-"));
+		assertEquals(created.hash(), SHA256Hash.fromRawKey(created.plaintextKey()));
+		assertEquals("owner-test", created.key().ownerId());
+		assertEquals("key-name", created.key().name());
+		assertEquals(60, created.key().rpmLimit());
+		assertEquals(5000, created.key().tpmLimit());
+		verify(setOps).add("admin:keys", created.hash().hex());
+	}
+
+	@Test
+	void listKeysReturnsAllAndFilteredByOwner() {
+		KeyManagementService service = newService();
+
+		SHA256Hash hash1 = hashOf("gw-key11111111111111111111111111111");
+		SHA256Hash hash2 = hashOf("gw-key22222222222222222222222222222");
+
+		when(setOps.members("admin:keys")).thenReturn(Set.of(hash1.hex(), hash2.hex(), "invalid-hex-entry"));
+
+		stubPresent(hash1, fields("owner-1", "k1", "10", "100", "true", "", "", "2026-08-30T10:00:00Z", "gw-"));
+		stubPresent(hash2, fields("owner-2", "k2", "20", "200", "true", "", "", "2026-08-31T10:00:00Z", "gw-"));
+
+		List<VirtualApiKey> all = service.listKeys(null);
+		assertEquals(2, all.size());
+		assertEquals(hash2, all.get(0).keyHash()); // newer timestamp first
+
+		List<VirtualApiKey> blankOwner = service.listKeys("   ");
+		assertEquals(2, blankOwner.size());
+
+		List<VirtualApiKey> filtered = service.listKeys("owner-1");
+		assertEquals(1, filtered.size());
+		assertEquals("owner-1", filtered.get(0).ownerId());
+
+		// Empty set in Redis
+		when(setOps.members("admin:keys")).thenReturn(Set.of());
+		assertTrue(service.listKeys(null).isEmpty());
+	}
+
+	@Test
+	void updateKeyModifiesFieldsAndEvictsCache() {
+		KeyManagementService service = newService();
+		SHA256Hash hash = hashOf("gw-key11111111111111111111111111111");
+
+		when(redisTemplate.hasKey(redisKey(hash))).thenReturn(Boolean.TRUE);
+		stubPresent(hash, fields("owner-1", "k1", "10", "100", "true", "", "", CREATED_AT, "gw-"));
+
+		Optional<VirtualApiKey> updated = service.updateKey(
+				hash, "k1-renamed", 100, 2000, Set.of("modelA"), Set.of("provA"), false
+		);
+
+		assertTrue(updated.isPresent());
+		verify(hashOps).putAll(eq(redisKey(hash)), anyMap());
+
+		// Test updating each individual field
+		service.updateKey(hash, "new-name", null, null, null, null, null);
+		service.updateKey(hash, null, 50, null, null, null, null);
+		service.updateKey(hash, null, null, 500, null, null, null);
+		service.updateKey(hash, null, null, null, Set.of("m1"), null, null);
+		service.updateKey(hash, null, null, null, null, Set.of("p1"), null);
+		service.updateKey(hash, null, null, null, null, null, true);
+
+		// When update payload has all null fields (no-op updates map)
+		Optional<VirtualApiKey> noOpUpdate = service.updateKey(
+				hash, null, null, null, null, null, null
+		);
+		assertTrue(noOpUpdate.isPresent());
+
+		// When key does not exist in Redis
+		SHA256Hash missingHash = hashOf("gw-missingkey");
+		when(redisTemplate.hasKey(redisKey(missingHash))).thenReturn(Boolean.FALSE);
+
+		Optional<VirtualApiKey> missing = service.updateKey(missingHash, "name", null, null, null, null, null);
+		assertTrue(missing.isEmpty());
+	}
+
+	@Test
+	void deleteKeyRemovesFromRedisAndIndexSet() {
+		KeyManagementService service = newService();
+
+		SHA256Hash hash = hashOf("gw-key11111111111111111111111111111");
+		when(redisTemplate.delete(redisKey(hash))).thenReturn(Boolean.TRUE);
+
+		boolean deleted = service.deleteKey(hash);
+		assertTrue(deleted);
+		verify(setOps).remove("admin:keys", hash.hex());
+
+		// When delete returns false
+		SHA256Hash missingHash = hashOf("gw-missing");
+		when(redisTemplate.delete(redisKey(missingHash))).thenReturn(Boolean.FALSE);
+		assertFalse(service.deleteKey(missingHash));
 	}
 }

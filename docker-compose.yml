@@ -124,6 +124,9 @@ services:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
 
+      # Master Admin Key (for /v1/admin/** APIs)
+      GATEWAY_ADMIN_MASTERKEY: ${GATEWAY_ADMIN_MASTERKEY:-aegisgate_admin_secret_key}
+
       # Virtual Bootstrap Key for local testing
       GATEWAY_BOOTSTRAPKEYS_0_OWNERID: ${GATEWAY_BOOTSTRAPKEYS_0_OWNERID:-local}
       GATEWAY_BOOTSTRAPKEYS_0_NAME: ${GATEWAY_BOOTSTRAPKEYS_0_NAME:-local-dev}

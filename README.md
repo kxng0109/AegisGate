@@ -292,6 +292,36 @@ Status codes:
 
 On success the response carries the rate limit state in the `X-RateLimit-Limit-RPM`, `X-RateLimit-Remaining-RPM`, `X-RateLimit-Reset-RPM`, and the matching TPM headers. The reset values are epoch seconds.
 
+### Administrative Endpoints (`/v1/admin/**`)
+
+Administrative endpoints require the configured master key via `Authorization: Bearer <GATEWAY_ADMIN_MASTERKEY>` or
+`X-Admin-Key`:
+
+- **`POST /v1/admin/keys`**: Creates a new virtual API key with custom RPM/TPM quotas and allowlists. Returns the
+  single-exposure plaintext key:
+  ```json
+  {
+    "keyId": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "key": "gw-aB3_x9...32chars",
+    "keyPrefix": "gw-",
+    "ownerId": "tenant-corp",
+    "name": "production-key",
+    "rpmLimit": 120,
+    "tpmLimit": 500000,
+    "allowedModels": ["gpt-56-luna", "claude-sonnet-4-5"],
+    "allowedProviders": ["openai", "anthropic"],
+    "enabled": true,
+    "createdAt": "2026-08-31T14:30:00Z"
+  }
+  ```
+- **`GET /v1/admin/keys`**: Lists registered virtual keys with safe public metadata (optional `?ownerId=...` filter).
+- **`GET /v1/admin/keys/{keyId}`**: Retrieves metadata for a specific key.
+- **`PATCH /v1/admin/keys/{keyId}`**: Dynamically updates name, RPM/TPM quotas, allowlists, or enabled status.
+- **`DELETE /v1/admin/keys/{keyId}`**: Permanently deletes a virtual API key and purges caches.
+- **`GET /v1/admin/circuits`**: Inspects real-time circuit breaker states (`CLOSED`, `OPEN`, `HALF_OPEN`) across all
+  providers.
+- **`POST /v1/admin/circuits/{provider}/reset`**: Force-resets an upstream circuit breaker to `CLOSED`.
+
 ## Security model
 
 - Keys are 32 random base64url characters behind a `gw-` prefix, giving 192 bits of entropy. They are generated with `SecureRandom` in `KeyManagementService`.
@@ -310,8 +340,12 @@ Run the full suite with coverage and the packaging step:
 ./mvnw clean verify
 ```
 
-The suite currently has 556 tests:
+The suite currently has 578 tests:
 
+- Administrative & key management tests in `admin`: `AdminAuthFilterTest`, `AdminKeyControllerTest`,
+  `AdminCircuitControllerTest`, `AdminFilterConfigTest`, and `AdminDtoTest` covering constant-time master key
+  authentication, fail-closed isolation, key creation (single-exposure plaintext), updates, deletions, and circuit
+  breaker force-resets.
 - Unit tests for hashing, key management, the rate limit engine, both filters, the body wrapper, the circuit breaker, the provider adapter, the orchestrator, the error handler, and the Phase 1 security components.
 - Distributed circuit breaker tests in `proxy/failover`: `RedisCircuitBreakerTest` and `CircuitBreakerCrossInstanceIntegrationTest` run against a real Redis container and verify shared state, the single flight probe, and the mirror fallback, while `CircuitBreakerConfigTest`, `CircuitBreakerMetricsTest`, `RedisCircuitBreakerFactoryTest`, and `RedisCircuitBreakerEdgeTest` cover configuration, metrics, and the slow or unavailable Redis paths.
 - Unit tests for the streaming protection and guard layer in `proxy/sse`: `AdaptiveSseFlushStrategyTest`,

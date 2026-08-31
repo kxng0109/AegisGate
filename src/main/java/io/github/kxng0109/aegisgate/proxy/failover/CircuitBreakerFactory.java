@@ -27,6 +27,17 @@ public interface CircuitBreakerFactory {
 	void reset();
 
 	/**
+	 * Clears local cache and resets the Redis breaker state for a specific provider.
+	 *
+	 * @param providerName provider whose breaker is to be reset
+	 * @return the new state of the provider
+	 */
+	default CircuitBreaker.State reset(String providerName) {
+		reset();
+		return CircuitBreaker.State.CLOSED;
+	}
+
+	/**
 	 * @return a snapshot of each provider's state for metrics (never null)
 	 */
 	Map<String, CircuitBreaker.State> states();

@@ -1,9 +1,9 @@
 package io.github.kxng0109.aegisgate.proxy.failover;
 
+import io.github.kxng0109.aegisgate.config.SensitiveString;
 import io.github.kxng0109.aegisgate.contracts.GatewayProperties;
 import io.github.kxng0109.aegisgate.contracts.ProviderConfig;
 import io.github.kxng0109.aegisgate.contracts.ProviderType;
-import io.github.kxng0109.aegisgate.config.SensitiveString;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
@@ -74,5 +74,56 @@ class RedisCircuitBreakerFactoryTest {
 
 		factory.reset();
 		assertThat(factory.get("openai")).isNotNull();
+
+		CircuitBreaker.State singleReset = factory.reset("openai");
+		assertThat(singleReset).isEqualTo(CircuitBreaker.State.CLOSED);
+
+		// With throwing template
+		RedisCircuitBreakerFactory throwingFactory = new RedisCircuitBreakerFactory(
+				new StringRedisTemplate() {
+					@Override
+					public Boolean delete(String key) {
+						throw new org.springframework.dao.QueryTimeoutException("redis timeout");
+					}
+				},
+				script(), script(), script(),
+				new CircuitBreakerProperties(
+						Duration.ofMillis(250),
+						3,
+						Duration.ofSeconds(30),
+						Duration.ofSeconds(60),
+						256
+				),
+				InstanceId.generate(),
+				properties,
+				Clock.systemUTC(),
+				new Semaphore(256)
+		);
+
+		assertThat(throwingFactory.reset("openai")).isEqualTo(CircuitBreaker.State.CLOSED);
+		throwingFactory.reset();
+
+		// Default interface method test
+		CircuitBreakerFactory customFactory = new CircuitBreakerFactory() {
+			@Override
+			public CircuitBreaker get(String providerName) {
+				return openai;
+			}
+
+			@Override
+			public java.util.Set<String> providerNames() {
+				return java.util.Set.of("openai");
+			}
+
+			@Override
+			public void reset() {
+			}
+
+			@Override
+			public Map<String, CircuitBreaker.State> states() {
+				return Map.of();
+			}
+		};
+		assertThat(customFactory.reset("openai")).isEqualTo(CircuitBreaker.State.CLOSED);
 	}
 }
