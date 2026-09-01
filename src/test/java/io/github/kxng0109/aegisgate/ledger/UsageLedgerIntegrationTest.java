@@ -1,5 +1,9 @@
 package io.github.kxng0109.aegisgate.ledger;
 
+import io.github.kxng0109.aegisgate.admin.dto.LedgerEntryResponse;
+import io.github.kxng0109.aegisgate.admin.dto.LedgerFilter;
+import io.github.kxng0109.aegisgate.admin.dto.LedgerSummaryResponse;
+import io.github.kxng0109.aegisgate.admin.dto.PageResponse;
 import io.github.kxng0109.aegisgate.contracts.ProviderType;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
@@ -9,12 +13,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
@@ -81,6 +88,9 @@ class UsageLedgerIntegrationTest {
 	@Autowired
 	private PricingSyncService pricingSyncService;
 
+	@Autowired
+	private UsageLedgerService usageLedgerService;
+
 	@Test
 	@DisplayName("a published usage event is persisted asynchronously")
 	void usageEventIsPersisted() {
@@ -138,6 +148,74 @@ class UsageLedgerIntegrationTest {
 		pricingSyncService.refresh();
 
 		assertThat(priceCatalog.lookup(ProviderType.OPENAI, "gpt-5.5")).isPresent();
+	}
+
+	@Test
+	@DisplayName("getSummary and getEntries aggregate and paginate real database records")
+	void summaryAndEntriesAgainstPostgres() {
+		UUID req1 = UUID.randomUUID();
+		UUID req2 = UUID.randomUUID();
+		Instant now = Instant.now();
+
+		TokenUsageEvent event1 = new TokenUsageEvent(
+				req1, "tenant-a", "anthropic", "claude-sonnet-5",
+				200, 100, 300, 150, 4_500, now.minusSeconds(60)
+		);
+		TokenUsageEvent event2 = new TokenUsageEvent(
+				req2, "tenant-b", "openai", "gpt-5.6-sol",
+				500, 500, 1000, 300, 10_000, now
+		);
+
+		eventPublisher.publishEvent(event1);
+		eventPublisher.publishEvent(event2);
+
+		awaitEntry(req1);
+		awaitEntry(req2);
+
+		// Global summary
+		LedgerSummaryResponse globalSummary = usageLedgerService.getSummary(new LedgerFilter(
+				null,
+				null,
+				null,
+				null,
+				null
+		));
+		assertThat(globalSummary.totalRequests()).isGreaterThanOrEqualTo(2L);
+		assertThat(globalSummary.totalCostUsdMicros()).isGreaterThanOrEqualTo(14_500L);
+		assertThat(globalSummary.totalCostUsd()).isGreaterThanOrEqualTo(BigDecimal.valueOf(14500, 6));
+		assertThat(globalSummary.breakdownByOwner()).isNotEmpty();
+		assertThat(globalSummary.breakdownByModel()).isNotEmpty();
+		assertThat(globalSummary.breakdownByProvider()).isNotEmpty();
+
+		// Filtered summary for tenant-a
+		LedgerSummaryResponse tenantSummary = usageLedgerService.getSummary(new LedgerFilter(
+				"tenant-a",
+				null,
+				null,
+				null,
+				null
+		));
+		assertThat(tenantSummary.totalRequests()).isEqualTo(1L);
+		assertThat(tenantSummary.totalTokens()).isEqualTo(300L);
+		assertThat(tenantSummary.totalCostUsdMicros()).isEqualTo(4_500L);
+		assertThat(tenantSummary.breakdownByOwner()).hasSize(1);
+		assertThat(tenantSummary.breakdownByOwner().getFirst().ownerId()).isEqualTo("tenant-a");
+
+		// Paginated entries sorted by createdAt desc
+		PageResponse<LedgerEntryResponse> entries = usageLedgerService.getEntries(
+				new LedgerFilter(null, null, null, null, null),
+				PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "createdAt"))
+		);
+		assertThat(entries.content()).isNotEmpty();
+		assertThat(entries.totalElements()).isGreaterThanOrEqualTo(2L);
+
+		// Single entry lookup
+		Optional<LedgerEntryResponse> entry1 = usageLedgerService.getEntryByRequestId(req1);
+		assertThat(entry1).isPresent();
+		assertThat(entry1.get().ownerId()).isEqualTo("tenant-a");
+		assertThat(entry1.get().provider()).isEqualTo("anthropic");
+		assertThat(entry1.get().costUsdMicros()).isEqualTo(4_500L);
+		assertThat(entry1.get().costUsd()).isEqualTo(BigDecimal.valueOf(4500, 6));
 	}
 
 	private void awaitEntry(UUID requestId) {

@@ -150,6 +150,13 @@ class PricingSyncServiceTest {
 	}
 
 	@Test
+	@DisplayName("syncOnSchedule delegates to refresh")
+	void syncOnScheduleDelegates() {
+		server.enqueue(new MockResponse().setResponseCode(200).setBody("{}"));
+		assertDoesNotThrow(service::syncOnSchedule);
+	}
+
+	@Test
 	@DisplayName("a successful sync invalidates the cached catalog snapshot")
 	void successfulSyncInvalidatesCatalog() {
 		server.enqueue(new MockResponse().setResponseCode(200).setBody(CATALOG));

@@ -8,7 +8,7 @@ import java.util.UUID;
 /**
  * Persists {@link UsageLedgerEntry} rows.
  */
-public interface UsageLedgerRepository extends JpaRepository<UsageLedgerEntry, UUID> {
+public interface UsageLedgerRepository extends JpaRepository<UsageLedgerEntry, UUID>, UsageLedgerRepositoryCustom {
 
 	/**
 	 * @param requestId the correlation id of the proxied request

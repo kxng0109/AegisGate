@@ -321,6 +321,12 @@ Administrative endpoints require the configured master key via `Authorization: B
 - **`GET /v1/admin/circuits`**: Inspects real-time circuit breaker states (`CLOSED`, `OPEN`, `HALF_OPEN`) across all
   providers.
 - **`POST /v1/admin/circuits/{provider}/reset`**: Force-resets an upstream circuit breaker to `CLOSED`.
+- **`GET /v1/admin/ledger/summary`**: Returns aggregated token consumption, USD costs, duration, and multi-dimensional
+  breakdowns by tenant, model, and provider (supports optional `?ownerId=...&provider=...&model=...&from=...&to=...`).
+- **`GET /v1/admin/ledger/entries`**: Returns paginated audit log records with allowlisted sort parameters (supports
+  `?page=0&size=20&sort=createdAt,desc`).
+- **`GET /v1/admin/ledger/entries/{requestId}`**: Retrieves full transaction and token coordinates for a single
+  correlated client request.
 
 ## Security model
 
@@ -340,12 +346,12 @@ Run the full suite with coverage and the packaging step:
 ./mvnw clean verify
 ```
 
-The suite currently has 578 tests:
+The suite currently has 607 tests:
 
-- Administrative & key management tests in `admin`: `AdminAuthFilterTest`, `AdminKeyControllerTest`,
-  `AdminCircuitControllerTest`, `AdminFilterConfigTest`, and `AdminDtoTest` covering constant-time master key
-  authentication, fail-closed isolation, key creation (single-exposure plaintext), updates, deletions, and circuit
-  breaker force-resets.
+- Administrative, billing & key management tests in `admin`: `AdminAuthFilterTest`, `AdminKeyControllerTest`,
+  `AdminCircuitControllerTest`, `AdminLedgerControllerTest`, `AdminFilterConfigTest`, and `AdminDtoTest` covering
+  constant-time master key authentication, fail-closed isolation, key creation (single-exposure plaintext), updates,
+  deletions, circuit breaker force-resets, aggregated tenant billing queries, and paginated audit logs.
 - Unit tests for hashing, key management, the rate limit engine, both filters, the body wrapper, the circuit breaker, the provider adapter, the orchestrator, the error handler, and the Phase 1 security components.
 - Distributed circuit breaker tests in `proxy/failover`: `RedisCircuitBreakerTest` and `CircuitBreakerCrossInstanceIntegrationTest` run against a real Redis container and verify shared state, the single flight probe, and the mirror fallback, while `CircuitBreakerConfigTest`, `CircuitBreakerMetricsTest`, `RedisCircuitBreakerFactoryTest`, and `RedisCircuitBreakerEdgeTest` cover configuration, metrics, and the slow or unavailable Redis paths.
 - Unit tests for the streaming protection and guard layer in `proxy/sse`: `AdaptiveSseFlushStrategyTest`,
