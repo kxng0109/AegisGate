@@ -491,8 +491,8 @@ public class ProxyController {
 				JsonNode choices = node.path("choices");
 				if (choices.isArray() && !choices.isEmpty()) {
 					JsonNode delta = choices.get(0).path("delta");
-					if (delta.has("content") && delta.get("content").isTextual()) {
-						accumulator.append(delta.get("content").asText());
+					if (delta.has("content") && delta.get("content").isString()) {
+						accumulator.append(delta.get("content").asString());
 					}
 				}
 			} catch (Exception ignored) {

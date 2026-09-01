@@ -519,12 +519,23 @@ class KeyManagementServiceTest {
 		);
 		assertTrue(noOpUpdate.isPresent());
 
-		// When key does not exist in Redis
+		// When key does not exist in Redis (null or false)
 		SHA256Hash missingHash = hashOf("gw-missingkey");
 		when(redisTemplate.hasKey(redisKey(missingHash))).thenReturn(Boolean.FALSE);
-
 		Optional<VirtualApiKey> missing = service.updateKey(missingHash, "name", null, null, null, null, null);
 		assertTrue(missing.isEmpty());
+
+		when(redisTemplate.hasKey(redisKey(missingHash))).thenReturn(null);
+		Optional<VirtualApiKey> missingNull = service.updateKey(missingHash, "name", null, null, null, null, null);
+		assertTrue(missingNull.isEmpty());
+	}
+
+	@Test
+	void listKeysSkipsInvalidHexEntriesInIndex() {
+		KeyManagementService service = newService();
+		when(setOps.members("admin:keys")).thenReturn(Set.of("invalid-hex-entry", "1234"));
+		List<VirtualApiKey> keys = service.listKeys(null);
+		assertTrue(keys.isEmpty());
 	}
 
 	@Test

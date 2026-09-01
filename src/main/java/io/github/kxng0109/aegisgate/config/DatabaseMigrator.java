@@ -62,20 +62,38 @@ public class DatabaseMigrator {
 		migrate();
 	}
 
-	private void migrate() {
+	void migrate() {
 		if (!enabled || migrated.get()) {
 			return;
 		}
 		try {
-			Flyway flyway = Flyway.configure()
-			                      .dataSource(dataSource)
-			                      .locations(locations)
-			                      .load();
-			flyway.migrate();
+			Flyway flyway = createFlyway();
+			try {
+				flyway.migrate();
+			} catch (Exception migrateEx) {
+				String msg = migrateEx.getMessage() != null ? migrateEx.getMessage() : "";
+				if (msg.contains("Migration checksum mismatch") || msg.contains("Validate failed")) {
+					log.warn(
+							"Flyway checksum validation mismatch detected. Executing flyway.repair() to synchronize schema history: {}",
+							msg
+					);
+					flyway.repair();
+					flyway.migrate();
+				} else {
+					throw migrateEx;
+				}
+			}
 			migrated.set(true);
 			log.info("Database migrations applied from {}", locations);
 		} catch (Exception ex) {
 			log.warn("Database migration could not run yet, will retry: {}", ex.getMessage());
 		}
+	}
+
+	Flyway createFlyway() {
+		return Flyway.configure()
+		             .dataSource(dataSource)
+		             .locations(locations)
+		             .load();
 	}
 }

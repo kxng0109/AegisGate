@@ -1,9 +1,12 @@
 package io.github.kxng0109.aegisgate.cache.engine.l2;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.connection.RedisHashCommands;
+import org.springframework.data.redis.connection.RedisKeyCommands;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -20,6 +23,15 @@ class RediSearchVectorClientTest {
 
 	private final RedisConnectionFactory factory = mock(RedisConnectionFactory.class);
 	private final RedisConnection connection = mock(RedisConnection.class);
+	private final RedisHashCommands hashCommands = mock(RedisHashCommands.class);
+	private final RedisKeyCommands keyCommands = mock(RedisKeyCommands.class);
+
+	@BeforeEach
+	void setUp() {
+		when(factory.getConnection()).thenReturn(connection);
+		when(connection.hashCommands()).thenReturn(hashCommands);
+		when(connection.keyCommands()).thenReturn(keyCommands);
+	}
 
 	@Test
 	@DisplayName("escapeTag escapes RediSearch reserved punctuation characters")
@@ -33,7 +45,6 @@ class RediSearchVectorClientTest {
 	@Test
 	@DisplayName("createIndexIfNotExists dispatches FT.CREATE command and handles existing index gracefully")
 	void createIndexIfNotExists() {
-		when(factory.getConnection()).thenReturn(connection);
 		RediSearchVectorClient client = new RediSearchVectorClient(factory);
 
 		boolean created = client.createIndexIfNotExists("test:idx", "test:doc:", 1536);
@@ -50,7 +61,6 @@ class RediSearchVectorClientTest {
 	@Test
 	@DisplayName("searchKnn dispatches FT.SEARCH and correctly parses multi-document responses")
 	void searchKnnParsing() {
-		when(factory.getConnection()).thenReturn(connection);
 		RediSearchVectorClient client = new RediSearchVectorClient(factory);
 
 		// Mock RediSearch wire response: [1, doc_key, [attr1, val1, attr2, val2, score, 0.05]]
@@ -83,13 +93,12 @@ class RediSearchVectorClientTest {
 	@Test
 	@DisplayName("saveVectorDocument and deleteDocument execute properly on Redis connection")
 	void saveAndDeleteDocument() {
-		when(factory.getConnection()).thenReturn(connection);
 		RediSearchVectorClient client = new RediSearchVectorClient(factory);
 
 		Map<byte[], byte[]> fields = Map.of("k".getBytes(), "v".getBytes());
 		client.saveVectorDocument("aegis:cache:doc:1", fields, Duration.ofMinutes(10));
-		verify(connection).hMSet(eq("aegis:cache:doc:1".getBytes(StandardCharsets.UTF_8)), eq(fields));
-		verify(connection).expire(eq("aegis:cache:doc:1".getBytes(StandardCharsets.UTF_8)), eq(600L));
+		verify(hashCommands).hMSet(eq("aegis:cache:doc:1".getBytes(StandardCharsets.UTF_8)), eq(fields));
+		verify(keyCommands).expire(eq("aegis:cache:doc:1".getBytes(StandardCharsets.UTF_8)), eq(600L));
 
 		// Without TTL or null/zero/negative TTL
 		client.saveVectorDocument("aegis:cache:doc:2", fields, null);
@@ -97,7 +106,7 @@ class RediSearchVectorClientTest {
 		client.saveVectorDocument("aegis:cache:doc:4", fields, Duration.ofSeconds(-5));
 
 		client.deleteDocument("aegis:cache:doc:1");
-		verify(connection).del(eq("aegis:cache:doc:1".getBytes(StandardCharsets.UTF_8)));
+		verify(keyCommands).del(eq("aegis:cache:doc:1".getBytes(StandardCharsets.UTF_8)));
 
 		client.dropIndex("test:idx", true);
 		verify(connection).execute(eq("FT.DROPINDEX"), any(), any());
@@ -111,18 +120,17 @@ class RediSearchVectorClientTest {
 
 		// DataAccessException on save and delete
 		doThrow(new org.springframework.data.redis.RedisSystemException("save err", new RuntimeException()))
-				.when(connection).hMSet(any(), any());
+				.when(hashCommands).hMSet(any(), any());
 		client.saveVectorDocument("aegis:cache:doc:err", fields, Duration.ofMinutes(1));
 
 		doThrow(new org.springframework.data.redis.RedisSystemException("del err", new RuntimeException()))
-				.when(connection).del(any(byte[].class));
+				.when(keyCommands).del(any(byte[].class));
 		client.deleteDocument("aegis:cache:doc:err");
 	}
 
 	@Test
 	@DisplayName("searchKnn edge cases: empty list, zero count, non-list, and malformed attributes")
 	void searchKnnEdgeCases() {
-		when(factory.getConnection()).thenReturn(connection);
 		RediSearchVectorClient client = new RediSearchVectorClient(factory);
 
 		// Exception during search

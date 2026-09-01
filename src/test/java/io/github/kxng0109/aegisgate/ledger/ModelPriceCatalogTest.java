@@ -96,13 +96,17 @@ class ModelPriceCatalogTest {
 	}
 
 	@Test
-	@DisplayName("the catalog is loaded once and cached for repeated lookups")
+	@DisplayName("the catalog is loaded once and cached for repeated lookups until invalidated")
 	void cachesSnapshot() {
 		when(repository.findAll()).thenReturn(List.of(entity("gpt-5.6-sol", "openai", "0.000004", "0.00002")));
 		catalog.lookup(ProviderType.OPENAI, "gpt-5.6-sol");
 		catalog.lookup(ProviderType.OPENAI, "gpt-5.6-sol");
 		catalog.lookup(ProviderType.OPENAI, "gpt-5.6-sol");
 		verify(repository, times(1)).findAll();
+
+		catalog.invalidate();
+		catalog.lookup(ProviderType.OPENAI, "gpt-5.6-sol");
+		verify(repository, times(2)).findAll();
 	}
 
 	private static ModelPricingEntity entity(String modelId, String provider, String input, String output) {

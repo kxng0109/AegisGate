@@ -94,9 +94,9 @@ public class OpenAiEmbeddingAdapter implements EmbeddingAdapter {
 			if (dataNode.isArray()) {
 				for (JsonNode item : dataNode) {
 					JsonNode embNode = item.path("embedding");
-					if (embNode.isTextual()) {
+					if (embNode.isString()) {
 						isBase64Response = true;
-						String b64 = embNode.asText();
+						String b64 = embNode.asString();
 						base64Vectors.add(b64);
 						floatVectors.add(VectorEncodingUtils.decodeFromBase64(b64));
 					} else if (embNode.isArray()) {

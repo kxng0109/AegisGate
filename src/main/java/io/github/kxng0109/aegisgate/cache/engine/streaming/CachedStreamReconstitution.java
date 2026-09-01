@@ -81,17 +81,17 @@ public class CachedStreamReconstitution {
 			if (root.has("choices") && root.get("choices").isArray() && !root.get("choices").isEmpty()) {
 				JsonNode choice = root.get("choices").get(0);
 				if (choice.has("message") && choice.get("message").has("content")) {
-					return choice.get("message").get("content").asText("");
+					return choice.get("message").get("content").asString("");
 				}
 				if (choice.has("delta") && choice.get("delta").has("content")) {
-					return choice.get("delta").get("content").asText("");
+					return choice.get("delta").get("content").asString("");
 				}
 				if (choice.has("text")) {
-					return choice.get("text").asText("");
+					return choice.get("text").asString("");
 				}
 			}
 			if (root.has("content")) {
-				return root.get("content").asText("");
+				return root.get("content").asString("");
 			}
 		} catch (Exception ignored) {
 		}

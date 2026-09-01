@@ -10,13 +10,8 @@ services:
     restart: unless-stopped
     ports:
       - "${REDIS_PORT:-6379}:6379"
-    command: >
-      redis-server
-      --appendonly yes
-      --save 60 1
-      --maxmemory 256mb
-      --maxmemory-policy noeviction
-      --protected-mode no
+    environment:
+      REDIS_ARGS: "--appendonly yes --save 60 1 --maxmemory 256mb --maxmemory-policy noeviction --protected-mode no"
     healthcheck:
       test: [ "CMD", "redis-cli", "ping" ]
       interval: 5s

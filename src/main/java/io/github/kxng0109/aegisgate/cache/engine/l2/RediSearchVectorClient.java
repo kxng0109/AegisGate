@@ -80,8 +80,12 @@ public class RediSearchVectorClient {
 			log.info("Created RediSearch vector index '{}' for prefix '{}' (dim={})", indexName, prefix, dimensions);
 			return true;
 		} catch (Exception ex) {
-			String msg = ex.getMessage() != null ? ex.getMessage() : "";
-			if (msg.contains("Index already exists") || msg.contains("BUSYKEY") || msg.contains("already exists")) {
+			String msg = (ex.getMessage() != null ? ex.getMessage() : "")
+					+ (
+					ex.getCause() != null && ex.getCause().getMessage() != null ?
+							" " + ex.getCause().getMessage() : "");
+			if (msg.contains("Index already exists") || msg.contains("BUSYKEY")
+					|| msg.toLowerCase(java.util.Locale.ROOT).contains("already exists")) {
 				log.debug("RediSearch index '{}' already exists", indexName);
 				return false;
 			}
@@ -139,9 +143,9 @@ public class RediSearchVectorClient {
 	public void saveVectorDocument(String docKey, Map<byte[], byte[]> fields, Duration ttl) {
 		byte[] rawKey = docKey.getBytes(StandardCharsets.UTF_8);
 		try (RedisConnection connection = redisConnectionFactory.getConnection()) {
-			connection.hMSet(rawKey, fields);
+			connection.hashCommands().hMSet(rawKey, fields);
 			if (ttl != null && !ttl.isNegative() && !ttl.isZero()) {
-				connection.expire(rawKey, ttl.toSeconds());
+				connection.keyCommands().expire(rawKey, ttl.toSeconds());
 			}
 		} catch (DataAccessException ex) {
 			log.warn("Failed to save vector document '{}': {}", docKey, ex.getMessage());
@@ -155,7 +159,7 @@ public class RediSearchVectorClient {
 	 */
 	public void deleteDocument(String docKey) {
 		try (RedisConnection connection = redisConnectionFactory.getConnection()) {
-			connection.del(docKey.getBytes(StandardCharsets.UTF_8));
+			connection.keyCommands().del(docKey.getBytes(StandardCharsets.UTF_8));
 		} catch (DataAccessException ex) {
 			log.warn("Failed to delete document '{}': {}", docKey, ex.getMessage());
 		}

@@ -187,4 +187,34 @@ class CircuitBreakerConfigTest {
 		);
 		assertThat(factory).isNotNull();
 	}
+
+	@Test
+	void edgeCaseConfigurationsAndPortParsing() {
+		// Master-replica with various node port formats (no port, invalid port, negative port)
+		DataRedisProperties mrProps = new DataRedisProperties();
+		DataRedisProperties.Masterreplica mr = new DataRedisProperties.Masterreplica();
+		mr.setNodes(List.of("redis1", "redis2:abc", "redis3:0", "redis4:-5", "redis5:6385"));
+		mrProps.setMasterreplica(mr);
+		mrProps.setUsername("   ");
+		mrProps.setPassword("   ");
+		assertThat(config.redisConnectionFactory(mrProps)).isNotNull();
+
+		// Sentinel with blank credentials
+		DataRedisProperties sentProps = new DataRedisProperties();
+		DataRedisProperties.Sentinel sentinel = new DataRedisProperties.Sentinel();
+		sentinel.setMaster("mymaster");
+		sentinel.setNodes(List.of("sentinel1:26379"));
+		sentinel.setUsername("   ");
+		sentinel.setPassword("   ");
+		sentProps.setSentinel(sentinel);
+		sentProps.setUsername("   ");
+		sentProps.setPassword("   ");
+		assertThat(config.redisConnectionFactory(sentProps)).isNotNull();
+
+		// Standalone with zero port and blank host
+		DataRedisProperties saProps = new DataRedisProperties();
+		saProps.setHost("   ");
+		saProps.setPort(0);
+		assertThat(config.redisConnectionFactory(saProps)).isNotNull();
+	}
 }

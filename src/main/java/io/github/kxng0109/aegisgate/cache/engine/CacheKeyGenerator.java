@@ -197,17 +197,17 @@ public class CacheKeyGenerator {
 		if (content == null || content.isNull()) {
 			return "";
 		}
-		if (content.isTextual()) {
-			return content.asText();
+		if (content.isString()) {
+			return content.asString();
 		}
 		if (content.isArray()) {
 			StringBuilder sb = new StringBuilder();
 			for (JsonNode item : content) {
-				if (item.isTextual()) {
-					sb.append(item.asText());
+				if (item.isString()) {
+					sb.append(item.asString());
 				} else if (item.isObject()) {
-					if (item.has("text") && item.get("text").isTextual()) {
-						sb.append(item.get("text").asText());
+					if (item.has("text") && item.get("text").isString()) {
+						sb.append(item.get("text").asString());
 					}
 				}
 			}

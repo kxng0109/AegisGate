@@ -104,7 +104,7 @@ public class CohereEmbeddingAdapter implements EmbeddingAdapter {
 			if (b64Node.isArray()) {
 				isBase64Response = true;
 				for (JsonNode b64Item : b64Node) {
-					String b64 = b64Item.asText();
+					String b64 = b64Item.asString();
 					base64Vectors.add(b64);
 					floatVectors.add(VectorEncodingUtils.decodeFromBase64(b64));
 				}
