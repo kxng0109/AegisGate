@@ -52,6 +52,54 @@ class CohereEmbeddingAdapterTest {
 		assertThat(httpRequest.uri()).isEqualTo(URI.create("https://api.cohere.com/v2/embed"));
 		assertThat(httpRequest.headers().firstValue("Authorization")).contains("Bearer cohere-key");
 		assertThat(httpRequest.headers().firstValue("X-Client-Name")).contains("AegisGate");
+
+		// Without API key
+		ProviderConfig noKeyConfig = new ProviderConfig(
+				"cohere", ProviderType.ANTHROPIC, URI.create("https://api.cohere.com"),
+				null, Duration.ofSeconds(5), Duration.ofSeconds(30)
+		);
+		HttpRequest noKeyReq = adapter.buildRequest(
+				request, List.of("doc1"), noKeyConfig, URI.create("https://api.cohere.com/v2/embed")
+		);
+		assertThat(noKeyReq.headers().firstValue("Authorization")).isEmpty();
+	}
+
+	@Test
+	@DisplayName("parseResponse parses Cohere billed_units token metadata fallback")
+	void parseResponseBilledUnits() {
+		String json = """
+				{
+				  "embeddings": [
+				    [0.1, 0.2]
+				  ],
+				  "meta": {
+				    "billed_units": {
+				      "input_tokens": 42
+				    }
+				  }
+				}
+				""";
+
+		EmbeddingRequest request = new EmbeddingRequest("text", "embed-english-v3.0", null, "float", null);
+		NormalizedEmbeddingResult result = adapter.parseResponse(
+				json.getBytes(StandardCharsets.UTF_8), request, "embed-english-v3.0"
+		);
+
+		assertThat(result.promptTokens()).isEqualTo(42);
+		assertThat(result.vectors()).hasSize(1);
+
+		// Non-array vecNode in targetNode
+		String nonArrayVecJson = """
+				{
+				  "embeddings": [
+				    "not-a-vector-array"
+				  ]
+				}
+				""";
+		NormalizedEmbeddingResult nonArrayRes = adapter.parseResponse(
+				nonArrayVecJson.getBytes(StandardCharsets.UTF_8), request, "embed-english-v3.0"
+		);
+		assertThat(nonArrayRes.vectors()).isEmpty();
 	}
 
 	@Test

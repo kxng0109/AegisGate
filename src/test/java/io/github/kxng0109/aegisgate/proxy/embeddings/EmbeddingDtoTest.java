@@ -62,6 +62,14 @@ class EmbeddingDtoTest {
 		// Other object fallback
 		EmbeddingRequest otherObj = new EmbeddingRequest(12345, "text-embedding-3-small", null, null, null);
 		assertThat(otherObj.extractTextInputs()).containsExactly("12345");
+
+		// Mixed list with null and non-string elements
+		java.util.List<Object> mixedList = new java.util.ArrayList<>();
+		mixedList.add("firstText");
+		mixedList.add(null);
+		mixedList.add(new StringBuilder("secondText"));
+		EmbeddingRequest mixedReq = new EmbeddingRequest(mixedList, "text-embedding-3-small", null, null, null);
+		assertThat(mixedReq.extractTextInputs()).containsExactly("firstText", "secondText");
 	}
 
 	@Test

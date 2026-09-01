@@ -1,5 +1,10 @@
 package io.github.kxng0109.aegisgate.proxy;
 
+import io.github.kxng0109.aegisgate.cache.contracts.CacheEntry;
+import io.github.kxng0109.aegisgate.cache.contracts.CacheLookupResult;
+import io.github.kxng0109.aegisgate.cache.contracts.CacheStatus;
+import io.github.kxng0109.aegisgate.cache.engine.AegisCacheService;
+import io.github.kxng0109.aegisgate.cache.engine.streaming.CachedStreamReconstitution;
 import io.github.kxng0109.aegisgate.contracts.GatewayProperties;
 import io.github.kxng0109.aegisgate.contracts.ModelAlias;
 import io.github.kxng0109.aegisgate.contracts.ProviderConfig;
@@ -23,6 +28,7 @@ import jakarta.servlet.ServletOutputStream;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.Nullable;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -39,8 +45,10 @@ import tools.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
 
@@ -69,16 +77,39 @@ public class ProxyController {
 	private final ApplicationEventPublisher eventPublisher;
 	private final SseFlushStrategy flushStrategy;
 	private final SseLineGuardFactory lineGuardFactory;
+	private final @Nullable AegisCacheService cacheService;
+	private final @Nullable CachedStreamReconstitution cachedStreamReconstitution;
 
 	/**
-	 * @param failoverOrchestrator resolves the winning provider for a request
-	 * @param gatewayProperties    provides the model aliases and providers
-	 * @param objectMapper         parses the request body
-	 * @param adapterResolver      picks the protocol adapter for a provider
-	 * @param costCalculator       computes the cost of a completed stream
-	 * @param eventPublisher       delivers the usage event to the ledger
-	 * @param flushStrategy        batches and periodically flushes SSE lines to the downstream client
-	 * @param lineGuardFactory     creates per-stream line guards
+	 * Primary constructor injecting all components including cache layer.
+	 */
+	@Autowired
+	public ProxyController(
+			FailoverOrchestrator failoverOrchestrator,
+			GatewayProperties gatewayProperties,
+			ObjectMapper objectMapper,
+			ProtocolAdapterResolver adapterResolver,
+			CostCalculator costCalculator,
+			ApplicationEventPublisher eventPublisher,
+			SseFlushStrategy flushStrategy,
+			SseLineGuardFactory lineGuardFactory,
+			@Nullable AegisCacheService cacheService,
+			@Nullable CachedStreamReconstitution cachedStreamReconstitution
+	) {
+		this.failoverOrchestrator = failoverOrchestrator;
+		this.gatewayProperties = gatewayProperties;
+		this.objectMapper = objectMapper;
+		this.adapterResolver = adapterResolver;
+		this.costCalculator = costCalculator;
+		this.eventPublisher = eventPublisher;
+		this.flushStrategy = flushStrategy;
+		this.lineGuardFactory = lineGuardFactory;
+		this.cacheService = cacheService;
+		this.cachedStreamReconstitution = cachedStreamReconstitution;
+	}
+
+	/**
+	 * Convenience constructor for existing tests without cache subsystem.
 	 */
 	public ProxyController(
 			FailoverOrchestrator failoverOrchestrator,
@@ -90,14 +121,18 @@ public class ProxyController {
 			SseFlushStrategy flushStrategy,
 			SseLineGuardFactory lineGuardFactory
 	) {
-		this.failoverOrchestrator = failoverOrchestrator;
-		this.gatewayProperties = gatewayProperties;
-		this.objectMapper = objectMapper;
-		this.adapterResolver = adapterResolver;
-		this.costCalculator = costCalculator;
-		this.eventPublisher = eventPublisher;
-		this.flushStrategy = flushStrategy;
-		this.lineGuardFactory = lineGuardFactory;
+		this(
+				failoverOrchestrator,
+				gatewayProperties,
+				objectMapper,
+				adapterResolver,
+				costCalculator,
+				eventPublisher,
+				flushStrategy,
+				lineGuardFactory,
+				null,
+				null
+		);
 	}
 
 	/**
@@ -128,6 +163,39 @@ public class ProxyController {
 			return errorResponse(HttpStatus.NOT_FOUND, "unknown model: " + model);
 		}
 
+		@Nullable String ownerId = (String) request.getAttribute(KeyAuthFilter.OWNER_ID_ATTRIBUTE);
+		OpenAiChatRequest chatRequest = parseChatRequest(trimmed);
+
+		if (cacheService != null && cachedStreamReconstitution != null && chatRequest != null) {
+			CacheLookupResult cacheResult = cacheService.evaluateCache(chatRequest, request, ownerId);
+			if (cacheResult.isHit() && cacheResult.entry() != null) {
+				CacheEntry entry = cacheResult.entry();
+				boolean clientWantsUsage = requestsUsage(trimmed);
+				HttpHeaders headers = new HttpHeaders();
+				headers.setContentType(MediaType.TEXT_EVENT_STREAM);
+				headers.setCacheControl("no-cache");
+				headers.set("X-Accel-Buffering", "no");
+				headers.set(
+						"X-Cache",
+						cacheResult.status() == CacheStatus.HIT_L0 ? "HIT (L0-Memory)" : (
+								cacheResult.status() == CacheStatus.HIT_L1 ? "HIT (L1-Exact)" : "HIT (L2-Semantic)")
+				);
+				headers.set(
+						"X-Aegis-Similarity-Score",
+						String.format(Locale.ROOT, "%.4f", cacheResult.similarityScore())
+				);
+				if (entry.createdAt() != null) {
+					headers.set("Age", String.valueOf(Duration.between(entry.createdAt(), Instant.now()).toSeconds()));
+				}
+				return ResponseEntity.ok().headers(headers).body(out -> cachedStreamReconstitution.streamCachedResponse(
+						entry,
+						model,
+						clientWantsUsage,
+						out
+				));
+			}
+		}
+
 		ProviderResponse providerResponse;
 		try {
 			providerResponse = failoverOrchestrator.execute(alias, trimmed).join();
@@ -155,7 +223,6 @@ public class ProxyController {
 		ProtocolAdapter adapter = adapterResolver.resolve(providerType);
 		boolean clientWantsUsage = requestsUsage(trimmed);
 		UUID requestId = UUID.randomUUID();
-		@Nullable String ownerId = (String) request.getAttribute(KeyAuthFilter.OWNER_ID_ATTRIBUTE);
 
 		HttpHeaders headers = new HttpHeaders();
 		headers.setContentType(MediaType.TEXT_EVENT_STREAM);
@@ -164,7 +231,8 @@ public class ProxyController {
 
 		return ResponseEntity.ok().headers(headers).body(out -> relaySse(
 				providerResponse, adapter.newNormalizer(clientWantsUsage, model), out,
-				requestId, ownerId, providerType, providerResponse.providerName(), model
+				requestId, ownerId, providerType, providerResponse.providerName(), model,
+				chatRequest, request
 		));
 	}
 
@@ -176,7 +244,9 @@ public class ProxyController {
 			@Nullable String ownerId,
 			ProviderType providerType,
 			String providerName,
-			String requestedModel
+			String requestedModel,
+			@Nullable OpenAiChatRequest chatRequest,
+			HttpServletRequest servletRequest
 	) throws IOException {
 		long startedNanos = System.nanoTime();
 		ServletOutputStream servletOut = out instanceof ServletOutputStream candidate ? candidate : null;
@@ -199,6 +269,7 @@ public class ProxyController {
 		SseLineGuard.ProviderType guardProviderType = io.github.kxng0109.aegisgate.proxy.sse.SseLineGuard.ProviderType.from(
 				providerType);
 
+		StringBuilder accumulatedContent = new StringBuilder();
 		try {
 			try (var lines = providerResponse.response().body()) {
 				for (String line : (Iterable<String>) lines::iterator) {
@@ -223,6 +294,7 @@ public class ProxyController {
 
 					List<String> normalized = normalizer.normalizeLine(line);
 					for (String toWrite : normalized) {
+						extractDeltaContent(toWrite, accumulatedContent);
 						byte[] bytes = toWrite.getBytes(StandardCharsets.UTF_8);
 						out.write(bytes);
 						out.write('\n');
@@ -267,6 +339,58 @@ public class ProxyController {
 					usage.promptTokens() + usage.completionTokens(),
 					durationMs, costUsdMicros, Instant.now()
 			));
+
+			if (cacheService != null && chatRequest != null) {
+				int pt = (int) Math.min(Integer.MAX_VALUE, usage.promptTokens());
+				int ct = (int) Math.min(Integer.MAX_VALUE, usage.completionTokens());
+				String completionJson = buildCompletionJson(model, accumulatedContent.toString(), pt, ct);
+				cacheService.storeResponse(chatRequest, servletRequest, ownerId, completionJson, pt, ct);
+			}
+		}
+	}
+
+	private void extractDeltaContent(String line, StringBuilder accumulator) {
+		if (line != null && line.startsWith("data: ") && !line.contains("[DONE]")) {
+			String json = line.substring(6).trim();
+			try {
+				JsonNode node = objectMapper.readTree(json);
+				JsonNode choices = node.path("choices");
+				if (choices.isArray() && !choices.isEmpty()) {
+					JsonNode delta = choices.get(0).path("delta");
+					if (delta.has("content") && delta.get("content").isTextual()) {
+						accumulator.append(delta.get("content").asText());
+					}
+				}
+			} catch (Exception ignored) {
+			}
+		}
+	}
+
+	private String buildCompletionJson(String model, String content, int promptTokens, int completionTokens) {
+		long created = Instant.now().getEpochSecond();
+		String id = "chatcmpl-" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+		try {
+			String escapedContent = objectMapper.writeValueAsString(content);
+			return "{\"id\":\"" + id + "\",\"object\":\"chat.completion\",\"created\":" + created
+					+ ",\"model\":\"" + model
+					+ "\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":"
+					+ escapedContent + "},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":"
+					+ promptTokens + ",\"completion_tokens\":" + completionTokens + ",\"total_tokens\":"
+					+ (promptTokens + completionTokens) + "}}";
+		} catch (Exception ex) {
+			return "{\"id\":\"" + id + "\",\"object\":\"chat.completion\",\"created\":" + created
+					+ ",\"model\":\"" + model
+					+ "\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":"
+					+ promptTokens + ",\"completion_tokens\":" + completionTokens + ",\"total_tokens\":"
+					+ (promptTokens + completionTokens) + "}}";
+		}
+	}
+
+	private @Nullable OpenAiChatRequest parseChatRequest(String rawBody) {
+		try {
+			return objectMapper.readValue(rawBody, OpenAiChatRequest.class);
+		} catch (Exception ex) {
+			return null;
 		}
 	}
 

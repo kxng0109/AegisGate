@@ -295,4 +295,38 @@ class EmbeddingBatchOrchestratorTest {
 		assertThat(response.data().get(1).embedding()).isEqualTo(VectorEncodingUtils.encodeToBase64(new float[]{1.0f}));
 		assertThat(response.data().get(2).embedding()).isEqualTo(VectorEncodingUtils.encodeToBase64(new float[]{2.0f}));
 	}
+
+	@Test
+	@DisplayName("execute multi-batch exception propagation for IOException and RuntimeException")
+	void executeMultiBatchExceptions() throws Exception {
+		EmbeddingRequest request = new EmbeddingRequest(
+				List.of("t0", "t1", "t2", "t3"),
+				"text-embedding-3-small", null, null, null
+		);
+		when(adapter.getMaxBatchSize()).thenReturn(2);
+
+		HttpRequest req = mock(HttpRequest.class);
+		when(adapter.buildRequest(any(), any(), any(), any())).thenReturn(req);
+		doThrow(new IOException("Simulated network timeout")).when(httpClient).send(any(), any());
+
+		assertThatThrownBy(() -> orchestrator.execute(
+				request,
+				adapter,
+				providerConfig,
+				URI.create("https://api.openai.com/v1/embeddings")
+		))
+				.isInstanceOf(IOException.class)
+				.hasMessageContaining("Simulated network timeout");
+
+		// Generic RuntimeException
+		doThrow(new IllegalStateException("Unexpected crash")).when(httpClient).send(any(), any());
+		assertThatThrownBy(() -> orchestrator.execute(
+				request,
+				adapter,
+				providerConfig,
+				URI.create("https://api.openai.com/v1/embeddings")
+		))
+				.isInstanceOf(IOException.class)
+				.hasMessageContaining("Unexpected crash");
+	}
 }

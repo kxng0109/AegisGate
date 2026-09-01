@@ -43,4 +43,24 @@ class VectorEncodingUtilsTest {
 				.isInstanceOf(IllegalArgumentException.class)
 				.hasMessageContaining("byte count must be a multiple of 4");
 	}
+
+	@Test
+	@DisplayName("floatsToLittleEndianBytes and littleEndianBytesToFloats round trip and handle edge cases")
+	void byteConversionRoundTrip() {
+		float[] original = new float[]{1.23f, -4.56f, 0.0f};
+		byte[] bytes = VectorEncodingUtils.floatsToLittleEndianBytes(original);
+		assertThat(bytes).hasSize(12);
+
+		float[] decoded = VectorEncodingUtils.littleEndianBytesToFloats(bytes);
+		assertThat(decoded).containsExactly(original);
+
+		assertThat(VectorEncodingUtils.floatsToLittleEndianBytes(null)).isEmpty();
+		assertThat(VectorEncodingUtils.floatsToLittleEndianBytes(new float[0])).isEmpty();
+		assertThat(VectorEncodingUtils.littleEndianBytesToFloats(null)).isEmpty();
+		assertThat(VectorEncodingUtils.littleEndianBytesToFloats(new byte[0])).isEmpty();
+
+		assertThatThrownBy(() -> VectorEncodingUtils.littleEndianBytesToFloats(new byte[]{1, 2, 3}))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessageContaining("must be multiple of 4");
+	}
 }

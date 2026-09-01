@@ -35,6 +35,16 @@ class AdminLedgerDtoTest {
 		assertThat(mixed.ownerId()).isEqualTo("owner");
 		assertThat(mixed.provider()).isEqualTo("provider");
 		assertThat(mixed.model()).isEqualTo("model");
+
+		LedgerFilter blankCombinations = new LedgerFilter("", "   ", "\t", null, null);
+		assertThat(blankCombinations.ownerId()).isNull();
+		assertThat(blankCombinations.provider()).isNull();
+		assertThat(blankCombinations.model()).isNull();
+
+		LedgerFilter partialNull = new LedgerFilter(null, "prov", null, null, null);
+		assertThat(partialNull.ownerId()).isNull();
+		assertThat(partialNull.provider()).isEqualTo("prov");
+		assertThat(partialNull.model()).isNull();
 	}
 
 	@Test

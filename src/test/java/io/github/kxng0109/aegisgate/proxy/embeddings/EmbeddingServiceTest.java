@@ -10,7 +10,6 @@ import io.github.kxng0109.aegisgate.proxy.embeddings.dto.EmbeddingResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
@@ -157,7 +156,19 @@ class EmbeddingServiceTest {
 		assertThatThrownBy(() -> service.processEmbedding(request, "tenant-1"))
 				.isInstanceOf(ResponseStatusException.class)
 				.hasMessageContaining("Embedding upstream provider error")
-				.satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY));
+				.hasCauseInstanceOf(IOException.class);
+
+		// InterruptedException
+		doThrow(new InterruptedException("Interrupted")).when(batchOrchestrator).execute(any(), any(), any(), any());
+		assertThatThrownBy(() -> service.processEmbedding(request, "tenant-1"))
+				.isInstanceOf(ResponseStatusException.class)
+				.hasCauseInstanceOf(InterruptedException.class);
+
+		// Response with null usage
+		EmbeddingResponse nullUsageResp = new EmbeddingResponse("list", List.of(), "text-embedding-3-small", null);
+		doReturn(nullUsageResp).when(batchOrchestrator).execute(any(), any(), any(), any());
+		EmbeddingResponse res = service.processEmbedding(request, "tenant-1");
+		assertThat(res.usage()).isNull();
 	}
 
 	@Test

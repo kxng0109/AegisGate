@@ -23,9 +23,42 @@ public final class VectorEncodingUtils {
 		if (vector == null) {
 			return "";
 		}
+		byte[] bytes = floatsToLittleEndianBytes(vector);
+		return Base64.getEncoder().encodeToString(bytes);
+	}
+
+	/**
+	 * Converts a primitive {@code float[]} vector into raw Little-Endian IEEE 754 byte array.
+	 *
+	 * @param vector dense float vector
+	 * @return Little-Endian byte array of length {@code vector.length * 4}
+	 */
+	public static byte[] floatsToLittleEndianBytes(float[] vector) {
+		if (vector == null || vector.length == 0) {
+			return new byte[0];
+		}
 		byte[] bytes = new byte[vector.length * 4];
 		ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer().put(vector);
-		return Base64.getEncoder().encodeToString(bytes);
+		return bytes;
+	}
+
+	/**
+	 * Converts a raw Little-Endian IEEE 754 byte array into a primitive {@code float[]} vector.
+	 *
+	 * @param bytes Little-Endian byte array
+	 * @return primitive float array
+	 * @throws IllegalArgumentException if byte array length is not a multiple of 4
+	 */
+	public static float[] littleEndianBytesToFloats(byte[] bytes) {
+		if (bytes == null || bytes.length == 0) {
+			return new float[0];
+		}
+		if (bytes.length % 4 != 0) {
+			throw new IllegalArgumentException("Invalid byte length for float vector: must be multiple of 4");
+		}
+		float[] vector = new float[bytes.length / 4];
+		ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer().get(vector);
+		return vector;
 	}
 
 	/**

@@ -822,6 +822,306 @@ class ProxyControllerTest {
 		assertTrue(out.writtenUtf8().contains("data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}"));
 	}
 
+	@Test
+	@DisplayName("proxyChatCompletions intercepts request and serves synthetic stream on cache hit")
+	void proxyChatCompletionsCacheHit() throws Exception {
+		io.github.kxng0109.aegisgate.cache.engine.AegisCacheService cacheService = mock(io.github.kxng0109.aegisgate.cache.engine.AegisCacheService.class);
+		io.github.kxng0109.aegisgate.cache.engine.streaming.CachedStreamReconstitution streamReconstitution = new io.github.kxng0109.aegisgate.cache.engine.streaming.CachedStreamReconstitution(
+				objectMapper);
+
+		ProtocolAdapterResolver resolver = new ProtocolAdapterResolver(
+				new OpenAiPassthroughAdapter(objectMapper),
+				new AnthropicAdapter(objectMapper),
+				new OllamaAdapter(objectMapper)
+		);
+		ProxyController cachedController = new ProxyController(
+				orchestrator, gatewayProperties, objectMapper,
+				resolver, costCalculator, eventPublisher, flushStrategy, lineGuardFactory,
+				cacheService, streamReconstitution
+		);
+
+		io.github.kxng0109.aegisgate.cache.contracts.CacheEntry entry = new io.github.kxng0109.aegisgate.cache.contracts.CacheEntry(
+				"id1", "owner-1", io.github.kxng0109.aegisgate.cache.contracts.CacheScope.TENANT, "gpt-5.6-luna",
+				"Hi", "", "", "{\"choices\":[{\"message\":{\"content\":\"Cached greeting!\"}}]}", 5, 10, 15,
+				java.time.Instant.now(), 0.96f
+		);
+		io.github.kxng0109.aegisgate.cache.contracts.CacheLookupResult hit = io.github.kxng0109.aegisgate.cache.contracts.CacheLookupResult.hit(
+				io.github.kxng0109.aegisgate.cache.contracts.CacheStatus.HIT_L2, entry, 0.96f, 15L
+		);
+		when(cacheService.evaluateCache(any(), any(), eq("owner-1"))).thenReturn(hit);
+
+		ResponseEntity<StreamingResponseBody> res = cachedController.proxyChatCompletions(
+				"{\"model\":\"gpt-5.6-luna\",\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}]}",
+				request()
+		);
+
+		assertEquals(200, res.getStatusCode().value());
+		assertEquals("HIT (L2-Semantic)", res.getHeaders().getFirst("X-Cache"));
+		assertEquals("0.9600", res.getHeaders().getFirst("X-Aegis-Similarity-Score"));
+
+		ByteArrayOutputStream out = new ByteArrayOutputStream();
+		res.getBody().writeTo(out);
+		String streamed = out.toString(StandardCharsets.UTF_8);
+		assertTrue(streamed.contains("Cached greeting!"));
+		assertTrue(streamed.contains("data: [DONE]"));
+
+		// Upstream orchestrator should not have been called!
+		verify(orchestrator, never()).execute(any(), anyString());
+	}
+
+	@Test
+	@DisplayName("proxyChatCompletions stores response to cacheService when cache misses and upstream completes")
+	void proxyChatCompletionsCacheMissAndStore() throws Exception {
+		io.github.kxng0109.aegisgate.cache.engine.AegisCacheService cacheService = mock(io.github.kxng0109.aegisgate.cache.engine.AegisCacheService.class);
+		io.github.kxng0109.aegisgate.cache.engine.streaming.CachedStreamReconstitution streamReconstitution = new io.github.kxng0109.aegisgate.cache.engine.streaming.CachedStreamReconstitution(
+				objectMapper);
+
+		ProtocolAdapterResolver resolver = new ProtocolAdapterResolver(
+				new OpenAiPassthroughAdapter(objectMapper),
+				new AnthropicAdapter(objectMapper),
+				new OllamaAdapter(objectMapper)
+		);
+		ProxyController cachedController = new ProxyController(
+				orchestrator, gatewayProperties, objectMapper,
+				resolver, costCalculator, eventPublisher, flushStrategy, lineGuardFactory,
+				cacheService, streamReconstitution
+		);
+
+		when(cacheService.evaluateCache(any(), any(), eq("owner-1"))).thenReturn(
+				io.github.kxng0109.aegisgate.cache.contracts.CacheLookupResult.miss(5L)
+		);
+
+		ProviderResponse response = providerResponse(
+				"openai", 200, sseHeaders(),
+				Stream.of(
+						"data: {\"choices\":[{\"delta\":{\"content\":\"fresh result\"}}]}",
+						"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":8,\"completion_tokens\":12,\"total_tokens\":20}}",
+						"data: [DONE]"
+				)
+		);
+		when(orchestrator.execute(any(), anyString())).thenReturn(CompletableFuture.completedFuture(response));
+
+		ResponseEntity<StreamingResponseBody> res = cachedController.proxyChatCompletions(
+				"{\"model\":\"gpt-5.6-luna\",\"messages\":[{\"role\":\"user\",\"content\":\"Question\"}]}",
+				request()
+		);
+
+		ByteArrayOutputStream out = new ByteArrayOutputStream();
+		res.getBody().writeTo(out);
+
+		verify(cacheService).storeResponse(any(), any(), eq("owner-1"), contains("fresh result"), eq(8), eq(12));
+	}
+
+	@Test
+	@DisplayName("proxyChatCompletions formats L0 and L1 hit headers correctly")
+	void proxyChatCompletionsL0andL1HitHeaders() throws Exception {
+		io.github.kxng0109.aegisgate.cache.engine.AegisCacheService cacheService = mock(io.github.kxng0109.aegisgate.cache.engine.AegisCacheService.class);
+		io.github.kxng0109.aegisgate.cache.engine.streaming.CachedStreamReconstitution streamReconstitution = new io.github.kxng0109.aegisgate.cache.engine.streaming.CachedStreamReconstitution(
+				objectMapper);
+
+		ProtocolAdapterResolver resolver = new ProtocolAdapterResolver(
+				new OpenAiPassthroughAdapter(objectMapper),
+				new AnthropicAdapter(objectMapper),
+				new OllamaAdapter(objectMapper)
+		);
+		ProxyController cachedController = new ProxyController(
+				orchestrator, gatewayProperties, objectMapper,
+				resolver, costCalculator, eventPublisher, flushStrategy, lineGuardFactory,
+				cacheService, streamReconstitution
+		);
+
+		io.github.kxng0109.aegisgate.cache.contracts.CacheEntry entry = new io.github.kxng0109.aegisgate.cache.contracts.CacheEntry(
+				"id1", "owner-1", io.github.kxng0109.aegisgate.cache.contracts.CacheScope.TENANT, "gpt-5.6-luna",
+				"Hi", "", "", "{\"choices\":[{\"message\":{\"content\":\"L0 hit\"}}]}", 5, 10, 15,
+				java.time.Instant.now(), 1.0f
+		);
+
+		when(cacheService.evaluateCache(any(), any(), eq("owner-1"))).thenReturn(
+				io.github.kxng0109.aegisgate.cache.contracts.CacheLookupResult.hit(
+						io.github.kxng0109.aegisgate.cache.contracts.CacheStatus.HIT_L0, entry, 1.0f, 1L
+				)
+		);
+
+		ResponseEntity<StreamingResponseBody> resL0 = cachedController.proxyChatCompletions(PATH_BODY, request());
+		assertEquals("HIT (L0-Memory)", resL0.getHeaders().getFirst("X-Cache"));
+
+		when(cacheService.evaluateCache(any(), any(), eq("owner-1"))).thenReturn(
+				io.github.kxng0109.aegisgate.cache.contracts.CacheLookupResult.hit(
+						io.github.kxng0109.aegisgate.cache.contracts.CacheStatus.HIT_L1, entry, 1.0f, 2L
+				)
+		);
+
+		ResponseEntity<StreamingResponseBody> resL1 = cachedController.proxyChatCompletions(PATH_BODY, request());
+		assertEquals("HIT (L1-Exact)", resL1.getHeaders().getFirst("X-Cache"));
+
+		// Cache hit with null createdAt
+		io.github.kxng0109.aegisgate.cache.contracts.CacheEntry entryNullCreated = new io.github.kxng0109.aegisgate.cache.contracts.CacheEntry(
+				"id1", "owner-1", io.github.kxng0109.aegisgate.cache.contracts.CacheScope.TENANT, "gpt-5.6-luna",
+				"Hi", "", "", "{\"choices\":[]}", 1, 1, 2, null, 1.0f
+		);
+		when(cacheService.evaluateCache(any(), any(), eq("owner-1"))).thenReturn(
+				io.github.kxng0109.aegisgate.cache.contracts.CacheLookupResult.hit(
+						io.github.kxng0109.aegisgate.cache.contracts.CacheStatus.HIT_L0, entryNullCreated, 1.0f, 1L
+				)
+		);
+		ResponseEntity<StreamingResponseBody> resNullCreated = cachedController.proxyChatCompletions(
+				PATH_BODY,
+				request()
+		);
+		assertNull(resNullCreated.getHeaders().getFirst("Age"));
+	}
+
+	@Test
+	@DisplayName("extractDeltaContent and buildCompletionJson handle various line formats and serialization branches")
+	void extractDeltaAndBuildCompletionJson() throws Exception {
+		io.github.kxng0109.aegisgate.cache.engine.AegisCacheService cacheService = mock(io.github.kxng0109.aegisgate.cache.engine.AegisCacheService.class);
+		io.github.kxng0109.aegisgate.cache.engine.streaming.CachedStreamReconstitution streamReconstitution = new io.github.kxng0109.aegisgate.cache.engine.streaming.CachedStreamReconstitution(
+				objectMapper);
+
+		ProtocolAdapterResolver resolver = new ProtocolAdapterResolver(
+				new OpenAiPassthroughAdapter(objectMapper),
+				new AnthropicAdapter(objectMapper),
+				new OllamaAdapter(objectMapper)
+		);
+		ProxyController cachedController = new ProxyController(
+				orchestrator, gatewayProperties, objectMapper,
+				resolver, costCalculator, eventPublisher, flushStrategy, lineGuardFactory,
+				cacheService, streamReconstitution
+		);
+
+		when(cacheService.evaluateCache(any(), any(), eq("owner-1"))).thenReturn(
+				io.github.kxng0109.aegisgate.cache.contracts.CacheLookupResult.miss(1L)
+		);
+
+		// Streaming lines with various delta contents and empty lines
+		ProviderResponse response = providerResponse(
+				"openai", 200, sseHeaders(),
+				Stream.of(
+						": keep-alive",
+						"data: {\"choices\":[]}",
+						"data: {\"choices\":[{\"delta\":{}}]}",
+						"data: {\"choices\":[{\"delta\":{\"content\":\"valid delta\"}}]}",
+						"data: invalid-json",
+						"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":5}}",
+						"data: [DONE]"
+				)
+		);
+		when(orchestrator.execute(any(), anyString())).thenReturn(CompletableFuture.completedFuture(response));
+
+		ResponseEntity<StreamingResponseBody> res = cachedController.proxyChatCompletions(
+				"{\"model\":\"gpt-5.6-luna\",\"messages\":[{\"role\":\"user\",\"content\":\"Question\"}]}",
+				request()
+		);
+		ByteArrayOutputStream out = new ByteArrayOutputStream();
+		res.getBody().writeTo(out);
+
+		// Verified that valid delta was captured
+		verify(cacheService, atLeastOnce()).storeResponse(any(), any(), eq("owner-1"), anyString(), anyInt(), anyInt());
+
+		// Edge case branches in extractDeltaContent and buildCompletionJson
+		ProxyController plainController = new ProxyController(
+				orchestrator, gatewayProperties, objectMapper,
+				resolver, costCalculator, eventPublisher, flushStrategy, lineGuardFactory,
+				null, null
+		);
+
+		ProviderResponse noCacheResponse = providerResponse(
+				"openai", 200, sseHeaders(),
+				Stream.of("data: {\"choices\":[{\"delta\":{\"content\":\"no cache service\"}}]}", "data: [DONE]")
+		);
+		when(orchestrator.execute(any(), anyString())).thenReturn(CompletableFuture.completedFuture(noCacheResponse));
+
+		ResponseEntity<StreamingResponseBody> noCacheRes = plainController.proxyChatCompletions(PATH_BODY, request());
+		ByteArrayOutputStream out2 = new ByteArrayOutputStream();
+		noCacheRes.getBody().writeTo(out2);
+		assertTrue(out2.toString(StandardCharsets.UTF_8).contains("no cache service"));
+
+		// Edge case branches: cachedStreamReconstitution == null
+		ProxyController halfCachedController = new ProxyController(
+				orchestrator, gatewayProperties, objectMapper,
+				resolver, costCalculator, eventPublisher, flushStrategy, lineGuardFactory,
+				cacheService, null
+		);
+		when(orchestrator.execute(any(), anyString())).thenReturn(CompletableFuture.completedFuture(noCacheResponse));
+		ResponseEntity<StreamingResponseBody> halfCachedRes = halfCachedController.proxyChatCompletions(
+				PATH_BODY,
+				request()
+		);
+		assertEquals(200, halfCachedRes.getStatusCode().value());
+
+		// Edge case: cache hit is true but entry is null -> proceeds to orchestrator
+		when(cacheService.evaluateCache(any(), any(), eq("owner-1"))).thenReturn(
+				new io.github.kxng0109.aegisgate.cache.contracts.CacheLookupResult(
+						io.github.kxng0109.aegisgate.cache.contracts.CacheStatus.HIT_L0, null, 1.0f, 1L
+				)
+		);
+		ResponseEntity<StreamingResponseBody> hitNullEntryRes = cachedController.proxyChatCompletions(
+				PATH_BODY,
+				request()
+		);
+		assertEquals(200, hitNullEntryRes.getStatusCode().value());
+	}
+
+	@Test
+	@DisplayName("proxyChatCompletions with empty model string returns 400")
+	void blankModelReturns400() {
+		ResponseEntity<StreamingResponseBody> res = controller.proxyChatCompletions("{\"model\":\"   \"}", request());
+		assertEquals(400, res.getStatusCode().value());
+
+		// Model not a string
+		ResponseEntity<StreamingResponseBody> resNonString = controller.proxyChatCompletions(
+				"{\"model\": 12345}",
+				request()
+		);
+		assertEquals(400, resNonString.getStatusCode().value());
+
+		// Root is null
+		ResponseEntity<StreamingResponseBody> resNull = controller.proxyChatCompletions("null", request());
+		assertEquals(400, resNull.getStatusCode().value());
+	}
+
+	@Test
+	@DisplayName("extractDeltaContent with non-textual delta content does not append")
+	void extractDeltaNonTextual() throws Exception {
+		io.github.kxng0109.aegisgate.cache.engine.AegisCacheService cacheService = mock(io.github.kxng0109.aegisgate.cache.engine.AegisCacheService.class);
+		io.github.kxng0109.aegisgate.cache.engine.streaming.CachedStreamReconstitution streamReconstitution = new io.github.kxng0109.aegisgate.cache.engine.streaming.CachedStreamReconstitution(
+				objectMapper);
+
+		ProtocolAdapterResolver resolver = new ProtocolAdapterResolver(
+				new OpenAiPassthroughAdapter(objectMapper),
+				new AnthropicAdapter(objectMapper),
+				new OllamaAdapter(objectMapper)
+		);
+		ProxyController cachedController = new ProxyController(
+				orchestrator, gatewayProperties, objectMapper,
+				resolver, costCalculator, eventPublisher, flushStrategy, lineGuardFactory,
+				cacheService, streamReconstitution
+		);
+
+		when(cacheService.evaluateCache(any(), any(), eq("owner-1"))).thenReturn(
+				io.github.kxng0109.aegisgate.cache.contracts.CacheLookupResult.miss(1L)
+		);
+
+		ProviderResponse response = providerResponse(
+				"openai", 200, sseHeaders(),
+				Stream.of(
+						"data: {\"choices\":[{\"delta\":{\"content\": 123}}]}",
+						"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}",
+						"data: [DONE]"
+				)
+		);
+		when(orchestrator.execute(any(), anyString())).thenReturn(CompletableFuture.completedFuture(response));
+
+		ResponseEntity<StreamingResponseBody> res = cachedController.proxyChatCompletions(
+				"{\"model\":\"gpt-5.6-luna\",\"messages\":[{\"role\":\"user\",\"content\":\"Test\"}]}",
+				request()
+		);
+		ByteArrayOutputStream out = new ByteArrayOutputStream();
+		res.getBody().writeTo(out);
+
+		verify(cacheService).storeResponse(any(), any(), eq("owner-1"), contains("\"content\":\"\""), eq(1), eq(1));
+	}
+
 	// ---------------------------------------------------------------------
 	// Helpers
 	// ---------------------------------------------------------------------

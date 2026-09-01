@@ -58,6 +58,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 				"gateway.providers.upstream.request-timeout=2s",
 				"gateway.aliases.gpt-4o.chain[0].provider-name=upstream",
 				"gateway.aliases.gpt-4o.strategy=SEQUENTIAL",
+				"gateway.cache.enabled=false",
 				"spring.data.redis.timeout=3s"
 		})
 @DisplayName("Rate limiting and virtual-key auth against real Redis")
