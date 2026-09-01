@@ -6,6 +6,16 @@ import io.github.kxng0109.aegisgate.cache.config.AegisCacheProperties;
 import io.github.kxng0109.aegisgate.cache.engine.AegisCacheService;
 import io.github.kxng0109.aegisgate.cache.engine.l2.RediSearchVectorClient;
 import io.github.kxng0109.aegisgate.cache.engine.l2.RedisSemanticVectorCache;
+import io.github.kxng0109.aegisgate.config.OpenApiConfig;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.Nullable;
@@ -23,6 +33,7 @@ import java.util.Set;
 @RestController
 @RequestMapping("/v1/admin/cache")
 @RequiredArgsConstructor
+@Tag(name = "Admin - Cache Control", description = "Inspecting multi-tier cache telemetry and executing tenant-level or global cache purges")
 public class AdminCacheController {
 
 	private final AegisCacheService cacheService;
@@ -35,6 +46,42 @@ public class AdminCacheController {
 	 *
 	 * @return HTTP 200 OK with cache statistics
 	 */
+	@Operation(
+			summary = "Inspect multi-tier cache configuration and status",
+			description = "Retrieves active cache layer statuses (L0, L1, L2), similarity threshold settings, configured embedding model alias, and guardrail flags.",
+			security = {
+					@SecurityRequirement(name = OpenApiConfig.SCHEME_ADMIN_KEY_HEADER),
+					@SecurityRequirement(name = OpenApiConfig.SCHEME_ADMIN_BEARER)
+			}
+	)
+	@ApiResponses(value = {
+			@ApiResponse(
+					responseCode = "200",
+					description = "Cache telemetry and configuration retrieved",
+					content = @Content(
+							mediaType = "application/json",
+							schema = @Schema(implementation = CacheStatsResponse.class),
+							examples = @ExampleObject(
+									name = "Cache Telemetry Response",
+									value = """
+											{
+											  "enabled": true,
+											  "defaultScope": "TENANT",
+											  "similarityThreshold": 0.90,
+											  "embeddingModel": "text-embedding-3-small",
+											  "l0InMemorySize": 50000,
+											  "l0InMemoryTtlSeconds": 60,
+											  "l1RedisEnabled": true,
+											  "l2SemanticEnabled": true,
+											  "polarityGuardEnabled": true,
+											  "entityGuardEnabled": true
+											}
+											"""
+							)
+					)
+			),
+			@ApiResponse(responseCode = "401", description = "Unauthorized: Master Admin key missing or incorrect")
+	})
 	@GetMapping("/stats")
 	public ResponseEntity<CacheStatsResponse> getCacheStats() {
 		CacheStatsResponse response = new CacheStatsResponse(
@@ -58,8 +105,38 @@ public class AdminCacheController {
 	 * @param ownerId optional tenant identifier to restrict the purge
 	 * @return HTTP 200 OK with purge confirmation
 	 */
+	@Operation(
+			summary = "Purge cache entries globally or by tenant",
+			description = "Evicts local Caffeine memory cache entries, deletes Redis exact match keys, and resets/clears RediSearch vector documents. If `ownerId` is provided, only that tenant's keys are evicted.",
+			security = {
+					@SecurityRequirement(name = OpenApiConfig.SCHEME_ADMIN_KEY_HEADER),
+					@SecurityRequirement(name = OpenApiConfig.SCHEME_ADMIN_BEARER)
+			}
+	)
+	@ApiResponses(value = {
+			@ApiResponse(
+					responseCode = "200",
+					description = "Cache purge operation completed successfully",
+					content = @Content(
+							mediaType = "application/json",
+							schema = @Schema(implementation = CachePurgeResponse.class),
+							examples = @ExampleObject(
+									name = "Purge Response",
+									value = """
+											{
+											  "success": true,
+											  "message": "Purged cache for tenant tenant-corp",
+											  "evictedScope": "tenant-corp"
+											}
+											"""
+							)
+					)
+			),
+			@ApiResponse(responseCode = "401", description = "Unauthorized: Master Admin key missing or incorrect")
+	})
 	@DeleteMapping
 	public ResponseEntity<CachePurgeResponse> purgeCache(
+			@Parameter(description = "Optional tenant owner ID to restrict purge. If omitted, triggers global purge.", example = "tenant-corp")
 			@RequestParam(name = "ownerId", required = false) @Nullable String ownerId
 	) {
 		cacheService.purgeLocalCache();
@@ -99,3 +176,4 @@ public class AdminCacheController {
 		}
 	}
 }
+

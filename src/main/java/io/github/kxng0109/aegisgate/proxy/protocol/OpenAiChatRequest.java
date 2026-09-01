@@ -2,6 +2,7 @@ package io.github.kxng0109.aegisgate.proxy.protocol;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import io.swagger.v3.oas.annotations.media.Schema;
 import org.jspecify.annotations.Nullable;
 import tools.jackson.databind.JsonNode;
 
@@ -25,15 +26,33 @@ import java.util.List;
  * @param streamOptions       streaming options, may be {@code null}
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
+@Schema(name = "OpenAiChatRequest", description = "OpenAI-compatible chat completion request payload")
 public record OpenAiChatRequest(
+		@Schema(description = "Configured model alias identifier", example = "gpt-56-luna", requiredMode = Schema.RequiredMode.REQUIRED)
 		String model,
+
+		@Schema(description = "Conversation message history", requiredMode = Schema.RequiredMode.REQUIRED)
 		List<Message> messages,
+
+		@Schema(description = "Sampling temperature (0.0 = deterministic, 1.0 = creative)", example = "0.0")
 		@Nullable Double temperature,
+
+		@Schema(description = "Maximum token limit for generation", example = "1000")
 		@Nullable @JsonProperty("max_tokens") Integer maxTokens,
+
+		@Schema(description = "Modern alias for maximum token limit", example = "1000")
 		@Nullable @JsonProperty("max_completion_tokens") Integer maxCompletionTokens,
+
+		@Schema(description = "Nucleus sampling probability threshold", example = "1.0")
 		@Nullable @JsonProperty("top_p") Double topP,
+
+		@Schema(description = "Stop sequence string or list of strings", implementation = Object.class, example = "[\"\\n\", \"STOP\"]")
 		@Nullable JsonNode stop,
+
+		@Schema(description = "Whether to stream partial token chunks as Server-Sent Events (SSE)", example = "true")
 		@Nullable Boolean stream,
+
+		@Schema(description = "Optional stream options (e.g. include_usage)", implementation = Object.class)
 		@Nullable @JsonProperty("stream_options") JsonNode streamOptions
 ) {
 
@@ -78,8 +97,12 @@ public record OpenAiChatRequest(
 	 * @param content text content or an array of typed content parts
 	 */
 	@JsonIgnoreProperties(ignoreUnknown = true)
+	@Schema(name = "ChatMessage", description = "Single message in the chat conversation history")
 	public record Message(
+			@Schema(description = "Role of the message author (system, user, assistant, tool)", example = "user")
 			@Nullable String role,
+
+			@Schema(description = "Text content of the message or array of multipart content objects", implementation = Object.class, example = "Hello, world!")
 			@Nullable JsonNode content
 	) {
 	}

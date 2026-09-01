@@ -2,10 +2,10 @@ name: aegisgate
 
 services:
   # ---------------------------------------------------------------------------
-  # Redis 7 - Distributed Token Bucket Rate Limiting & Circuit Breaker State
+  # Redis 7 with RediSearch - Rate Limiting, Circuit Breakers & Vector Search
   # ---------------------------------------------------------------------------
   redis:
-    image: redis:7-alpine
+    image: redis/redis-stack-server:latest
     container_name: aegisgate-redis
     restart: unless-stopped
     ports:
@@ -16,6 +16,7 @@ services:
       --save 60 1
       --maxmemory 256mb
       --maxmemory-policy noeviction
+      --protected-mode no
     healthcheck:
       test: [ "CMD", "redis-cli", "ping" ]
       interval: 5s

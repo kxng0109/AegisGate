@@ -1,6 +1,7 @@
 package io.github.kxng0109.aegisgate.proxy.embeddings.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import io.swagger.v3.oas.annotations.media.Schema;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -15,11 +16,21 @@ import java.util.List;
  * @param encodingFormat optional encoding format ("float" or "base64", defaults to "float")
  * @param user           optional end-user tracking identifier
  */
+@Schema(name = "EmbeddingRequest", description = "OpenAI-compatible vector embedding request payload")
 public record EmbeddingRequest(
+		@Schema(description = "Input text to embed (single string or array of strings)", example = "[\"First text to embed\", \"Second text to embed\"]", requiredMode = Schema.RequiredMode.REQUIRED)
 		@JsonProperty("input") Object input,
+
+		@Schema(description = "Configured model alias identifier", example = "text-embedding-3-small", requiredMode = Schema.RequiredMode.REQUIRED)
 		@JsonProperty("model") String model,
+
+		@Schema(description = "Optional output dimension count for Matryoshka models", example = "512")
 		@JsonProperty("dimensions") @Nullable Integer dimensions,
+
+		@Schema(description = "Encoding format: float (default) or base64 binary Little-Endian IEEE 754", example = "float")
 		@JsonProperty("encoding_format") @Nullable String encodingFormat,
+
+		@Schema(description = "Optional end-user identifier for abuse monitoring", example = "user-12345")
 		@JsonProperty("user") @Nullable String user
 ) {
 

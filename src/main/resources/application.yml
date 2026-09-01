@@ -168,3 +168,35 @@ management:
     health:
       probes:
         enabled: true
+
+# ==============================================================================
+# SpringDoc OpenAPI 3.1 & Interactive Swagger UI Configuration
+# ==============================================================================
+springdoc:
+  api-docs:
+    enabled: true
+    path: /v3/api-docs
+    version: OPENAPI_3_1
+    groups:
+      enabled: true
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+    urls-primary-name: "1. Public Gateway APIs"
+    doc-expansion: list
+    try-it-out-enabled: true
+    syntax-highlight:
+      activated: true
+      theme: monokai
+    operations-sorter: alpha
+    tags-sorter: alpha
+    display-request-duration: true
+    display-operation-id: true
+    filter: true
+    persist-authorization: true
+    default-models-expand-depth: 1
+    default-model-rendering: example
+    disable-swagger-default-url: true
+    show-extensions: true
+    show-common-extensions: true
+  show-actuator: false

@@ -369,6 +369,23 @@ AegisGate provides an enterprise-grade, high-throughput (2,000+ concurrent users
 - **Synthetic Streaming SSE Replay**: Automatically reconstitutes cached completions into valid OpenAI SSE chunk
   sequences with Time-To-First-Token (**TTFT**) in **$< 5\text{ms}$**.
 
+### Interactive Swagger & OpenAPI 3.1 Documentation
+
+AegisGate provides rich, interactive Swagger UI and OpenAPI 3.1 documentation with group switching, request duration
+tracking, syntax highlighting, and live Try-It-Out execution:
+
+- **Swagger UI**: [`http://localhost:8080/swagger-ui.html`](http://localhost:8080/swagger-ui.html)
+- **OpenAPI 3.1 JSON Specification**: [`http://localhost:8080/v3/api-docs`](http://localhost:8080/v3/api-docs)
+- **OpenAPI 3.1 YAML Specification**: [`http://localhost:8080/v3/api-docs.yaml`](http://localhost:8080/v3/api-docs.yaml)
+
+#### Swagger UI Group Partitions:
+
+1. **`1. Public Gateway APIs`**: `/v1/chat/**` and `/v1/embeddings/**` with Bearer Virtual API Key authentication
+   (`Authorization: Bearer gw-...`).
+2. **`2. Administrative APIs`**: `/v1/admin/**` (Keys, Circuits, Ledger, Cache) with Master Admin Key authentication
+   (`Authorization: Bearer <master-key>` or `X-Admin-Key: <master-key>`).
+3. **`3. Observability & Actuator`**: `/actuator/**` health and Prometheus metrics.
+
 ## Security model
 
 - Keys are 32 random base64url characters behind a `gw-` prefix, giving 192 bits of entropy. They are generated with `SecureRandom` in `KeyManagementService`.
@@ -387,8 +404,10 @@ Run the full suite with coverage and the packaging step:
 ./mvnw clean verify
 ```
 
-The suite currently has 716 tests:
+The suite currently has 718 tests:
 
+- OpenAPI 3.1 & documentation tests in `config`: `OpenApiConfigTest` covering global specification metadata, security
+  scheme registrations (`BearerAuth`, `AdminKeyAuth`, `AdminBearerAuth`), and GroupedOpenApi partitions.
 - Multi-tier semantic caching tests in `cache`: `CacheKeyGeneratorTest`, `CacheGuardrailsTest`,
   `RedisSemanticVectorCacheTest`, `RediSearchVectorClientTest`, `InMemoryExactCacheTest`,
   `RedisExactCacheTest`, `SingleFlightManagerTest`, `CachedStreamReconstitutionTest`,

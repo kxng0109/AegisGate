@@ -80,10 +80,15 @@ class AdminKeyControllerTest {
 		assertThat(response.getBody().getFirst().keyId()).isEqualTo(hash.hex());
 
 		// List without owner filter
-		when(keyManagementService.listKeys(null)).thenReturn(List.of(key));
+		VirtualApiKey keyNullHash = new VirtualApiKey(
+				null, "gw-", "owner-1", "test-key", 60, 1000,
+				Set.of(), Set.of(), true, Instant.now()
+		);
+		when(keyManagementService.listKeys(null)).thenReturn(List.of(key, keyNullHash));
 		ResponseEntity<List<KeyResponse>> allResponse = controller.listKeys(null);
 		assertThat(allResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
-		assertThat(allResponse.getBody()).hasSize(1);
+		assertThat(allResponse.getBody()).hasSize(2);
+		assertThat(allResponse.getBody().get(1).keyId()).isEmpty();
 	}
 
 	@Test

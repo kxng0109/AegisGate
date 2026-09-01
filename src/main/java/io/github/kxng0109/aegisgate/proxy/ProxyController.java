@@ -5,6 +5,7 @@ import io.github.kxng0109.aegisgate.cache.contracts.CacheLookupResult;
 import io.github.kxng0109.aegisgate.cache.contracts.CacheStatus;
 import io.github.kxng0109.aegisgate.cache.engine.AegisCacheService;
 import io.github.kxng0109.aegisgate.cache.engine.streaming.CachedStreamReconstitution;
+import io.github.kxng0109.aegisgate.config.OpenApiConfig;
 import io.github.kxng0109.aegisgate.contracts.GatewayProperties;
 import io.github.kxng0109.aegisgate.contracts.ModelAlias;
 import io.github.kxng0109.aegisgate.contracts.ProviderConfig;
@@ -24,6 +25,15 @@ import io.github.kxng0109.aegisgate.proxy.sse.SseFlushStrategy;
 import io.github.kxng0109.aegisgate.proxy.sse.SseLineGuard;
 import io.github.kxng0109.aegisgate.proxy.sse.SseLineGuardAutoConfig.SseLineGuardFactory;
 import io.github.kxng0109.aegisgate.security.filter.KeyAuthFilter;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.headers.Header;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.ServletOutputStream;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -67,6 +77,7 @@ import java.util.concurrent.CompletionException;
  */
 @Slf4j
 @RestController
+@Tag(name = "Proxy - Chat Completions", description = "OpenAI-compatible chat completions proxy with rate-limiting, failover, and multi-tier caching")
 public class ProxyController {
 
 	private final FailoverOrchestrator failoverOrchestrator;
@@ -143,8 +154,131 @@ public class ProxyController {
 	 * @param request the servlet request, used to read the authenticated owner
 	 * @return a streaming response, or a JSON error for 400, 404, 502, 503, 504
 	 */
+	@Operation(
+			summary = "Relay OpenAI-compatible chat completion",
+			description = """
+					Proxies chat completion requests to the configured provider failover chain (OpenAI, Anthropic, Ollama, OpenRouter).
+					Automatically resolves L0 in-memory and L1/L2 Redis semantic cache entries before routing to upstream providers.
+					Streams normalized Server-Sent Events (SSE) back to the client.
+					""",
+			security = @SecurityRequirement(name = OpenApiConfig.SCHEME_BEARER_AUTH)
+	)
+	@ApiResponses(value = {
+			@ApiResponse(
+					responseCode = "200",
+					description = "SSE stream or cached completion relayed successfully",
+					headers = {
+							@Header(name = "X-Cache", description = "Cache tier status: HIT (L0-Memory), HIT (L1-Exact), HIT (L2-Semantic), or omitted on MISS", schema = @Schema(type = "string", example = "HIT (L2-Semantic)")),
+							@Header(name = "X-Aegis-Similarity-Score", description = "Cosine similarity score for L2 semantic hits", schema = @Schema(type = "string", example = "0.9650")),
+							@Header(name = "Age", description = "Age of the cached response in seconds", schema = @Schema(type = "string", example = "42")),
+							@Header(name = "X-RateLimit-Remaining-RPM", description = "Remaining requests allowed in the current minute window", schema = @Schema(type = "integer", example = "118")),
+							@Header(name = "X-RateLimit-Remaining-TPM", description = "Remaining token budget in the current minute window", schema = @Schema(type = "integer", example = "485000"))
+					},
+					content = @Content(
+							mediaType = MediaType.TEXT_EVENT_STREAM_VALUE,
+							examples = @ExampleObject(
+									name = "Streaming SSE Chunk Sequence",
+									summary = "Standard OpenAI Server-Sent Event stream",
+									value = """
+											data: {"id":"chatcmpl-a1b2","object":"chat.completion.chunk","created":1772540000,"model":"gpt-56-luna","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+											
+											data: {"id":"chatcmpl-a1b2","object":"chat.completion.chunk","created":1772540000,"model":"gpt-56-luna","choices":[{"index":0,"delta":{"content":"Hello! How can I assist you today?"},"finish_reason":null}]}
+											
+											data: {"id":"chatcmpl-a1b2","object":"chat.completion.chunk","created":1772540000,"model":"gpt-56-luna","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+											
+											data: [DONE]
+											"""
+							)
+					)
+			),
+			@ApiResponse(
+					responseCode = "400",
+					description = "Malformed JSON request, missing model parameter, or empty payload",
+					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, examples = @ExampleObject(value = "{\"error\":{\"message\":\"model is required\",\"type\":\"invalid_request_error\"}}"))
+			),
+			@ApiResponse(
+					responseCode = "401",
+					description = "Missing, invalid, or expired Virtual API Key (Authorization: Bearer gw-...)",
+					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, examples = @ExampleObject(value = "{\"error\":{\"message\":\"invalid API key\",\"type\":\"authentication_error\"}}"))
+			),
+			@ApiResponse(
+					responseCode = "403",
+					description = "Virtual API Key is disabled or unauthorized for the requested model alias",
+					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, examples = @ExampleObject(value = "{\"error\":{\"message\":\"key disabled or model not allowed\",\"type\":\"permission_error\"}}"))
+			),
+			@ApiResponse(
+					responseCode = "404",
+					description = "Requested model alias is not registered in gateway routing configuration",
+					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, examples = @ExampleObject(value = "{\"error\":{\"message\":\"unknown model: gpt-unknown\",\"type\":\"invalid_request_error\"}}"))
+			),
+			@ApiResponse(
+					responseCode = "413",
+					description = "Request body exceeds configured size limit (64 KB cap)",
+					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, examples = @ExampleObject(value = "{\"error\":{\"message\":\"request body exceeds limit\",\"type\":\"invalid_request_error\"}}"))
+			),
+			@ApiResponse(
+					responseCode = "429",
+					description = "Virtual API Key exceeded RPM or TPM rate limit quota",
+					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, examples = @ExampleObject(value = "{\"error\":{\"message\":\"rate limit exceeded\",\"type\":\"rate_limit_error\"}}"))
+			),
+			@ApiResponse(
+					responseCode = "502",
+					description = "All upstream model providers in failover chain returned errors",
+					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, examples = @ExampleObject(value = "{\"error\":{\"message\":\"all providers failed\",\"type\":\"upstream_error\"}}"))
+			),
+			@ApiResponse(
+					responseCode = "503",
+					description = "Redis, database, or all upstream provider circuits are unavailable/tripped",
+					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, examples = @ExampleObject(value = "{\"error\":{\"message\":\"service temporarily unavailable\",\"type\":\"upstream_error\"}}"))
+			),
+			@ApiResponse(
+					responseCode = "504",
+					description = "Upstream provider failover chain timed out",
+					content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, examples = @ExampleObject(value = "{\"error\":{\"message\":\"gateway timeout\",\"type\":\"timeout_error\"}}"))
+			)
+	})
 	@PostMapping(value = "/v1/chat/completions", consumes = MediaType.APPLICATION_JSON_VALUE)
 	public ResponseEntity<StreamingResponseBody> proxyChatCompletions(
+			@io.swagger.v3.oas.annotations.parameters.RequestBody(
+					description = "OpenAI-compatible chat completion payload specifying model, messages, temperature, and stream options",
+					required = true,
+					content = @Content(
+							mediaType = MediaType.APPLICATION_JSON_VALUE,
+							schema = @Schema(implementation = OpenAiChatRequest.class),
+							examples = {
+									@ExampleObject(
+											name = "Standard Streaming Request",
+											summary = "Standard multi-turn chat request with streaming",
+											value = """
+													{
+													  "model": "gpt-56-luna",
+													  "messages": [
+													    {"role": "system", "content": "You are a concise, helpful technical assistant."},
+													    {"role": "user", "content": "Explain zero-copy vector serialization in two sentences."}
+													  ],
+													  "temperature": 0.0,
+													  "stream": true,
+													  "stream_options": {"include_usage": true}
+													}
+													"""
+									),
+									@ExampleObject(
+											name = "Non-Streaming Request",
+											summary = "Direct completion request",
+											value = """
+													{
+													  "model": "claude-sonnet-4-5",
+													  "messages": [
+													    {"role": "user", "content": "Hello world"}
+													  ],
+													  "temperature": 0.0,
+													  "stream": false
+													}
+													"""
+									)
+							}
+					)
+			)
 			@RequestBody String rawBody,
 			HttpServletRequest request
 	) {
