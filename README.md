@@ -292,6 +292,26 @@ Status codes:
 
 On success the response carries the rate limit state in the `X-RateLimit-Limit-RPM`, `X-RateLimit-Remaining-RPM`, `X-RateLimit-Reset-RPM`, and the matching TPM headers. The reset values are epoch seconds.
 
+### Embeddings API (`/v1/embeddings`)
+
+Accepts OpenAI-compatible embedding requests, automatically handles transparent batch partitioning across upstream
+provider limits (e.g., Cohere max 96, Ollama max 32), dispatches sub-batches concurrently over Virtual Threads, and
+reassembles dense vector results with deterministic `0..N-1` index preservation:
+
+```bash
+curl http://localhost:8080/v1/embeddings \
+  -H "Authorization: Bearer gw-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"text-embedding-3-small","input":["First text to embed","Second text to embed"]}'
+```
+
+Supports:
+
+- Single string input (`"input": "text"`), multi-text arrays (`"input": ["text1", "text2"]`), and token ID arrays.
+- High-efficiency Little-Endian IEEE 754 Base64 binary float encoding (`"encoding_format": "base64"`).
+- Matryoshka Representation Learning (MRL) dimension truncation (`"dimensions": 512`).
+- Seamless routing to OpenAI, Cohere (`v2/embed`), and Ollama (`/api/embed`).
+
 ### Administrative Endpoints (`/v1/admin/**`)
 
 Administrative endpoints require the configured master key via `Authorization: Bearer <GATEWAY_ADMIN_MASTERKEY>` or
@@ -346,8 +366,13 @@ Run the full suite with coverage and the packaging step:
 ./mvnw clean verify
 ```
 
-The suite currently has 607 tests:
+The suite currently has 656 tests:
 
+- Embedding gateway tests in `proxy/embeddings`: `VectorEncodingUtilsTest`, `EmbeddingDtoTest`,
+  `OpenAiEmbeddingAdapterTest`, `CohereEmbeddingAdapterTest`, `OllamaEmbeddingAdapterTest`,
+  `EmbeddingBatchOrchestratorTest`, `EmbeddingAdapterResolverTest`, `EmbeddingServiceTest`, and
+  `EmbeddingControllerTest` covering Little-Endian IEEE 754 float32 Base64 encoding/decoding, auto-batching, concurrency
+  bounding, index reassembly, and provider normalization.
 - Administrative, billing & key management tests in `admin`: `AdminAuthFilterTest`, `AdminKeyControllerTest`,
   `AdminCircuitControllerTest`, `AdminLedgerControllerTest`, `AdminFilterConfigTest`, and `AdminDtoTest` covering
   constant-time master key authentication, fail-closed isolation, key creation (single-exposure plaintext), updates,
