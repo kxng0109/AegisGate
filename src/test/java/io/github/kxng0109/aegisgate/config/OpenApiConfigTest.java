@@ -21,7 +21,7 @@ class OpenApiConfigTest {
 		assertThat(openAPI.getOpenapi()).isEqualTo("3.1.0");
 		assertThat(openAPI.getInfo()).isNotNull();
 		assertThat(openAPI.getInfo().getTitle()).contains("AegisGate");
-		assertThat(openAPI.getInfo().getVersion()).isEqualTo("0.0.1");
+		assertThat(openAPI.getInfo().getVersion()).isEqualTo("1.0.0");
 		assertThat(openAPI.getInfo().getLicense().getIdentifier()).isEqualTo("Apache-2.0");
 		assertThat(openAPI.getInfo().getContact()).isNotNull();
 		assertThat(openAPI.getServers()).hasSize(2);

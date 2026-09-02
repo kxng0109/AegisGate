@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: ["**"]
+    tags: [ "v*" ]
   pull_request:
 
 concurrency:
@@ -42,7 +43,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set up JDK 25 (Temurin)
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "25"
@@ -90,7 +91,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: aegisgate-jar
-          path: target/*.jar
+          path: |
+            target/*.jar
+            !target/*.jar.original
           if-no-files-found: warn
 
       - name: Check for a Codecov token
@@ -107,7 +110,7 @@ jobs:
 
       - name: Upload coverage to Codecov
         if: ${{ steps.codecov-token.outputs.run == 'true' }}
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         with:
           files: target/site/jacoco/jacoco.xml
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -125,3 +128,56 @@ jobs:
           ./mvnw -B -ntp org.owasp:dependency-check-maven:13.0.0:check \
             -DfailBuildOnCVSS=11 \
             -Dformat=HTML,SARIF
+
+  release:
+    name: Publish GitHub release
+    needs: [ commitlint, build ]
+    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Download application jar artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: aegisgate-jar
+          path: dist
+
+      - name: Extract release notes and verify version
+        id: release-notes
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Processing release for version: ${VERSION}"
+
+          # Extract section for this version from CHANGELOG.md
+          awk -v ver="${VERSION}" '
+            BEGIN { found=0 }
+            $0 ~ "^## \\[" ver "\\]" { found=1; next }
+            found && /^## \\[/ { exit }
+            found { print }
+          ' CHANGELOG.md > dist/RELEASE_NOTES.md
+
+          if [ ! -s dist/RELEASE_NOTES.md ]; then
+            echo "Warning: No specific section found in CHANGELOG.md for ${VERSION}. Falling back to default release message."
+            echo "AegisGate release ${VERSION}" > dist/RELEASE_NOTES.md
+          fi
+
+          # Generate SHA-256 checksums
+          cd dist
+          sha256sum *.jar > checksums.sha256
+          cd ..
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "AegisGate ${GITHUB_REF_NAME}" \
+            --notes-file dist/RELEASE_NOTES.md \
+            dist/*.jar \
+            dist/checksums.sha256

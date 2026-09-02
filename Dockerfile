@@ -37,7 +37,7 @@ RUN groupadd --system --gid 10001 aegisgate && \
 WORKDIR /app
 
 # Copy application artifact with non-root ownership
-COPY --from=builder --chown=aegisgate:aegisgate /workspace/target/AegisGate-0.0.1-SNAPSHOT.jar /app/aegisgate.jar
+COPY --from=builder --chown=aegisgate:aegisgate /workspace/target/AegisGate-*.jar /app/aegisgate.jar
 
 USER aegisgate:aegisgate
 
