@@ -267,4 +267,59 @@ class EmbeddingServiceTest {
 				.isInstanceOf(ResponseStatusException.class)
 				.satisfies(ex -> assertThat(Thread.currentThread().isInterrupted()).isTrue());
 	}
+
+	@Test
+	@DisplayName("resolveEndpoint handles various base and path formats")
+	void testResolveEndpointVariants() {
+		URI uri1 = EmbeddingService.resolveEndpoint(URI.create("https://api.openai.com/v1/"), "/v1/embeddings");
+		assertThat(uri1).isEqualTo(URI.create("https://api.openai.com/v1/embeddings"));
+
+		URI uri2 = EmbeddingService.resolveEndpoint(URI.create("https://api.cohere.com/v2"), "v2/embed");
+		assertThat(uri2).isEqualTo(URI.create("https://api.cohere.com/v2/embed"));
+
+		URI uri3 = EmbeddingService.resolveEndpoint(URI.create("https://api.deepseek.com"), "v1/embeddings");
+		assertThat(uri3).isEqualTo(URI.create("https://api.deepseek.com/v1/embeddings"));
+
+		URI uri4 = EmbeddingService.resolveEndpoint(URI.create("https://api.example.com/v2/"), "/v2/custom");
+		assertThat(uri4).isEqualTo(URI.create("https://api.example.com/v2/custom"));
+	}
+
+	@Test
+	@DisplayName("validateRequest rejects oversized batch inputs exceeding 2048 items")
+	void testValidateRequestOversizedBatch() {
+		List<String> bigList = Collections.nCopies(2049, "sample text");
+		EmbeddingRequest request = new EmbeddingRequest(bigList, "text-emb", null, null, null);
+		assertThatThrownBy(() -> service.processEmbedding(request, "t1"))
+				.isInstanceOf(ResponseStatusException.class)
+				.hasMessageContaining("exceeds maximum allowed limit");
+	}
+
+	@Test
+	@DisplayName("processEmbedding works for DeepSeek, Gemini, and Vertex AI provider types")
+	void processEmbeddingNewProviderTypes() throws Exception {
+		for (ProviderType type : List.of(ProviderType.DEEPSEEK, ProviderType.GEMINI, ProviderType.VERTEX_AI)) {
+			ProviderConfig provider = new ProviderConfig(
+					type.name().toLowerCase() + "-main", type, URI.create("https://api.example.com"),
+					null, Duration.ofSeconds(5), Duration.ofSeconds(30)
+			);
+			gatewayProperties.setProviders(Map.of(type.name().toLowerCase() + "-main", provider));
+			gatewayProperties.setAliases(Map.of());
+
+			EmbeddingAdapter adapter = mock(EmbeddingAdapter.class);
+			when(adapterResolver.resolve(type)).thenReturn(adapter);
+
+			EmbeddingRequest request = new EmbeddingRequest(
+					List.of("text"),
+					type.name().toLowerCase() + "-embed",
+					null,
+					null,
+					null
+			);
+			EmbeddingResponse mockResponse = EmbeddingResponse.of(type.name().toLowerCase() + "-embed", List.of(), 5);
+			when(batchOrchestrator.execute(any(), any(), any(), any())).thenReturn(mockResponse);
+
+			EmbeddingResponse response = service.processEmbedding(request, "tenant-1");
+			assertThat(response).isEqualTo(mockResponse);
+		}
+	}
 }

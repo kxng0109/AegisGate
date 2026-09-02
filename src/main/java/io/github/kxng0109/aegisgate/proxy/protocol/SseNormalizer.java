@@ -16,7 +16,11 @@ import java.util.List;
  * <p>A fresh instance is created per streamed response because a normalizer
  * carries stream state: the pending Anthropic event name, the accumulated usage, and the terminal flag.</p>
  */
-public sealed interface SseNormalizer permits OpenAiSseNormalizer, AnthropicSseNormalizer, OllamaSseNormalizer {
+public sealed interface SseNormalizer permits OpenAiSseNormalizer,
+                                              AnthropicSseNormalizer,
+                                              OllamaSseNormalizer,
+                                              GeminiSseNormalizer,
+                                              DeepSeekSseNormalizer {
 
 	/**
 	 * Consumes one raw line from the upstream and returns the lines to write to the client. The result may be empty

@@ -153,6 +153,9 @@ public class EmbeddingBatchOrchestrator {
 			CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
 		} catch (Exception ex) {
 			Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+			if (cause.getCause() != null && cause instanceof RuntimeException) {
+				cause = cause.getCause();
+			}
 			if (cause instanceof IOException ioEx) {
 				throw ioEx;
 			}

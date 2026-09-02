@@ -1,5 +1,7 @@
 package io.github.kxng0109.aegisgate.proxy.failover;
 
+import io.github.kxng0109.aegisgate.security.SsrfViolationException;
+
 import java.net.URI;
 
 /**
@@ -16,7 +18,7 @@ public interface UpstreamUrlValidator {
 	 * Validates a target URL, throwing when the target must not be contacted.
 	 *
 	 * @param targetUrl the URL about to be contacted
-	 * @throws io.github.kxng0109.aegisgate.security.SsrfViolationException when the target is unsafe (or unresolvable)
+	 * @throws SsrfViolationException when the target is unsafe (or unresolvable)
 	 */
 	void validate(URI targetUrl);
 }

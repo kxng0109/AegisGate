@@ -1,15 +1,16 @@
 package io.github.kxng0109.aegisgate.proxy.protocol;
 
+import org.jspecify.annotations.Nullable;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
 /**
  * Builds OpenAI shaped SSE lines for the normalized providers.
  *
- * <p>Anthropic and Ollama streams are rewritten into the exact chunk shape a
- * client of the OpenAI chat completions endpoint expects: a shared chunk id, a delta carrying content, a final chunk
- * with an empty delta and the finish reason, an optional usage chunk with empty choices, and the {@code [DONE]} marker.
- * The helper exists so the three normalizers produce byte identical output.</p>
+ * <p>Anthropic, Gemini, DeepSeek, and Ollama streams are rewritten into the exact chunk shape a
+ * client of the OpenAI chat completions endpoint expects: a shared chunk id, a delta carrying content,
+ * reasoning deltas, tool call chunks, final chunk with finish reason, usage chunk, and the {@code [DONE]} marker.</p>
  */
 final class OpenAiSseLine {
 
@@ -23,13 +24,6 @@ final class OpenAiSseLine {
 
 	/**
 	 * A chunk carrying one content delta.
-	 *
-	 * @param mapper  the object mapper used to build the JSON
-	 * @param id      shared chunk id for this stream
-	 * @param created epoch seconds of the stream start
-	 * @param model   model id reported by the provider
-	 * @param text    the content delta
-	 * @return the {@code data:} line
 	 */
 	static String delta(ObjectMapper mapper, String id, long created, String model, String text) {
 		ObjectNode root = baseChunk(mapper, id, created, model);
@@ -41,43 +35,98 @@ final class OpenAiSseLine {
 	}
 
 	/**
-	 * The final chunk carrying the finish reason and an empty delta.
-	 *
-	 * @param mapper  the object mapper used to build the JSON
-	 * @param id      shared chunk id for this stream
-	 * @param created epoch seconds of the stream start
-	 * @param model   model id reported by the provider
-	 * @return the {@code data:} line
+	 * A chunk carrying reasoning tokens (Chain-of-Thought) from thinking models (DeepSeek, Gemini).
 	 */
-	static String finished(ObjectMapper mapper, String id, long created, String model) {
+	static String reasoningDelta(ObjectMapper mapper, String id, long created, String model, String reasoningText) {
 		ObjectNode root = baseChunk(mapper, id, created, model);
-		ObjectNode choice = root.withArray("choices").addObject();
-		choice.put("index", 0);
-		choice.putObject("delta");
-		choice.put("finish_reason", "stop");
+		root.withArray("choices").addObject()
+		    .put("index", 0)
+		    .putObject("delta")
+		    .put("reasoning_content", reasoningText);
 		return dataLine(root);
 	}
 
 	/**
-	 * The usage chunk streamed before {@code [DONE]} when the client asked for it. Its choices array is empty, matching
-	 * the OpenAI contract.
-	 *
-	 * @param mapper           the object mapper used to build the JSON
-	 * @param id               shared chunk id for this stream
-	 * @param created          epoch seconds of the stream start
-	 * @param model            model id reported by the provider
-	 * @param promptTokens     input tokens
-	 * @param completionTokens output tokens
-	 * @return the {@code data:} line
+	 * A chunk starting a tool call declaration with name and optional initial arguments.
+	 */
+	static String toolCallHeader(ObjectMapper mapper, String id, long created, String model,
+	                             int toolIndex, String toolId, String functionName, @Nullable String initialArgs) {
+		ObjectNode root = baseChunk(mapper, id, created, model);
+		ObjectNode choice = root.withArray("choices").addObject();
+		choice.put("index", 0);
+		ArrayNode toolCalls = choice.putObject("delta").putArray("tool_calls");
+		ObjectNode toolCall = toolCalls.addObject();
+		toolCall.put("index", toolIndex);
+		if (toolId != null && !toolId.isBlank()) {
+			toolCall.put("id", toolId);
+		}
+		toolCall.put("type", "function");
+		ObjectNode func = toolCall.putObject("function");
+		func.put("name", functionName);
+		func.put("arguments", initialArgs != null ? initialArgs : "");
+		return dataLine(root);
+	}
+
+	/**
+	 * A chunk streaming incremental JSON arguments for an active tool call.
+	 */
+	static String toolCallArgumentDelta(ObjectMapper mapper, String id, long created, String model,
+	                                    int toolIndex, String argumentChunk) {
+		ObjectNode root = baseChunk(mapper, id, created, model);
+		ObjectNode choice = root.withArray("choices").addObject();
+		choice.put("index", 0);
+		ArrayNode toolCalls = choice.putObject("delta").putArray("tool_calls");
+		ObjectNode toolCall = toolCalls.addObject();
+		toolCall.put("index", toolIndex);
+		toolCall.putObject("function").put("arguments", argumentChunk);
+		return dataLine(root);
+	}
+
+	/**
+	 * The final chunk carrying the default finish reason ("stop") and an empty delta.
+	 */
+	static String finished(ObjectMapper mapper, String id, long created, String model) {
+		return finishedWithReason(mapper, id, created, model, "stop");
+	}
+
+	/**
+	 * The final chunk carrying a specific finish reason (e.g. "stop", "tool_calls", "length", "content_filter").
+	 */
+	static String finishedWithReason(ObjectMapper mapper, String id, long created, String model, String finishReason) {
+		ObjectNode root = baseChunk(mapper, id, created, model);
+		ObjectNode choice = root.withArray("choices").addObject();
+		choice.put("index", 0);
+		choice.putObject("delta");
+		choice.put("finish_reason", finishReason != null ? finishReason : "stop");
+		return dataLine(root);
+	}
+
+	/**
+	 * The usage chunk streamed before {@code [DONE]} when the client asked for it.
 	 */
 	static String usage(ObjectMapper mapper, String id, long created, String model,
 	                    long promptTokens, long completionTokens) {
+		return usageWithDetails(mapper, id, created, model, promptTokens, completionTokens, 0L, 0L);
+	}
+
+	/**
+	 * Enhanced usage chunk including prompt cache hit details and reasoning token counts.
+	 */
+	static String usageWithDetails(ObjectMapper mapper, String id, long created, String model,
+	                               long promptTokens, long completionTokens,
+	                               long cachedTokens, long reasoningTokens) {
 		ObjectNode root = baseChunk(mapper, id, created, model);
 		root.putArray("choices");
 		ObjectNode usage = root.putObject("usage");
 		usage.put("prompt_tokens", promptTokens);
 		usage.put("completion_tokens", completionTokens);
 		usage.put("total_tokens", promptTokens + completionTokens);
+		if (cachedTokens > 0) {
+			usage.putObject("prompt_tokens_details").put("cached_tokens", cachedTokens);
+		}
+		if (reasoningTokens > 0) {
+			usage.putObject("completion_tokens_details").put("reasoning_tokens", reasoningTokens);
+		}
 		return dataLine(root);
 	}
 

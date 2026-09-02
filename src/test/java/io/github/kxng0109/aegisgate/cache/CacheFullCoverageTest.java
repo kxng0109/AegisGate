@@ -13,9 +13,13 @@ import io.github.kxng0109.aegisgate.cache.engine.l2.RediSearchVectorClient;
 import io.github.kxng0109.aegisgate.cache.engine.l2.RedisSemanticVectorCache;
 import io.github.kxng0109.aegisgate.cache.engine.l2.VectorSearchResult;
 import io.github.kxng0109.aegisgate.proxy.embeddings.EmbeddingService;
+import io.github.kxng0109.aegisgate.proxy.embeddings.dto.EmbeddingData;
+import io.github.kxng0109.aegisgate.proxy.embeddings.dto.EmbeddingResponse;
 import io.github.kxng0109.aegisgate.proxy.protocol.OpenAiChatRequest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.redis.connection.RedisConnection;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -31,6 +35,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @DisplayName("CacheFullCoverageTest")
+@SuppressWarnings("DataFlowIssue")
 class CacheFullCoverageTest {
 
 	private final ObjectMapper objectMapper = new ObjectMapper();
@@ -152,19 +157,19 @@ class CacheFullCoverageTest {
 
 		// 2. generateEmbedding when response.data() is empty or null, or returns 0-length vector
 		when(embeddingService.processEmbedding(any(), eq("t1"))).thenReturn(
-				new io.github.kxng0109.aegisgate.proxy.embeddings.dto.EmbeddingResponse("list", List.of(), "m", null)
+				new EmbeddingResponse("list", List.of(), "m", null)
 		);
 		assertThat(semanticCache.findSemanticMatch(key)).isNull();
 
 		when(embeddingService.processEmbedding(any(), eq("t1"))).thenReturn(
-				new io.github.kxng0109.aegisgate.proxy.embeddings.dto.EmbeddingResponse("list", null, "m", null)
+				new EmbeddingResponse("list", null, "m", null)
 		);
 		assertThat(semanticCache.findSemanticMatch(key)).isNull();
 
 		when(embeddingService.processEmbedding(any(), eq("t1"))).thenReturn(
-				new io.github.kxng0109.aegisgate.proxy.embeddings.dto.EmbeddingResponse(
+				new EmbeddingResponse(
 						"list",
-						List.of(new io.github.kxng0109.aegisgate.proxy.embeddings.dto.EmbeddingData(
+						List.of(new EmbeddingData(
 								"embedding",
 								0,
 								new float[0]
@@ -178,9 +183,9 @@ class CacheFullCoverageTest {
 
 		// 3. Unsupported embedding object type
 		when(embeddingService.processEmbedding(any(), eq("t1"))).thenReturn(
-				new io.github.kxng0109.aegisgate.proxy.embeddings.dto.EmbeddingResponse(
+				new EmbeddingResponse(
 						"list",
-						List.of(new io.github.kxng0109.aegisgate.proxy.embeddings.dto.EmbeddingData(
+						List.of(new EmbeddingData(
 								"embedding",
 								0,
 								12345
@@ -191,8 +196,8 @@ class CacheFullCoverageTest {
 		assertThat(semanticCache.findSemanticMatch(key)).isNull();
 
 		// 4. RediSearchVectorClient string conversions and odd list boundaries
-		org.springframework.data.redis.connection.RedisConnectionFactory factory = mock(org.springframework.data.redis.connection.RedisConnectionFactory.class);
-		org.springframework.data.redis.connection.RedisConnection conn = mock(org.springframework.data.redis.connection.RedisConnection.class);
+		RedisConnectionFactory factory = mock(RedisConnectionFactory.class);
+		RedisConnection conn = mock(RedisConnection.class);
 		when(factory.getConnection()).thenReturn(conn);
 		RediSearchVectorClient client = new RediSearchVectorClient(factory);
 
@@ -223,9 +228,9 @@ class CacheFullCoverageTest {
 		);
 		when(vectorClient.searchKnn(anyString(), anyString(), any(), eq(1))).thenReturn(List.of(matchWithNullFields));
 		when(embeddingService.processEmbedding(any(), eq("t1"))).thenReturn(
-				new io.github.kxng0109.aegisgate.proxy.embeddings.dto.EmbeddingResponse(
+				new EmbeddingResponse(
 						"list",
-						List.of(new io.github.kxng0109.aegisgate.proxy.embeddings.dto.EmbeddingData(
+						List.of(new EmbeddingData(
 								"embedding",
 								0,
 								new float[]{0.1f}

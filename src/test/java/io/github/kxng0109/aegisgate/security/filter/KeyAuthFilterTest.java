@@ -84,8 +84,13 @@ class KeyAuthFilterTest {
 	}
 
 	private static CachedBodyHttpServletRequest request(String authHeader, String jsonBody) throws IOException {
-		MockHttpServletRequest mock = new MockHttpServletRequest("POST", PATH);
-		mock.setServletPath(PATH);
+		return request(authHeader, jsonBody, PATH);
+	}
+
+	private static CachedBodyHttpServletRequest request(String authHeader, String jsonBody, String path) throws IOException {
+		MockHttpServletRequest mock = new MockHttpServletRequest("POST", path);
+		mock.setServletPath(path);
+		mock.setRequestURI(path);
 		if (authHeader != null) {
 			mock.addHeader("Authorization", authHeader);
 		}
@@ -656,6 +661,38 @@ class KeyAuthFilterTest {
 	void bearerOnlySpaces() throws Exception {
 		MockHttpServletResponse response = invoke(request("Bearer   ", "{}"), filter);
 		assertEquals(401, response.getStatus());
+	}
+
+	@Test
+	@DisplayName("embeddings endpoint input count with array, null, and non-array input JSON")
+	void embeddingsInputCountEdgeCases() throws Exception {
+		stubKeyPresent();
+		stubAllowed(10, 9, 1000, 900);
+
+		// Array body on /v1/embeddings
+		CachedBodyHttpServletRequest embArrayReq = request("Bearer " + VALID_KEY, "[1, 2, 3]", "/v1/embeddings");
+		MockHttpServletResponse embArrayResp = invoke(embArrayReq, filter);
+		assertEquals(200, embArrayResp.getStatus());
+
+		// Malformed JSON on /v1/embeddings
+		CachedBodyHttpServletRequest embMalformed = request("Bearer " + VALID_KEY, "{malformed", "/v1/embeddings");
+		MockHttpServletResponse embMalformedResp = invoke(embMalformed, filter);
+		assertEquals(200, embMalformedResp.getStatus());
+
+		// String input on /v1/embeddings
+		CachedBodyHttpServletRequest embStrReq = request(
+				"Bearer " + VALID_KEY,
+				"{\"model\":\"text-emb-3\",\"input\":\"single text\"}",
+				"/v1/embeddings"
+		);
+		MockHttpServletResponse embStrResp = invoke(embStrReq, filter);
+		assertEquals(200, embStrResp.getStatus());
+
+		// Rejection message mappings for all enum values
+		for (RejectionReason reason : RejectionReason.values()) {
+			assertNotNull(KeyAuthFilter.rejectionMessage(reason));
+			assertFalse(KeyAuthFilter.rejectionMessage(reason).isBlank());
+		}
 	}
 
 	// ---------------------------------------------------------------------

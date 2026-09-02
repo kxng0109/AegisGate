@@ -1,16 +1,15 @@
 package io.github.kxng0109.aegisgate.proxy.sse;
 
 import io.github.kxng0109.aegisgate.config.SensitiveString;
-import io.github.kxng0109.aegisgate.contracts.ProviderConfig;
-import io.github.kxng0109.aegisgate.contracts.ProviderType;
-import io.github.kxng0109.aegisgate.contracts.SHA256Hash;
+import io.github.kxng0109.aegisgate.contracts.*;
 import io.github.kxng0109.aegisgate.ledger.CostCalculator;
+import io.github.kxng0109.aegisgate.ledger.ModelPriceCatalog;
+import io.github.kxng0109.aegisgate.ledger.ModelPricingRepository;
 import io.github.kxng0109.aegisgate.proxy.ProxyController;
+import io.github.kxng0109.aegisgate.proxy.failover.FailoverOrchestrator;
 import io.github.kxng0109.aegisgate.proxy.failover.ProviderResponse;
-import io.github.kxng0109.aegisgate.proxy.protocol.AnthropicAdapter;
-import io.github.kxng0109.aegisgate.proxy.protocol.OllamaAdapter;
-import io.github.kxng0109.aegisgate.proxy.protocol.OpenAiPassthroughAdapter;
-import io.github.kxng0109.aegisgate.proxy.protocol.ProtocolAdapterResolver;
+import io.github.kxng0109.aegisgate.proxy.failover.UpstreamUnavailableException;
+import io.github.kxng0109.aegisgate.proxy.protocol.*;
 import io.github.kxng0109.aegisgate.proxy.sse.TestServletOutputStreams.RecordingServletOutputStream;
 import io.github.kxng0109.aegisgate.security.filter.CachedBodyHttpServletRequest;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -46,9 +45,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
-/**
- * Targeted tests for E12 helpers, factories, and exception accessors to satisfy JaCoCo branch coverage.
- */
 @DisplayName("E12 Coverage Support")
 @SuppressWarnings("DataFlowIssue")
 class E12CoverageSupportTest {
@@ -313,22 +309,22 @@ class E12CoverageSupportTest {
 	@DisplayName("SseLineGuard.ProviderType from contract mappings")
 	void testProviderTypeMappings() {
 		assertThat(SseLineGuard.ProviderType.from(null)).isEqualTo(SseLineGuard.ProviderType.UNKNOWN);
-		assertThat(SseLineGuard.ProviderType.from(io.github.kxng0109.aegisgate.contracts.ProviderType.OPENAI)).isEqualTo(
+		assertThat(SseLineGuard.ProviderType.from(ProviderType.OPENAI)).isEqualTo(
 				SseLineGuard.ProviderType.OPENAI);
-		assertThat(SseLineGuard.ProviderType.from(io.github.kxng0109.aegisgate.contracts.ProviderType.ANTHROPIC)).isEqualTo(
+		assertThat(SseLineGuard.ProviderType.from(ProviderType.ANTHROPIC)).isEqualTo(
 				SseLineGuard.ProviderType.ANTHROPIC);
-		assertThat(SseLineGuard.ProviderType.from(io.github.kxng0109.aegisgate.contracts.ProviderType.OLLAMA)).isEqualTo(
+		assertThat(SseLineGuard.ProviderType.from(ProviderType.OLLAMA)).isEqualTo(
 				SseLineGuard.ProviderType.OLLAMA);
 	}
 
 	@Test
 	@DisplayName("ProxyController extractModel and request error edge cases")
 	void testProxyControllerEdgeBranches() throws Exception {
-		io.github.kxng0109.aegisgate.proxy.failover.FailoverOrchestrator orchestrator = mock(io.github.kxng0109.aegisgate.proxy.failover.FailoverOrchestrator.class);
-		io.github.kxng0109.aegisgate.contracts.GatewayProperties props = new io.github.kxng0109.aegisgate.contracts.GatewayProperties();
-		io.github.kxng0109.aegisgate.contracts.ModelAlias alias = new io.github.kxng0109.aegisgate.contracts.ModelAlias(
-				List.of(new io.github.kxng0109.aegisgate.contracts.ProviderRef("openai-p", null)),
-				io.github.kxng0109.aegisgate.contracts.FailoverStrategy.SEQUENTIAL
+		FailoverOrchestrator orchestrator = mock(FailoverOrchestrator.class);
+		GatewayProperties props = new GatewayProperties();
+		ModelAlias alias = new ModelAlias(
+				List.of(new ProviderRef("openai-p", null)),
+				FailoverStrategy.SEQUENTIAL
 		);
 		props.getAliases().put("test-model", alias);
 		props.getProviders().put(
@@ -353,6 +349,8 @@ class E12CoverageSupportTest {
 		ProtocolAdapterResolver resolver = new ProtocolAdapterResolver(
 				new OpenAiPassthroughAdapter(new ObjectMapper()),
 				new AnthropicAdapter(new ObjectMapper()),
+				new GeminiAdapter(new ObjectMapper()),
+				new DeepSeekAdapter(new ObjectMapper()),
 				new OllamaAdapter(new ObjectMapper())
 		);
 
@@ -382,7 +380,7 @@ class E12CoverageSupportTest {
 				new java.util.concurrent.CompletionException(new IllegalStateException("simulated unexpected boom"))
 		));
 		assertThatThrownBy(() -> controller.proxyChatCompletions("{\"model\": \"test-model\"}", req))
-				.isInstanceOf(io.github.kxng0109.aegisgate.proxy.failover.UpstreamUnavailableException.class)
+				.isInstanceOf(UpstreamUnavailableException.class)
 				.hasMessageContaining("upstream request failed unexpectedly");
 
 		// Non-200 upstream response relaying raw body with client disconnect
@@ -390,7 +388,7 @@ class E12CoverageSupportTest {
 		when(errHttpResp.statusCode()).thenReturn(500);
 		when(errHttpResp.body()).thenReturn(java.util.stream.Stream.of("error line 1", "error line 2"));
 		when(orchestrator.execute(any(), any())).thenReturn(java.util.concurrent.CompletableFuture.completedFuture(
-				new io.github.kxng0109.aegisgate.proxy.failover.ProviderResponse("openai-p", errHttpResp)
+				new ProviderResponse("openai-p", errHttpResp)
 		));
 
 		var res3 = controller.proxyChatCompletions("{\"model\": \"test-model\"}", req);
@@ -412,7 +410,7 @@ class E12CoverageSupportTest {
 				"data: [DONE]"
 		));
 		when(orchestrator.execute(any(), any())).thenReturn(java.util.concurrent.CompletableFuture.completedFuture(
-				new io.github.kxng0109.aegisgate.proxy.failover.ProviderResponse("openai-p", okHttpResp)
+				new ProviderResponse("openai-p", okHttpResp)
 		));
 
 		var res4 = controller.proxyChatCompletions("{\"model\": \"test-model\"}", req);
@@ -497,11 +495,10 @@ class E12CoverageSupportTest {
 		strategy.close();
 
 		// ModelPriceCatalog lookup null and blank
-		io.github.kxng0109.aegisgate.ledger.ModelPricingRepository repo = mock(io.github.kxng0109.aegisgate.ledger.ModelPricingRepository.class);
-		io.github.kxng0109.aegisgate.ledger.ModelPriceCatalog catalog = new io.github.kxng0109.aegisgate.ledger.ModelPriceCatalog(
-				repo);
-		assertThat(catalog.lookup(io.github.kxng0109.aegisgate.contracts.ProviderType.OPENAI, null)).isEmpty();
-		assertThat(catalog.lookup(io.github.kxng0109.aegisgate.contracts.ProviderType.OPENAI, "   ")).isEmpty();
+		ModelPricingRepository repo = mock(ModelPricingRepository.class);
+		ModelPriceCatalog catalog = new ModelPriceCatalog(repo);
+		assertThat(catalog.lookup(ProviderType.OPENAI, null)).isEmpty();
+		assertThat(catalog.lookup(ProviderType.OPENAI, "   ")).isEmpty();
 		catalog.invalidate();
 	}
 

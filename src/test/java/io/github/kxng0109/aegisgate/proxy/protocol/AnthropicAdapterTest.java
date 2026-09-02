@@ -103,7 +103,7 @@ class AnthropicAdapterTest {
 	@DisplayName("skips unsupported roles and content parts")
 	void skipsUnsupportedContent() {
 		String body = "{\"model\":\"m\",\"messages\":["
-				+ "{\"role\":\"tool\",\"content\":\"result\"},"
+				+ "{\"role\":\"unsupported_custom_role\",\"content\":\"result\"},"
 				+ "{\"role\":\"user\",\"content\":[{\"type\":\"image_url\",\"image_url\":{\"url\":\"x\"}}]}"
 				+ "]}";
 		JsonNode result = objectMapper.readTree(adapter.buildRequestBody(body, null));
@@ -363,5 +363,153 @@ class AnthropicAdapterTest {
 		JsonNode result = objectMapper.readTree(adapter.buildRequestBody(body, null));
 		assertEquals("claude-sonnet-5", result.get("model").asString());
 		assertEquals(0, result.get("messages").size());
+	}
+
+	@Test
+	@DisplayName("translates tools, tool_choice, and multi-turn tool execution loop")
+	void translatesToolsAndToolExecutionLoop() {
+		String body = """
+				{
+				  "model": "claude-3-7-sonnet-20250219",
+				  "messages": [
+				    {"role": "user", "content": "What is the weather in Paris?"},
+				    {
+				      "role": "assistant",
+				      "content": "Checking weather now...",
+				      "tool_calls": [
+				        {
+				          "id": "toolu_01A",
+				          "type": "function",
+				          "function": {"name": "get_weather", "arguments": "{\\"city\\":\\"Paris\\"}"}
+				        }
+				      ]
+				    },
+				    {
+				      "role": "tool",
+				      "tool_call_id": "toolu_01A",
+				      "name": "get_weather",
+				      "content": "{\\"temp\\": 21}"
+				    }
+				  ],
+				  "tools": [
+				    {
+				      "type": "function",
+				      "function": {
+				        "name": "get_weather",
+				        "description": "Fetch weather",
+				        "parameters": {
+				          "type": "object",
+				          "properties": {"city": {"type": "string"}},
+				          "required": ["city"]
+				        }
+				      }
+				    }
+				  ],
+				  "tool_choice": "auto",
+				  "parallel_tool_calls": false
+				}""";
+
+		JsonNode result = objectMapper.readTree(adapter.buildRequestBody(body, null));
+		assertTrue(result.has("tools"));
+		assertEquals(1, result.get("tools").size());
+		assertEquals("get_weather", result.get("tools").get(0).get("name").asString());
+		assertEquals("object", result.get("tools").get(0).get("input_schema").get("type").asString());
+
+		assertTrue(result.has("tool_choice"));
+		assertEquals("auto", result.get("tool_choice").get("type").asString());
+		assertTrue(result.get("tool_choice").get("disable_parallel_tool_use").asBoolean());
+
+		JsonNode messages = result.get("messages");
+		assertEquals(3, messages.size());
+
+		// Turn 1: user
+		assertEquals("user", messages.get(0).get("role").asString());
+
+		// Turn 2: assistant with tool_use
+		assertEquals("assistant", messages.get(1).get("role").asString());
+		JsonNode asstContent = messages.get(1).get("content");
+		assertEquals(2, asstContent.size()); // text block + tool_use block
+		assertEquals("text", asstContent.get(0).get("type").asString());
+		assertEquals("tool_use", asstContent.get(1).get("type").asString());
+		assertEquals("toolu_01A", asstContent.get(1).get("id").asString());
+		assertEquals("get_weather", asstContent.get(1).get("name").asString());
+		assertEquals("Paris", asstContent.get(1).path("input").path("city").asString());
+
+		// Turn 3: tool result converted to user turn with tool_result block
+		assertEquals("user", messages.get(2).get("role").asString());
+		JsonNode toolResContent = messages.get(2).get("content");
+		assertEquals(1, toolResContent.size());
+		assertEquals("tool_result", toolResContent.get(0).get("type").asString());
+		assertEquals("toolu_01A", toolResContent.get(0).get("tool_use_id").asString());
+		assertTrue(toolResContent.get(0).get("content").asString().contains("21"));
+	}
+
+	@Test
+	@DisplayName("tests edge branches for tool calls with invalid args, null tool ID, and normalizer")
+	void testsEdgeBranches() throws Exception {
+		String body = """
+				{
+				  "model": "claude-3-7-sonnet",
+				  "messages": [
+				    {
+				      "role": "assistant",
+				      "tool_calls": [
+				        {"id": "c1", "type": "function", "function": {"name": "calc", "arguments": "invalid-json"}},
+				        {"id": "c2", "type": "function", "function": {"name": ""}}
+				      ]
+				    },
+				    {
+				      "role": "tool"
+				    }
+				  ],
+				  "tools": [],
+				  "tool_choice": null
+				}""";
+
+		JsonNode result = objectMapper.readTree(adapter.buildRequestBody(body, null));
+		JsonNode messages = result.get("messages");
+		assertEquals(2, messages.size());
+
+		// Turn 1: assistant with invalid args fallback
+		JsonNode asstBlocks = messages.get(0).get("content");
+		assertEquals(1, asstBlocks.size());
+		assertEquals("calc", asstBlocks.get(0).get("name").asString());
+		assertTrue(asstBlocks.get(0).get("input").isObject());
+
+		// Turn 2: tool with default empty strings
+		JsonNode toolBlocks = messages.get(1).get("content");
+		assertEquals(1, toolBlocks.size());
+		assertEquals("", toolBlocks.get(0).get("tool_use_id").asString());
+		assertEquals("", toolBlocks.get(0).get("content").asString());
+
+		assertFalse(result.has("tools"));
+		assertFalse(result.has("tool_choice"));
+
+		SseNormalizer normalizer = adapter.newNormalizer(true, "claude-3-7-sonnet");
+		assertNotNull(normalizer);
+		assertTrue(normalizer instanceof AnthropicSseNormalizer);
+	}
+
+	@Test
+	@DisplayName("tests developer messages, multiple system messages, and mixed stop sequences")
+	void testsDeveloperAndMultipleSystemMessages() {
+		String body = """
+				{
+				  "model": "claude-3-7-sonnet",
+				  "messages": [
+				    {"role": "developer", "content": "Instruction 1"},
+				    {"role": "system", "content": [{"type": "text", "text": "Instruction 2"}]},
+				    {"role": "developer", "content": "   "},
+				    {"role": "system", "content": null},
+				    {"role": "user", "content": [{"type": "image_url", "image_url": {"url": "x"}}]}
+				  ],
+				  "stop": ["STOP1", 123, "STOP2"]
+				}""";
+
+		JsonNode result = objectMapper.readTree(adapter.buildRequestBody(body, null));
+		assertEquals("Instruction 1\nInstruction 2", result.get("system").asString());
+		assertEquals(2, result.get("stop_sequences").size());
+		assertEquals("STOP1", result.get("stop_sequences").get(0).asString());
+		assertEquals("STOP2", result.get("stop_sequences").get(1).asString());
 	}
 }

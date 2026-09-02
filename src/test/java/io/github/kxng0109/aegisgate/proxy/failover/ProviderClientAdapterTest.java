@@ -3,14 +3,8 @@ package io.github.kxng0109.aegisgate.proxy.failover;
 import io.github.kxng0109.aegisgate.config.SensitiveString;
 import io.github.kxng0109.aegisgate.contracts.ProviderConfig;
 import io.github.kxng0109.aegisgate.contracts.ProviderType;
-import io.github.kxng0109.aegisgate.proxy.protocol.AnthropicAdapter;
-import io.github.kxng0109.aegisgate.proxy.protocol.OllamaAdapter;
-import io.github.kxng0109.aegisgate.proxy.protocol.OpenAiPassthroughAdapter;
-import io.github.kxng0109.aegisgate.proxy.protocol.ProtocolAdapterResolver;
-import io.github.kxng0109.aegisgate.proxy.sse.BoundedLineBodyHandler;
-import io.github.kxng0109.aegisgate.proxy.sse.SseLineGuard;
-import io.github.kxng0109.aegisgate.proxy.sse.SseLineGuardAutoConfig;
-import io.github.kxng0109.aegisgate.proxy.sse.SseLineGuardProperties;
+import io.github.kxng0109.aegisgate.proxy.protocol.*;
+import io.github.kxng0109.aegisgate.proxy.sse.*;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import okhttp3.mockwebserver.MockResponse;
@@ -40,6 +34,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * handling, the model override rewrite, and response streaming.
  */
 @DisplayName("ProviderClientAdapter")
+@SuppressWarnings("DataFlowIssue")
 class ProviderClientAdapterTest {
 
 	private MockWebServer server;
@@ -53,6 +48,8 @@ class ProviderClientAdapterTest {
 		ProtocolAdapterResolver resolver = new ProtocolAdapterResolver(
 				new OpenAiPassthroughAdapter(mapper),
 				new AnthropicAdapter(mapper),
+				new GeminiAdapter(mapper),
+				new DeepSeekAdapter(mapper),
 				new OllamaAdapter(mapper)
 		);
 		adapter = new ProviderClientAdapter(httpClient(), resolver, testLineGuardFactory());
@@ -63,10 +60,10 @@ class ProviderClientAdapterTest {
 		ObjectMapper mapper = new ObjectMapper();
 		SseLineGuardProperties props = SseLineGuardProperties.DEFAULTS;
 		SseLineGuardAutoConfig.SseLineGuardFactory baseFactory =
-				new io.github.kxng0109.aegisgate.proxy.sse.DefaultSseLineGuardFactory(props, registry, mapper);
+				new DefaultSseLineGuardFactory(props, registry, mapper);
 		return new SseLineGuardAutoConfig.SseLineGuardFactory() {
 			@Override
-			public io.github.kxng0109.aegisgate.proxy.sse.DefaultSseLineGuard newGuard(
+			public DefaultSseLineGuard newGuard(
 					SseLineGuard.ProviderType providerType, String providerName, UUID requestId
 			) {
 				return baseFactory.newGuard(providerType, providerName, requestId);

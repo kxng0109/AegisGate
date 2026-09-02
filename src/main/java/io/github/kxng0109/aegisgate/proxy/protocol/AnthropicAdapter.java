@@ -19,42 +19,17 @@ import java.util.Map;
 /**
  * Translates between the OpenAI chat completions contract and the Anthropic Messages API.
  *
- * <p>Request translation:</p>
- * <ul>
- *   <li>the first system role message becomes the top level {@code system}
- *       parameter, because the Messages API has no system role;</li>
- *   <li>user and assistant messages become content block arrays;</li>
- *   <li>{@code temperature} is clamped to the Anthropic range, {@code top_p}
- *       maps directly, {@code stop} becomes {@code stop_sequences}, and
- *       {@code max_tokens} (required by Anthropic) comes from the client or a
- *       sane default;</li>
- *   <li>parameters Anthropic has no equivalent for (frequency and presence
- *       penalties, logit bias, {@code n}, {@code seed}) are dropped.</li>
- * </ul>
+ * <p>Supports text, multi-turn tool loops, tool declarations, tool choices,
+ * stop sequences, and token bounds.</p>
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public final class AnthropicAdapter implements ProtocolAdapter {
 
-	/**
-	 * The Anthropic Messages API path.
-	 */
 	public static final String MESSAGES_PATH = "/v1/messages";
-
-	/**
-	 * The API version pinned by the request header, per the current docs.
-	 */
 	public static final String ANTHROPIC_VERSION = "2023-06-01";
-
-	/**
-	 * Default completion bound when the client supplied none; Anthropic requires the field.
-	 */
 	public static final int DEFAULT_MAX_TOKENS = 4096;
-
-	/**
-	 * Upper bound for the temperature, per the Anthropic specification.
-	 */
 	public static final double MAX_TEMPERATURE = 1.0;
 
 	private final ObjectMapper objectMapper;
@@ -78,7 +53,8 @@ public final class AnthropicAdapter implements ProtocolAdapter {
 		StringBuilder system = new StringBuilder();
 		if (request.messages() != null) {
 			for (OpenAiChatRequest.Message message : request.messages()) {
-				if ("system".equals(message.role())) {
+				String role = message.role() != null ? message.role().toLowerCase() : "";
+				if ("system".equals(role) || "developer".equals(role)) {
 					String text = messageText(message.content());
 					if (text != null && !text.isBlank()) {
 						if (!system.isEmpty()) {
@@ -97,14 +73,45 @@ public final class AnthropicAdapter implements ProtocolAdapter {
 
 		ArrayNode anthropicMessages = body.putArray("messages");
 		for (OpenAiChatRequest.Message message : messages) {
-			String role = message.role();
-			if (!"user".equals(role) && !"assistant".equals(role)) {
+			String role = message.role() != null ? message.role().toLowerCase() : "";
+			if ("assistant".equals(role)) {
+				ObjectNode out = anthropicMessages.addObject();
+				out.put("role", "assistant");
+				ArrayNode contentArray = out.putArray("content");
+				contentArray.addAll(contentBlocks(message.content()));
+				if (message.toolCalls() != null && message.toolCalls().isArray()) {
+					for (JsonNode toolCall : message.toolCalls()) {
+						String toolId = toolCall.path("id").asString("");
+						String funcName = toolCall.path("function").path("name").asString("");
+						String funcArgs = toolCall.path("function").path("arguments").asString("{}");
+						if (!funcName.isBlank()) {
+							ObjectNode toolUseBlock = contentArray.addObject();
+							toolUseBlock.put("type", "tool_use");
+							toolUseBlock.put("id", toolId);
+							toolUseBlock.put("name", funcName);
+							try {
+								toolUseBlock.set("input", objectMapper.readTree(funcArgs));
+							} catch (Exception e) {
+								toolUseBlock.putObject("input");
+							}
+						}
+					}
+				}
+			} else if ("tool".equals(role)) {
+				ObjectNode out = anthropicMessages.addObject();
+				out.put("role", "user");
+				ArrayNode contentArray = out.putArray("content");
+				ObjectNode toolResult = contentArray.addObject();
+				toolResult.put("type", "tool_result");
+				toolResult.put("tool_use_id", message.toolCallId() != null ? message.toolCallId() : "");
+				toolResult.put("content", messageText(message.content()) != null ? messageText(message.content()) : "");
+			} else if ("user".equals(role)) {
+				ObjectNode out = anthropicMessages.addObject();
+				out.put("role", "user");
+				out.putArray("content").addAll(contentBlocks(message.content()));
+			} else {
 				log.debug("Dropping a message with an unsupported role for Anthropic: {}", role);
-				continue;
 			}
-			ObjectNode out = anthropicMessages.addObject();
-			out.put("role", role);
-			out.putArray("content").addAll(contentBlocks(message.content()));
 		}
 
 		body.put("max_tokens", maxTokens(request));
@@ -120,6 +127,22 @@ public final class AnthropicAdapter implements ProtocolAdapter {
 		ArrayNode stopSequences = stopSequences(request.stop());
 		if (!stopSequences.isEmpty()) {
 			body.set("stop_sequences", stopSequences);
+		}
+
+		if (request.tools() != null && request.tools().isArray() && !request.tools().isEmpty()) {
+			ArrayNode anthropicTools = UniversalToolNormalizer.toAnthropicTools(request.tools(), objectMapper);
+			if (anthropicTools != null) {
+				body.set("tools", anthropicTools);
+			}
+		}
+
+		if (request.toolChoice() != null && !request.toolChoice().isNull()) {
+			ObjectNode toolChoiceObj = UniversalToolNormalizer.toAnthropicToolChoice(
+					request.toolChoice(), request.parallelToolCalls(), objectMapper
+			);
+			if (toolChoiceObj != null) {
+				body.set("tool_choice", toolChoiceObj);
+			}
 		}
 
 		return objectMapper.writeValueAsString(body);

@@ -40,14 +40,15 @@ public class OpenApiConfig {
 				.openapi("3.1.0")
 				.info(new Info()
 						      .title("AegisGate AI Gateway & Resilient Reverse Proxy")
-						      .version("1.0.0")
+						      .version("1.1.0")
 						      .summary(
-								      "Enterprise-grade AI proxy gateway with rate limiting, multi-tier caching, and failover")
+								      "Enterprise-grade AI proxy gateway with rate limiting, multi-tier caching, universal tool calling, and failover")
 						      .description("""
 								                   **AegisGate** is a high-performance, resilient AI reverse proxy gateway engineered in Java 25 & Spring Boot 4.1.
 								                   
 								                   ### Key Capabilities:
-								                   * **OpenAI-Compatible Ingestion**: Relays chat completions and vector embeddings across OpenAI, Anthropic, Cohere, Ollama, and OpenRouter.
+								                   * **Universal Protocol Normalization**: Relays chat completions and embeddings across OpenAI, Anthropic Claude, Google Gemini Developer API, Google Cloud Vertex AI, DeepSeek (V3/R1/V4), Cohere, and Ollama.
+								                   * **Universal Tool & Function Calling**: Normalizes OpenAI tool declarations across Anthropic (`input_schema`), Gemini OpenAPI uppercase formats (`OBJECT`, `STRING`, `INTEGER`), and DeepSeek reasoning streams.
 								                   * **Multi-Tier Caching**: Sub-millisecond L0 in-memory Caffeine + L1 Redis exact matching + L2 RediSearch HNSW vector similarity search with anti-hallucination guardrails.
 								                   * **Transparent Auto-Batching**: Automatically partitions large embedding workloads across upstream provider limits concurrently on Virtual Threads.
 								                   * **Zero-Buffer SSE Streaming**: Backpressure-guarded Server-Sent Events relay with synthetic stream replay on cache hits.
@@ -142,7 +143,7 @@ public class OpenApiConfig {
 	}
 
 	/**
-	 * Observability & Actuator Management endpoints group.
+	 * Observability &amp; Actuator Management endpoints group.
 	 *
 	 * @return grouped observability API specification
 	 */

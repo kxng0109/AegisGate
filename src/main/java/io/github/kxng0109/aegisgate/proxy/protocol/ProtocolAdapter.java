@@ -12,14 +12,20 @@ import java.util.Map;
  * <p>The client always speaks OpenAI format. Each adapter owns the details of
  * one native protocol: where to send the request, how to translate the OpenAI body, which headers to attach, and how to
  * normalize the streaming response back to OpenAI shape. {@link OpenAiPassthroughAdapter} needs no translation;
- * {@link AnthropicAdapter} and {@link OllamaAdapter} translate in both directions.</p>
+ * {@link AnthropicAdapter}, {@link GeminiAdapter}, {@link DeepSeekAdapter}, and {@link OllamaAdapter} translate in both directions.</p>
  *
  * <p>Adapters are stateless singletons. Normalizers carry per stream state, so
- * {@link #newNormalizer(boolean)} hands out a fresh instance per response.</p>
+ * {@link #newNormalizer(boolean, String)} hands out a fresh instance per response.</p>
  */
-public sealed interface ProtocolAdapter permits OpenAiPassthroughAdapter, AnthropicAdapter, OllamaAdapter {
+public sealed interface ProtocolAdapter permits OpenAiPassthroughAdapter,
+                                                AnthropicAdapter,
+                                                OllamaAdapter,
+                                                GeminiAdapter,
+                                                DeepSeekAdapter {
 
 	/**
+	 * Builds the upstream endpoint URL for this protocol.
+	 *
 	 * @param config the provider to contact
 	 * @return the full upstream endpoint for this protocol
 	 */
@@ -35,6 +41,8 @@ public sealed interface ProtocolAdapter permits OpenAiPassthroughAdapter, Anthro
 	String buildRequestBody(String rawRequestBody, @Nullable String modelOverride);
 
 	/**
+	 * Builds the HTTP headers required for this protocol.
+	 *
 	 * @param config the provider to contact
 	 * @return the headers this protocol requires (content type, credentials)
 	 */

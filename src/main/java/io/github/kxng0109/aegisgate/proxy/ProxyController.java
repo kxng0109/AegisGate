@@ -396,12 +396,10 @@ public class ProxyController {
 
 		// Create per-stream line guard
 		SseLineGuard lineGuard = lineGuardFactory.newGuard(
-				io.github.kxng0109.aegisgate.proxy.sse.SseLineGuard.ProviderType.from(providerType),
+				SseLineGuard.ProviderType.from(providerType),
 				providerName,
-				java.util.UUID.randomUUID()
+				UUID.randomUUID()
 		);
-		SseLineGuard.ProviderType guardProviderType = io.github.kxng0109.aegisgate.proxy.sse.SseLineGuard.ProviderType.from(
-				providerType);
 
 		StringBuilder accumulatedContent = new StringBuilder();
 		try {
@@ -410,7 +408,7 @@ public class ProxyController {
 					// Guard the raw upstream line before normalization
 					List<String> guarded = lineGuard.checkLine(
 							line,
-							io.github.kxng0109.aegisgate.proxy.sse.SseLineGuard.ProviderType.from(providerType)
+							SseLineGuard.ProviderType.from(providerType)
 					);
 
 					if (lineGuard.isRejected()) {

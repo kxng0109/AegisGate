@@ -14,6 +14,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("CacheKeyGenerator")
+@SuppressWarnings("DataFlowIssue")
 class CacheKeyGeneratorTest {
 
 	private final CacheKeyGenerator generator = new CacheKeyGenerator();
@@ -218,11 +219,16 @@ class CacheKeyGeneratorTest {
 		ObjectNode nonTextVal = objectMapper.createObjectNode();
 		nonTextVal.put("text", 123);
 		arrSpecial.add(nonTextVal);
+		arrSpecial.add("directStringPart");
 		OpenAiChatRequest reqSpecial = new OpenAiChatRequest(
 				"gpt-4o",
 				List.of(new OpenAiChatRequest.Message("user", arrSpecial)),
 				0.0, null, null, null, null, true, null
 		);
-		assertThat(generator.extractUserPrompt(reqSpecial)).isEmpty();
+		assertThat(generator.extractUserPrompt(reqSpecial)).isEqualTo("directStringPart");
+
+		// 5. extractText with number node and boolean node
+		assertThat(generator.extractText(objectMapper.valueToTree(42))).isEqualTo("42");
+		assertThat(generator.extractText(objectMapper.valueToTree(true))).isEqualTo("true");
 	}
 }

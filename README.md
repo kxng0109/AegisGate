@@ -122,11 +122,36 @@ When every provider fails, the client sees a clean error: 502 when providers ret
 
 AegisGate keeps one client contract, the OpenAI chat completions shape, and translates each provider's native protocol behind it. The `type` field on a provider selects the dialect:
 
-- `OPENAI` speaks the OpenAI chat completions protocol directly. This covers OpenAI itself, OpenRouter, Groq, DeepSeek, Mistral, Together, vLLM, and most local servers.
-- `ANTHROPIC` speaks the Anthropic Messages API. Requests are translated to `v1/messages` with the pinned API version, and the Anthropic stream is rewritten into OpenAI shaped chunks.
-- `OLLAMA` speaks the native Ollama chat API, which streams newline delimited JSON. The stream is normalized into the same OpenAI SSE shape.
+- `OPENAI` speaks the OpenAI chat completions protocol directly. This covers OpenAI itself, OpenRouter, Groq, Mistral,
+  Together, vLLM, and most local servers.
+- `ANTHROPIC` speaks the Anthropic Messages API (`/v1/messages`). Requests are translated with tool declarations, tool
+  choices, and Anthropic streaming events are rewritten into OpenAI shaped chunks.
+- `GEMINI` speaks the Google AI Studio Gemini Developer API (`generativelanguage.googleapis.com`), supporting
+  `systemInstruction`, `contents`, and streaming reasoning thoughts (`thought: true`).
+- `VERTEX_AI` speaks the Google Cloud Vertex AI REST API (`aiplatform.googleapis.com`) with OAuth2/Bearer
+  authentication.
+- `DEEPSEEK` speaks the DeepSeek API (`api.deepseek.com`), supporting hybrid reasoning thinking mode (`thinking`,
+  `reasoning_effort`), prompt caching telemetry, and streaming `reasoning_content`.
+- `OLLAMA` speaks the native Ollama chat API (`/api/chat`), which streams newline delimited JSON.
 
-The translation lives in `proxy/protocol`. `ProtocolAdapterResolver` picks the adapter for a provider type. Each adapter builds the native URL, headers, and request body, and each normalizer rewrites the upstream stream back to the client contract. A normalizer is created fresh per stream and captures the token counts plus the model the provider reports, which feed the ledger. See `proxy/protocol/AnthropicAdapter.java`, `proxy/protocol/OllamaAdapter.java`, `proxy/protocol/OpenAiPassthroughAdapter.java`, and the matching `SseNormalizer` implementations.
+The translation lives in `proxy/protocol`. `ProtocolAdapterResolver` picks the adapter for a provider type. Each adapter
+builds the native URL, headers, and request body, and each normalizer rewrites the upstream stream back to the client
+contract. A normalizer is created fresh per stream and captures the token counts plus the model the provider reports,
+which feed the ledger. See `proxy/protocol/UniversalToolNormalizer.java`, `proxy/protocol/GeminiAdapter.java`,
+`proxy/protocol/DeepSeekAdapter.java`, `proxy/protocol/AnthropicAdapter.java`, `proxy/protocol/OllamaAdapter.java`, and
+`proxy/protocol/OpenAiPassthroughAdapter.java`.
+
+### Universal Tool & Function Calling Normalization
+
+AegisGate provides universal tool and function calling across all upstream providers:
+
+- Translates canonical OpenAI `tools` definitions to Anthropic `input_schema` and Google Gemini OpenAPI 3.0 UPPERCASE
+  types (`OBJECT`, `STRING`, `INTEGER`, `NUMBER`, `BOOLEAN`, `ARRAY`).
+- Maps `tool_choice` directives (`"auto"`, `"required"`, `"none"`, and named function descriptors) across dialects.
+- Normalizes conversational multi-turn tool loops: rewrites OpenAI `role: "tool"` execution results into Anthropic
+  `role: "user"` `tool_result` blocks and Gemini `role: "user"` `functionResponse` parts.
+- Generates stateless, deterministic synthetic tool call IDs (`call_gen_...`) for providers that omit IDs natively.
+- Relays streaming tool arguments incrementally across SSE chunk deltas in real time.
 
 Cost is attributed against the model the provider reports, falling back to the requested model when the provider never reports one. On the OpenAI compatible path the gateway always asks the upstream for usage so it can bill, but the usage chunk is only relayed to a client that explicitly asked for it.
 

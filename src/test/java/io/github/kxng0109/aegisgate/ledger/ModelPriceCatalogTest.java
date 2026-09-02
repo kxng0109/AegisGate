@@ -18,6 +18,7 @@ import static org.mockito.Mockito.*;
  * models.
  */
 @DisplayName("ModelPriceCatalog")
+@SuppressWarnings("DataFlowIssue")
 class ModelPriceCatalogTest {
 
 	private final ModelPricingRepository repository = mock(ModelPricingRepository.class);
@@ -98,7 +99,16 @@ class ModelPriceCatalogTest {
 	@Test
 	@DisplayName("the catalog is loaded once and cached for repeated lookups until invalidated")
 	void cachesSnapshot() {
-		when(repository.findAll()).thenReturn(List.of(entity("gpt-5.6-sol", "openai", "0.000004", "0.00002")));
+		when(repository.findAll()).thenReturn(List.of(
+				entity("gpt-5.6-sol", "openai", "0.000004", "0.00002"),
+				entity("gemini-2.5-flash", "gemini", "0.000001", "0.000004"),
+				entity("gemini-2.5-pro", "vertex_ai", "0.000002", "0.000008"),
+				entity("deepseek-chat", "deepseek", "0.0000001", "0.0000002")
+		));
+
+		assertTrue(catalog.lookup(ProviderType.GEMINI, "gemini-2.5-flash").isPresent());
+		assertTrue(catalog.lookup(ProviderType.VERTEX_AI, "gemini-2.5-pro").isPresent());
+		assertTrue(catalog.lookup(ProviderType.DEEPSEEK, "deepseek-chat").isPresent());
 		catalog.lookup(ProviderType.OPENAI, "gpt-5.6-sol");
 		catalog.lookup(ProviderType.OPENAI, "gpt-5.6-sol");
 		catalog.lookup(ProviderType.OPENAI, "gpt-5.6-sol");

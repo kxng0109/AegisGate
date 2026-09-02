@@ -24,6 +24,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 @DisplayName("AegisCacheService")
+@SuppressWarnings("DataFlowIssue")
 class AegisCacheServiceTest {
 
 	private final InMemoryExactCache l0Cache = mock(InMemoryExactCache.class);

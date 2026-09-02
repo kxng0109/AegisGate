@@ -8,7 +8,7 @@ import org.jspecify.annotations.Nullable;
 import org.springframework.stereotype.Component;
 
 /**
- * L0 Process-Local In-Memory Cache backed by Caffeine for ultra-low-latency (<0.1ms) exact match hits.
+ * L0 Process-Local In-Memory Cache backed by Caffeine for ultra-low-latency (&lt;0.1ms) exact match hits.
  */
 @Component
 public class InMemoryExactCache {

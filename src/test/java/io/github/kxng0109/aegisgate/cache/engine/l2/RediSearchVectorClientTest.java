@@ -56,6 +56,12 @@ class RediSearchVectorClientTest {
 				"Index already exists"));
 		boolean alreadyExists = client.createIndexIfNotExists("test:idx", "test:doc:", 1536);
 		assertThat(alreadyExists).isFalse();
+
+		// When generic redis failure (module not loaded) occurs
+		when(connection.execute(eq("FT.CREATE"), any(byte[][].class))).thenThrow(new RuntimeException(
+				"ERR unknown command 'FT.CREATE'"));
+		boolean genericError = client.createIndexIfNotExists("test:idx", "test:doc:", 1536);
+		assertThat(genericError).isFalse();
 	}
 
 	@Test

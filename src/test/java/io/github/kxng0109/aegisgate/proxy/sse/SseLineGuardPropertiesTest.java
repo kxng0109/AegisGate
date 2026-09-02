@@ -1,5 +1,6 @@
 package io.github.kxng0109.aegisgate.proxy.sse;
 
+import io.github.kxng0109.aegisgate.contracts.ProviderType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -14,6 +15,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * Unit tests for {@link SseLineGuardProperties}.
  */
 @DisplayName("SseLineGuardProperties")
+@SuppressWarnings("DataFlowIssue")
 class SseLineGuardPropertiesTest {
 
 	@Test
@@ -117,14 +119,11 @@ class SseLineGuardPropertiesTest {
 	@Test
 	@DisplayName("ProviderType.from maps contracts ProviderType to guard ProviderType")
 	void providerTypeMapping() {
-		assertThat(SseLineGuard.ProviderType.from(
-				io.github.kxng0109.aegisgate.contracts.ProviderType.OPENAI))
+		assertThat(SseLineGuard.ProviderType.from(ProviderType.OPENAI))
 				.isEqualTo(SseLineGuard.ProviderType.OPENAI);
-		assertThat(SseLineGuard.ProviderType.from(
-				io.github.kxng0109.aegisgate.contracts.ProviderType.ANTHROPIC))
+		assertThat(SseLineGuard.ProviderType.from(ProviderType.ANTHROPIC))
 				.isEqualTo(SseLineGuard.ProviderType.ANTHROPIC);
-		assertThat(SseLineGuard.ProviderType.from(
-				io.github.kxng0109.aegisgate.contracts.ProviderType.OLLAMA))
+		assertThat(SseLineGuard.ProviderType.from(ProviderType.OLLAMA))
 				.isEqualTo(SseLineGuard.ProviderType.OLLAMA);
 		assertThat(SseLineGuard.ProviderType.from(null))
 				.isEqualTo(SseLineGuard.ProviderType.UNKNOWN);

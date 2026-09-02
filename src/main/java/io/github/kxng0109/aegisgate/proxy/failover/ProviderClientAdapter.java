@@ -4,6 +4,7 @@ import io.github.kxng0109.aegisgate.contracts.ProviderConfig;
 import io.github.kxng0109.aegisgate.proxy.protocol.ProtocolAdapter;
 import io.github.kxng0109.aegisgate.proxy.protocol.ProtocolAdapterResolver;
 import io.github.kxng0109.aegisgate.proxy.sse.BoundedLineBodyHandler;
+import io.github.kxng0109.aegisgate.proxy.sse.SseLineGuard;
 import io.github.kxng0109.aegisgate.proxy.sse.SseLineGuardAutoConfig;
 import lombok.RequiredArgsConstructor;
 import org.jspecify.annotations.Nullable;
@@ -61,7 +62,7 @@ public class ProviderClientAdapter {
 		adapter.buildRequestHeaders(config).forEach(builder::header);
 
 		BoundedLineBodyHandler handler = lineGuardFactory.bodyHandlerForProvider(
-				io.github.kxng0109.aegisgate.proxy.sse.SseLineGuard.ProviderType.from(config.type())
+				SseLineGuard.ProviderType.from(config.type())
 		);
 		return proxyHttpClient.sendAsync(builder.build(), handler);
 	}

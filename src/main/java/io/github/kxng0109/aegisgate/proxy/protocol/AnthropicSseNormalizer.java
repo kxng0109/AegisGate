@@ -12,22 +12,8 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Rewrites the Anthropic Messages streaming event sequence into OpenAI shaped chunks.
- *
- * <p>Anthropic streams typed SSE events across two lines, an {@code event:}
- * line naming the event and a {@code data:} line carrying its JSON. The mapping follows the documented event flow:</p>
- * <ul>
- *   <li>{@code message_start} contributes the input token count and the model
- *       id;</li>
- *   <li>{@code content_block_delta} with a {@code text_delta} becomes a
- *       content chunk, while thinking and tool input deltas are dropped;</li>
- *   <li>{@code message_delta} contributes the cumulative output token
- *       count;</li>
- *   <li>{@code message_stop} emits the final chunk and the {@code [DONE]}
- *       marker;</li>
- *   <li>{@code ping} and unknown event types are ignored, because the API may
- *       add new event types at any time.</li>
- * </ul>
+ * Rewrites the Anthropic Messages streaming event sequence into OpenAI shaped chunks,
+ * supporting text content, tool calling ({@code tool_use}), thinking deltas, and usage telemetry.
  */
 @Slf4j
 public final class AnthropicSseNormalizer implements SseNormalizer {
@@ -45,12 +31,14 @@ public final class AnthropicSseNormalizer implements SseNormalizer {
 	private @Nullable Long inputTokens;
 	private @Nullable Long outputTokens;
 	private @Nullable String upstreamModel;
+	private String finishReason = "stop";
+	private int activeToolIndex;
 	private boolean done;
 
 	/**
 	 * @param objectMapper           parses each data line
 	 * @param fallbackModel          model to attribute cost against when the provider never reports one
-	 * @param includeUsageInResponse whether the usage chunk is relayed to the client (the client asked for it)
+	 * @param includeUsageInResponse whether the usage chunk is relayed to the client
 	 */
 	public AnthropicSseNormalizer(ObjectMapper objectMapper, String fallbackModel, boolean includeUsageInResponse) {
 		this.objectMapper = objectMapper;
@@ -87,6 +75,7 @@ public final class AnthropicSseNormalizer implements SseNormalizer {
 		}
 		return switch (pendingEvent) {
 			case "message_start" -> messageStart(node);
+			case "content_block_start" -> contentBlockStart(node);
 			case "content_block_delta" -> contentDelta(node);
 			case "message_delta" -> messageDelta(node);
 			case "message_stop" -> messageStop();
@@ -130,19 +119,68 @@ public final class AnthropicSseNormalizer implements SseNormalizer {
 		return List.of();
 	}
 
+	private List<String> contentBlockStart(JsonNode node) {
+		JsonNode block = node.path("content_block");
+		String blockType = block.path("type").asString("");
+		if ("tool_use".equals(blockType)) {
+			String toolId = block.path("id").asString("");
+			String name = block.path("name").asString("");
+			int index = node.path("index").asInt(activeToolIndex);
+			activeToolIndex = index;
+			return List.of(OpenAiSseLine.toolCallHeader(
+					objectMapper,
+					chunkId,
+					created,
+					model(),
+					index,
+					toolId,
+					name,
+					""
+			));
+		}
+		return List.of();
+	}
+
 	private List<String> contentDelta(JsonNode node) {
-		String type = node.path("delta").path("type").asString("");
-		if (!"text_delta".equals(type)) {
-			return List.of();
+		JsonNode deltaNode = node.path("delta");
+		String type = deltaNode.path("type").asString("");
+		if ("text_delta".equals(type)) {
+			String text = deltaNode.path("text").asString("");
+			if (!text.isEmpty()) {
+				return List.of(OpenAiSseLine.delta(objectMapper, chunkId, created, model(), text));
+			}
+		} else if ("input_json_delta".equals(type)) {
+			String partialJson = deltaNode.path("partial_json").asString("");
+			int index = node.path("index").asInt(activeToolIndex);
+			return List.of(OpenAiSseLine.toolCallArgumentDelta(
+					objectMapper,
+					chunkId,
+					created,
+					model(),
+					index,
+					partialJson
+			));
+		} else if ("thinking_delta".equals(type)) {
+			String thinkingText = deltaNode.path("thinking").asString("");
+			if (!thinkingText.isEmpty()) {
+				return List.of(OpenAiSseLine.reasoningDelta(objectMapper, chunkId, created, model(), thinkingText));
+			}
 		}
-		String text = node.path("delta").path("text").asString("");
-		if (text.isEmpty()) {
-			return List.of();
-		}
-		return List.of(OpenAiSseLine.delta(objectMapper, chunkId, created, model(), text));
+		return List.of();
 	}
 
 	private List<String> messageDelta(JsonNode node) {
+		JsonNode delta = node.get("delta");
+		if (delta != null && delta.isObject() && delta.has("stop_reason")) {
+			String stopReason = delta.get("stop_reason").asString("");
+			if ("tool_use".equals(stopReason)) {
+				finishReason = "tool_calls";
+			} else if ("max_tokens".equals(stopReason)) {
+				finishReason = "length";
+			} else if ("end_turn".equals(stopReason) || "stop_sequence".equals(stopReason)) {
+				finishReason = "stop";
+			}
+		}
 		JsonNode usageNode = node.get("usage");
 		if (usageNode != null && usageNode.isObject() && usageNode.has("output_tokens")) {
 			outputTokens = usageNode.get("output_tokens").asLong();
@@ -162,7 +200,7 @@ public final class AnthropicSseNormalizer implements SseNormalizer {
 				));
 			}
 		}
-		lines.add(OpenAiSseLine.finished(objectMapper, chunkId, created, model()));
+		lines.add(OpenAiSseLine.finishedWithReason(objectMapper, chunkId, created, model(), finishReason));
 		lines.add(OpenAiSseLine.DONE);
 		return lines;
 	}

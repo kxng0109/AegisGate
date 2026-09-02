@@ -164,10 +164,26 @@ class OllamaAdapterTest {
 	@Test
 	@DisplayName("tolerates null messages and zero max tokens")
 	void toleratesNullMessagesAndZeroMaxTokens() {
-		String body = "{\"model\":\"llama3.2\",\"max_tokens\":0}";
+		String body = "{\"model\":\"llama3.2\",\"max_tokens\":0,\"stop\":null}";
 		JsonNode result = objectMapper.readTree(adapter.buildRequestBody(body, null));
 		assertEquals("llama3.2", result.get("model").asString());
 		assertEquals(0, result.get("messages").size());
 		assertFalse(result.path("options").has("num_predict"));
+		assertFalse(result.path("options").has("stop"));
+
+		// Base URL without trailing slash
+		ProviderConfig configNoSlash = new ProviderConfig(
+				"p", ProviderType.OLLAMA, URI.create("http://localhost:11434"), null,
+				Duration.ofSeconds(3), Duration.ofSeconds(120)
+		);
+		assertEquals("http://localhost:11434/api/chat", adapter.buildUpstreamUrl(configNoSlash).toString());
+
+		// Array content with only non-text parts
+		String nonTextBody = """
+				{"model":"llama3.2","messages":[
+				  {"role":"user","content":[{"type":"image","url":"..."}]}
+				]}""";
+		JsonNode nonTextRes = objectMapper.readTree(adapter.buildRequestBody(nonTextBody, null));
+		assertEquals(0, nonTextRes.get("messages").size());
 	}
 }

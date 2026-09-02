@@ -1,6 +1,7 @@
 package io.github.kxng0109.aegisgate.proxy.failover;
 
 import io.github.kxng0109.aegisgate.security.SsrfValidator;
+import io.github.kxng0109.aegisgate.security.SsrfViolationException;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -26,7 +27,7 @@ public class SsrfUpstreamUrlValidator implements UpstreamUrlValidator {
 
 	/**
 	 * @param targetUrl the URL about to be contacted
-	 * @throws io.github.kxng0109.aegisgate.security.SsrfViolationException when the target is unsafe or unresolvable
+	 * @throws SsrfViolationException when the target is unsafe or unresolvable
 	 */
 	@Override
 	public void validate(URI targetUrl) {

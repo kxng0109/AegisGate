@@ -39,6 +39,8 @@ public interface SseLineGuard {
 
 	/**
 	 * Returns a snapshot of the current configuration (hot-reloadable).
+	 *
+	 * @return active configuration snapshot
 	 */
 	ConfigSnapshot config();
 
@@ -62,6 +64,9 @@ public interface SseLineGuard {
 	enum ProviderType {
 		OPENAI,
 		ANTHROPIC,
+		GEMINI,
+		VERTEX_AI,
+		DEEPSEEK,
 		OLLAMA,
 		UNKNOWN;
 
@@ -78,8 +83,10 @@ public interface SseLineGuard {
 			return switch (type) {
 				case OPENAI -> OPENAI;
 				case ANTHROPIC -> ANTHROPIC;
+				case GEMINI -> GEMINI;
+				case VERTEX_AI -> VERTEX_AI;
+				case DEEPSEEK -> DEEPSEEK;
 				case OLLAMA -> OLLAMA;
-				default -> UNKNOWN;
 			};
 		}
 	}
@@ -91,7 +98,7 @@ public interface SseLineGuard {
 	 * @param maxLinesPerSecond maximum lines per second (rate limit)
 	 * @param maxBytesPerSecond maximum bytes per second (rate limit)
 	 */
-	public record ProviderConfig(int maxLineBytes, int maxLinesPerSecond, int maxBytesPerSecond) {
+	record ProviderConfig(int maxLineBytes, int maxLinesPerSecond, int maxBytesPerSecond) {
 		public ProviderConfig {
 			if (maxLineBytes <= 0) {
 				throw new IllegalArgumentException("maxLineBytes must be positive");

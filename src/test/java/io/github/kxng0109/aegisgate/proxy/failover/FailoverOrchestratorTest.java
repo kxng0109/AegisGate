@@ -2,10 +2,7 @@ package io.github.kxng0109.aegisgate.proxy.failover;
 
 import io.github.kxng0109.aegisgate.config.SensitiveString;
 import io.github.kxng0109.aegisgate.contracts.*;
-import io.github.kxng0109.aegisgate.proxy.protocol.AnthropicAdapter;
-import io.github.kxng0109.aegisgate.proxy.protocol.OllamaAdapter;
-import io.github.kxng0109.aegisgate.proxy.protocol.OpenAiPassthroughAdapter;
-import io.github.kxng0109.aegisgate.proxy.protocol.ProtocolAdapterResolver;
+import io.github.kxng0109.aegisgate.proxy.protocol.*;
 import io.github.kxng0109.aegisgate.proxy.sse.*;
 import io.github.kxng0109.aegisgate.proxy.sse.SseLineGuardAutoConfig.SseLineGuardFactory;
 import io.github.kxng0109.aegisgate.security.SsrfViolationException;
@@ -39,6 +36,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * resulting exception semantics.
  */
 @DisplayName("FailoverOrchestrator")
+@SuppressWarnings("DataFlowIssue")
 class FailoverOrchestratorTest {
 
 	private static final String MODELS = "{\"model\":\"m\",\"messages\":[]}";
@@ -453,6 +451,8 @@ class FailoverOrchestratorTest {
 		ProtocolAdapterResolver resolver = new ProtocolAdapterResolver(
 				new OpenAiPassthroughAdapter(mapper),
 				new AnthropicAdapter(mapper),
+				new GeminiAdapter(mapper),
+				new DeepSeekAdapter(mapper),
 				new OllamaAdapter(mapper)
 		);
 		return new ProviderClientAdapter(httpClient, resolver, testLineGuardFactory());

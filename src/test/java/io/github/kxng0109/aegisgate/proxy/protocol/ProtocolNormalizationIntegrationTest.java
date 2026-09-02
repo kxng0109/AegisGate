@@ -3,6 +3,10 @@ package io.github.kxng0109.aegisgate.proxy.protocol;
 import io.github.kxng0109.aegisgate.config.SensitiveString;
 import io.github.kxng0109.aegisgate.contracts.*;
 import io.github.kxng0109.aegisgate.proxy.failover.*;
+import io.github.kxng0109.aegisgate.proxy.sse.*;
+import io.github.kxng0109.aegisgate.proxy.sse.SseLineGuardAutoConfig.SseLineGuardFactory;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import org.junit.jupiter.api.AfterEach;
@@ -16,10 +20,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.time.Clock;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
@@ -29,17 +30,22 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Integration style tests that run the real failover pipeline against mock Anthropic and Ollama servers: the adapter
- * translates the request, the orchestrator accepts each native streaming content type, and the normalizer rewrites the
- * stream into OpenAI shaped SSE lines.
+ * Integration style tests that run the real failover pipeline against mock Anthropic, Ollama, Gemini, and DeepSeek servers:
+ * the adapter translates the request, the orchestrator accepts each native streaming content type, and the normalizer
+ * rewrites the stream into OpenAI shaped SSE lines.
  */
-@DisplayName("Protocol normalization through the orchestrator")
+@DisplayName("ProtocolNormalizationIntegration")
+@SuppressWarnings("DataFlowIssue")
 class ProtocolNormalizationIntegrationTest {
 
 	private static final String BODY = "{\"model\":\"claude-sonnet-5\",\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}]}";
+	private static final String GEMINI_BODY = "{\"model\":\"gemini-2.5-flash\",\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}]}";
+	private static final String DEEPSEEK_BODY = "{\"model\":\"deepseek-reasoner\",\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"reasoning_effort\":\"high\"}";
 
 	private MockWebServer anthropicServer;
 	private MockWebServer ollamaServer;
+	private MockWebServer geminiServer;
+	private MockWebServer deepseekServer;
 	private HttpClient httpClient;
 	private ObjectMapper objectMapper;
 
@@ -49,6 +55,10 @@ class ProtocolNormalizationIntegrationTest {
 		anthropicServer.start();
 		ollamaServer = new MockWebServer();
 		ollamaServer.start();
+		geminiServer = new MockWebServer();
+		geminiServer.start();
+		deepseekServer = new MockWebServer();
+		deepseekServer.start();
 		httpClient = HttpClient.newBuilder()
 		                       .version(HttpClient.Version.HTTP_2)
 		                       .connectTimeout(Duration.ofSeconds(5))
@@ -62,6 +72,8 @@ class ProtocolNormalizationIntegrationTest {
 	void tearDown() throws Exception {
 		anthropicServer.shutdown();
 		ollamaServer.shutdown();
+		geminiServer.shutdown();
+		deepseekServer.shutdown();
 	}
 
 	@Test
@@ -78,6 +90,157 @@ class ProtocolNormalizationIntegrationTest {
 		assertTrue(lines.stream().anyMatch(line -> line.contains("\"delta\":{\"content\":\"Hello\"}")));
 		assertTrue(lines.stream().anyMatch(line -> line.contains("\"finish_reason\":\"stop\"")));
 		assertEquals("data: [DONE]", lines.getLast());
+	}
+
+	@Test
+	@DisplayName("an Anthropic multi-turn tool use stream is normalized to OpenAI tool_calls chunks")
+	void anthropicToolCallingStreamNormalized() {
+		String toolCallStream = """
+				event: message_start
+				data: {"type":"message_start","message":{"id":"msg_tool","type":"message","role":"assistant","content":[],"model":"claude-3-7-sonnet","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":30,"output_tokens":1}}}
+				event: content_block_start
+				data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_01ABC","name":"get_stock_quote"}}
+				event: content_block_delta
+				data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\"symbol\\": \\"AAPL\\"}"}}
+				event: content_block_stop
+				data: {"type":"content_block_stop","index":0}
+				event: message_delta
+				data: {"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"output_tokens":25}}
+				event: message_stop
+				data: {"type":"message_stop"}
+				""";
+		anthropicServer.enqueue(new MockResponse().setResponseCode(200)
+		                                          .addHeader("Content-Type", "text/event-stream")
+		                                          .setBody(toolCallStream));
+
+		String toolReqBody = """
+				{
+				  "model": "claude-3-7-sonnet",
+				  "messages": [{"role": "user", "content": "What is AAPL trading at?"}],
+				  "tools": [{
+				    "type": "function",
+				    "function": {
+				      "name": "get_stock_quote",
+				      "description": "Fetch live stock quote",
+				      "parameters": {"type": "object", "properties": {"symbol": {"type": "string"}}, "required": ["symbol"]}
+				    }
+				  }]
+				}""";
+
+		ProviderResponse winner = join(orchestrator("anthropic").execute(alias("anthropic"), toolReqBody));
+		assertEquals(200, winner.response().statusCode());
+
+		List<String> lines = relay(winner, new AnthropicAdapter(objectMapper).newNormalizer(true, "claude-3-7-sonnet"));
+		assertTrue(lines.stream().anyMatch(line -> line.contains("\"name\":\"get_stock_quote\"")));
+		assertTrue(lines.stream().anyMatch(line -> line.contains("AAPL")));
+		assertTrue(lines.stream().anyMatch(line -> line.contains("\"finish_reason\":\"tool_calls\"")));
+		assertEquals("data: [DONE]", lines.getLast());
+	}
+
+	@Test
+	@DisplayName("a Gemini stream with thoughts and functionCall is normalized to OpenAI chunks")
+	void geminiStreamNormalized() {
+		geminiServer.enqueue(new MockResponse().setResponseCode(200)
+		                                       .addHeader("Content-Type", "text/event-stream")
+		                                       .setBody(geminiStream()));
+
+		ProviderResponse winner = join(orchestrator("gemini").execute(alias("gemini"), GEMINI_BODY));
+
+		assertEquals(200, winner.response().statusCode());
+		List<String> lines = relay(winner, new GeminiAdapter(objectMapper).newNormalizer(true, "gemini-2.5-flash"));
+		assertTrue(lines.stream().anyMatch(line -> line.contains("\"reasoning_content\":\"Analyzing question\"")));
+		assertTrue(lines.stream().anyMatch(line -> line.contains("\"delta\":{\"content\":\"Hello world\"}")));
+		assertTrue(lines.stream().anyMatch(line -> line.contains("\"finish_reason\":\"stop\"")));
+		assertEquals("data: [DONE]", lines.getLast());
+	}
+
+	@Test
+	@DisplayName("a Gemini functionCall tool use stream is normalized to OpenAI tool_calls chunks")
+	void geminiToolCallingStreamNormalized() {
+		String geminiToolStream = """
+				data: {"candidates": [{"content": {"parts": [{"functionCall": {"name": "lookup_cve", "args": {"cve_id": "CVE-2024-38816"}}}], "role": "model"}, "finishReason": "STOP", "index": 0}], "usageMetadata": {"promptTokenCount": 50, "candidatesTokenCount": 20, "totalTokenCount": 70}}
+				""";
+		geminiServer.enqueue(new MockResponse().setResponseCode(200)
+		                                       .addHeader("Content-Type", "text/event-stream")
+		                                       .setBody(geminiToolStream));
+
+		String geminiToolReq = """
+				{
+				  "model": "gemini-2.5-flash",
+				  "messages": [{"role": "user", "content": "Look up CVE-2024-38816"}],
+				  "tools": [{
+				    "type": "function",
+				    "function": {
+				      "name": "lookup_cve",
+				      "parameters": {"type": "object", "properties": {"cve_id": {"type": "string"}}, "required": ["cve_id"]}
+				    }
+				  }]
+				}""";
+
+		ProviderResponse winner = join(orchestrator("gemini").execute(alias("gemini"), geminiToolReq));
+		assertEquals(200, winner.response().statusCode());
+
+		List<String> lines = relay(winner, new GeminiAdapter(objectMapper).newNormalizer(true, "gemini-2.5-flash"));
+		assertTrue(lines.stream().anyMatch(line -> line.contains("\"name\":\"lookup_cve\"")));
+		assertTrue(lines.stream().anyMatch(line -> line.contains("CVE-2024-38816")));
+		assertTrue(lines.stream().anyMatch(line -> line.contains("\"finish_reason\":\"tool_calls\"")));
+		assertEquals("data: [DONE]", lines.getLast());
+	}
+
+	@Test
+	@DisplayName("a DeepSeek stream with reasoning and prompt cache hits is normalized to OpenAI chunks")
+	void deepseekStreamNormalized() {
+		deepseekServer.enqueue(new MockResponse().setResponseCode(200)
+		                                         .addHeader("Content-Type", "text/event-stream")
+		                                         .setBody(deepseekStream()));
+
+		ProviderResponse winner = join(orchestrator("deepseek").execute(alias("deepseek"), DEEPSEEK_BODY));
+
+		assertEquals(200, winner.response().statusCode());
+		DeepSeekSseNormalizer normalizer = new DeepSeekSseNormalizer(objectMapper, "deepseek-reasoner", true);
+		List<String> lines = relay(winner, normalizer);
+		assertTrue(lines.stream().anyMatch(line -> line.contains("\"reasoning_content\":\"Step by step reasoning\"")));
+		assertTrue(lines.stream().anyMatch(line -> line.contains("\"content\":\"Solution found\"")));
+		assertEquals("data: [DONE]", lines.getLast());
+		assertEquals(64L, normalizer.cachedTokens());
+	}
+
+	@Test
+	@DisplayName("a DeepSeek tool calling stream is normalized to OpenAI tool_calls chunks")
+	void deepseekToolCallingStreamNormalized() {
+		String deepseekToolStream = """
+				data: {"id":"ds-tool-1","choices":[{"delta":{"role":"assistant","content":null,"tool_calls":[{"index":0,"id":"call_01","type":"function","function":{"name":"query_db","arguments":""}}]}}],"model":"deepseek-chat"}
+				data: {"id":"ds-tool-1","choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"query\\": \\"SELECT 1\\"}"}}]}}]}
+				data: {"id":"ds-tool-1","choices":[{"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":40,"prompt_cache_hit_tokens":32,"prompt_cache_miss_tokens":8,"completion_tokens":15,"total_tokens":55}}
+				data: [DONE]
+				""";
+		deepseekServer.enqueue(new MockResponse().setResponseCode(200)
+		                                         .addHeader("Content-Type", "text/event-stream")
+		                                         .setBody(deepseekToolStream));
+
+		String deepseekToolReq = """
+				{
+				  "model": "deepseek-chat",
+				  "messages": [{"role": "user", "content": "Execute SELECT 1"}],
+				  "tools": [{
+				    "type": "function",
+				    "function": {
+				      "name": "query_db",
+				      "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}
+				    }
+				  }]
+				}""";
+
+		ProviderResponse winner = join(orchestrator("deepseek").execute(alias("deepseek"), deepseekToolReq));
+		assertEquals(200, winner.response().statusCode());
+
+		DeepSeekSseNormalizer normalizer = new DeepSeekSseNormalizer(objectMapper, "deepseek-chat", true);
+		List<String> lines = relay(winner, normalizer);
+		assertTrue(lines.stream().anyMatch(line -> line.contains("\"name\":\"query_db\"")));
+		assertTrue(lines.stream().anyMatch(line -> line.contains("SELECT 1")));
+		assertTrue(lines.stream().anyMatch(line -> line.contains("\"finish_reason\":\"tool_calls\"")));
+		assertEquals("data: [DONE]", lines.getLast());
+		assertEquals(32L, normalizer.cachedTokens());
 	}
 
 	@Test
@@ -157,6 +320,16 @@ class ProtocolNormalizationIntegrationTest {
 					URI.create(anthropicServer.url("/").toString()),
 					new SensitiveString("sk-ant"), Duration.ofSeconds(3), Duration.ofSeconds(5)
 			);
+			case "gemini" -> new ProviderConfig(
+					"gemini", ProviderType.GEMINI,
+					URI.create(geminiServer.url("/").toString()),
+					new SensitiveString("gemini-test-key"), Duration.ofSeconds(3), Duration.ofSeconds(5)
+			);
+			case "deepseek" -> new ProviderConfig(
+					"deepseek", ProviderType.DEEPSEEK,
+					URI.create(deepseekServer.url("/").toString()),
+					new SensitiveString("sk-deepseek-key"), Duration.ofSeconds(3), Duration.ofSeconds(5)
+			);
 			case "ollama" -> new ProviderConfig(
 					"ollama", ProviderType.OLLAMA,
 					URI.create(ollamaServer.url("/").toString()),
@@ -168,6 +341,8 @@ class ProtocolNormalizationIntegrationTest {
 		ProtocolAdapterResolver resolver = new ProtocolAdapterResolver(
 				new OpenAiPassthroughAdapter(objectMapper),
 				new AnthropicAdapter(objectMapper),
+				new GeminiAdapter(objectMapper),
+				new DeepSeekAdapter(objectMapper),
 				new OllamaAdapter(objectMapper)
 		);
 		UpstreamUrlValidator allowAll = url -> {
@@ -180,30 +355,28 @@ class ProtocolNormalizationIntegrationTest {
 		);
 	}
 
-	private static io.github.kxng0109.aegisgate.proxy.sse.SseLineGuardAutoConfig.SseLineGuardFactory testLineGuardFactory() {
-		io.micrometer.core.instrument.MeterRegistry registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+	private static SseLineGuardFactory testLineGuardFactory() {
+		MeterRegistry registry = new SimpleMeterRegistry();
 		ObjectMapper mapper = new ObjectMapper();
-		io.github.kxng0109.aegisgate.proxy.sse.SseLineGuardProperties props =
-				io.github.kxng0109.aegisgate.proxy.sse.SseLineGuardProperties.DEFAULTS;
-		io.github.kxng0109.aegisgate.proxy.sse.SseLineGuardAutoConfig.SseLineGuardFactory base =
-				new io.github.kxng0109.aegisgate.proxy.sse.DefaultSseLineGuardFactory(props, registry, mapper);
-		return new io.github.kxng0109.aegisgate.proxy.sse.SseLineGuardAutoConfig.SseLineGuardFactory() {
+		SseLineGuardProperties props = SseLineGuardProperties.DEFAULTS;
+		SseLineGuardFactory base = new DefaultSseLineGuardFactory(props, registry, mapper);
+		return new SseLineGuardFactory() {
 			@Override
-			public io.github.kxng0109.aegisgate.proxy.sse.DefaultSseLineGuard newGuard(
-					io.github.kxng0109.aegisgate.proxy.sse.SseLineGuard.ProviderType t, String n, java.util.UUID id
+			public DefaultSseLineGuard newGuard(
+					SseLineGuard.ProviderType t, String n, UUID id
 			) {
 				return base.newGuard(t, n, id);
 			}
 
 			@Override
-			public io.github.kxng0109.aegisgate.proxy.sse.BoundedLineBodyHandler bodyHandlerForProvider(
-					io.github.kxng0109.aegisgate.proxy.sse.SseLineGuard.ProviderType t
+			public BoundedLineBodyHandler bodyHandlerForProvider(
+					SseLineGuard.ProviderType t
 			) {
 				return base.bodyHandlerForProvider(t);
 			}
 
 			@Override
-			public io.github.kxng0109.aegisgate.proxy.sse.SseLineGuardProperties properties() {
+			public SseLineGuardProperties properties() {
 				return props;
 			}
 		};
@@ -230,10 +403,26 @@ class ProtocolNormalizationIntegrationTest {
 				""";
 	}
 
+	private static String geminiStream() {
+		return """
+				data: {"candidates": [{"content": {"parts": [{"thought": true, "text": "Analyzing question"}], "role": "model"}, "finishReason": null, "index": 0}], "modelVersion": "gemini-2.5-flash"}
+				data: {"candidates": [{"content": {"parts": [{"text": "Hello world"}], "role": "model"}, "finishReason": "STOP", "index": 0}], "usageMetadata": {"promptTokenCount": 20, "candidatesTokenCount": 10, "totalTokenCount": 30}}
+				""";
+	}
+
+	private static String deepseekStream() {
+		return """
+				data: {"id":"ds-1","choices":[{"delta":{"reasoning_content":"Step by step reasoning"}}],"model":"deepseek-reasoner"}
+				data: {"id":"ds-1","choices":[{"delta":{"content":"Solution found"}}]}
+				data: {"id":"ds-1","choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":32,"prompt_cache_hit_tokens":64,"prompt_cache_miss_tokens":0,"completion_tokens":10,"total_tokens":42}}
+				data: [DONE]
+				""";
+	}
+
 	private static String ollamaStream() {
 		return """
-				{"model":"llama3.2","created_at":"2023-08-04T08:52:19Z","message":{"role":"assistant","content":"Hello"},"done":false}
-				{"model":"llama3.2","created_at":"2023-08-04T08:52:19Z","message":{"role":"assistant","content":""},"done":true,"total_duration":1,"load_duration":1,"prompt_eval_count":26,"eval_count":282,"eval_duration":1}
+				{"message":{"role":"assistant","content":"Hello"},"done":false}
+				{"message":{"role":"assistant","content":""},"done":true,"total_duration":1000}
 				""";
 	}
 
@@ -262,10 +451,6 @@ class ProtocolNormalizationIntegrationTest {
 		}
 	}
 
-	/**
-	 * Redis free {@link CircuitBreakerFactory} for the integration tests: keeps one in memory breaker per provider so
-	 * circuit state survives across requests without needing Redis.
-	 */
 	private static final class InMemoryCircuitBreakerFactory implements CircuitBreakerFactory {
 
 		private final GatewayProperties gatewayProperties;

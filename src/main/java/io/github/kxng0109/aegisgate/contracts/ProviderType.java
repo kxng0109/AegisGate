@@ -21,6 +21,26 @@ public enum ProviderType {
 	ANTHROPIC,
 
 	/**
+	 * Google Gemini Developer API ({@code /v1beta/models/{model}:streamGenerateContent?alt=sse},
+	 * {@code x-goog-api-key}).
+	 */
+	GEMINI,
+
+	/**
+	 * Google Cloud Vertex AI REST API
+	 * ({@code
+	 * /v1/projects/{project}/locations/{region}/publishers/google/models/{model}:streamGenerateContent?alt=sse}, OAuth2
+	 * Bearer).
+	 */
+	VERTEX_AI,
+
+	/**
+	 * DeepSeek API ({@code /chat/completions}, SSE chunks with {@code reasoning_content},
+	 * {@code Authorization: Bearer}).
+	 */
+	DEEPSEEK,
+
+	/**
 	 * Local Ollama chat API ({@code /api/chat}, NDJSON lines, no auth).
 	 */
 	OLLAMA

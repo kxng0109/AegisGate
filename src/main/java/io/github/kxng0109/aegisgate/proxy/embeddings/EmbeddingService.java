@@ -139,7 +139,7 @@ public class EmbeddingService {
 		URI base = providerConfig.baseUrl();
 		String defaultPath = switch (providerConfig.type()) {
 			case OLLAMA -> "/api/embed";
-			case OPENAI, ANTHROPIC -> "/v1/embeddings";
+			case OPENAI, ANTHROPIC, DEEPSEEK, GEMINI, VERTEX_AI -> "/v1/embeddings";
 		};
 
 		return resolveEndpoint(base, defaultPath);

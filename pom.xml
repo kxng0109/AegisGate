@@ -10,7 +10,7 @@
     </parent>
     <groupId>io.github.kxng0109</groupId>
     <artifactId>AegisGate</artifactId>
-    <version>1.0.0</version>
+    <version>1.1.0</version>
     <name>AegisGate</name>
     <description>Enterprise-Grade AI Reverse Proxy Gateway with Virtual Threads and Semantic Caching</description>
     <url/>

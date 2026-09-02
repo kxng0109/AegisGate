@@ -7,6 +7,46 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.1.0] - 2026-09-02
+
+### Added
+
+- **Google Gemini & Vertex AI Protocol Engine**:
+    - Complete protocol adapter supporting both Google AI Studio Developer API (`generativelanguage.googleapis.com`) and
+      Google Cloud Vertex AI REST endpoints (`aiplatform.googleapis.com`).
+    - Bidirectional normalization of OpenAI chat requests to Gemini `contents`, `systemInstruction`, and
+      `generationConfig`.
+    - Real-time streaming SSE translation (`:streamGenerateContent?alt=sse`) capturing incremental text, reasoning
+      thoughts (`thought: true` mapped to `choices[0].delta.reasoning_content`), finish reasons, and token usage
+      metadata.
+- **DeepSeek Hybrid Reasoning (V3 / R1 / V4) Adapter**:
+    - Support for DeepSeek's hybrid reasoning architecture, accepting `thinking` (`type: "enabled"|"disabled"`) and
+      `reasoning_effort` (`low`, `high`, `max`).
+    - Streaming SSE normalizer preserving `reasoning_content` deltas prior to final text output.
+    - Full telemetry tracking for prompt cache hits (`prompt_cache_hit_tokens`), cache misses, and reasoning tokens in
+      `completion_tokens_details`.
+- **Universal Tool & Function Calling Normalization**:
+    - Bidirectional schema and dialect translator (`UniversalToolNormalizer`) bridging OpenAI JSON Schema, Anthropic
+      `input_schema`, Gemini UPPERCASE OpenAPI 3.0 types (`OBJECT`, `STRING`, `INTEGER`, `NUMBER`, `BOOLEAN`, `ARRAY`),
+      and DeepSeek formats.
+    - Tool choice conversion mapping `"auto"`, `"required"`, `"none"`, and named function descriptors across all
+      provider dialects.
+    - Conversational multi-turn tool execution loop normalization, converting OpenAI `role: "tool"` responses into
+      Anthropic `tool_result` content blocks and Gemini `functionResponse` parts.
+    - Stateless deterministic synthetic tool call ID generation (`call_gen_...`) for providers that omit IDs natively.
+- **Anthropic Tool Use Upgrades**:
+    - Native support for tool declarations (`tools`), tool choice directives (`tool_choice`), and parallel tool call
+      disabling (`disable_parallel_tool_use`).
+    - Streaming tool event normalizer translating Anthropic `content_block_start` (`type: "tool_use"`),
+      `content_block_delta` (`input_json_delta`, `thinking_delta`), and `stop_reason: "tool_use"` to canonical OpenAI
+      `tool_calls` chunks and `finish_reason: "tool_calls"`.
+- **Testing & Quality Gate**:
+    - Comprehensive unit and integration test suite expanded to **783 tests running 100% green**.
+    - JaCoCo test coverage floor maintained at $\ge 95\%$ across all 6 counter metrics (Instruction, Branch, Line,
+      Complexity, Method, Class).
+
+---
+
 ## [1.0.0] - 2026-09-01
 
 ### Added

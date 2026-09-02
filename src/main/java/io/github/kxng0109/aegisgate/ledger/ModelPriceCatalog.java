@@ -117,6 +117,9 @@ public class ModelPriceCatalog {
 		return switch (type) {
 			case OPENAI -> "openai";
 			case ANTHROPIC -> "anthropic";
+			case GEMINI -> "gemini";
+			case VERTEX_AI -> "vertex_ai";
+			case DEEPSEEK -> "deepseek";
 			case OLLAMA -> "ollama";
 		};
 	}

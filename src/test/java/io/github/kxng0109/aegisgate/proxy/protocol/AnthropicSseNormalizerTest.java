@@ -15,6 +15,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * ping and unknown events, and the emitted OpenAI chunk shape.
  */
 @DisplayName("AnthropicSseNormalizer")
+@SuppressWarnings("DataFlowIssue")
 class AnthropicSseNormalizerTest {
 
 	private final ObjectMapper objectMapper = new ObjectMapper();
@@ -46,7 +47,7 @@ class AnthropicSseNormalizerTest {
 		assertEquals(" world", second.path("choices").get(0).path("delta").path("content").asString());
 		JsonNode finalChunk = chunk(lines.get(2));
 		assertEquals("stop", finalChunk.path("choices").get(0).path("finish_reason").asString());
-		assertEquals("data: [DONE]", lines.get(3));
+		assertEquals("data: [DONE]", lines.getLast());
 
 		assertTrue(normalizer.isDone());
 		SseNormalizer.UsageInfo usage = normalizer.usage();
@@ -94,18 +95,57 @@ class AnthropicSseNormalizerTest {
 	}
 
 	@Test
-	@DisplayName("drops thinking deltas but keeps text deltas")
-	void dropsThinkingDeltas() {
+	@DisplayName("translates thinking deltas to reasoning_content and text deltas to content")
+	void translatesThinkingDeltas() {
 		AnthropicSseNormalizer normalizer = new AnthropicSseNormalizer(objectMapper, "m", false);
 
 		List<String> lines = new ArrayList<>();
 		lines.addAll(normalizer.normalizeLine("event: content_block_delta"));
 		lines.addAll(normalizer.normalizeLine(
-				"data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"secret\"}}"));
+				"data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"step by step reasoning\"}}"));
 		lines.addAll(normalizer.normalizeLine("event: content_block_delta"));
 		lines.addAll(normalizer.normalizeLine(delta("answer")));
 
-		assertEquals(1, lines.size(), "only the text delta is relayed");
+		assertEquals(2, lines.size());
+		assertTrue(lines.getFirst().contains("reasoning_content"));
+		assertTrue(lines.get(1).contains("answer"));
+	}
+
+	@Test
+	@DisplayName("translates streaming tool_use content blocks and input_json_delta")
+	void translatesStreamingToolUse() {
+		AnthropicSseNormalizer normalizer = new AnthropicSseNormalizer(objectMapper, "claude-3-7-sonnet", false);
+
+		List<String> lines = new ArrayList<>();
+		lines.addAll(normalizer.normalizeLine("event: content_block_start"));
+		lines.addAll(normalizer.normalizeLine(
+				"data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_01\",\"name\":\"get_weather\"}}"));
+		lines.addAll(normalizer.normalizeLine("event: content_block_delta"));
+		lines.addAll(normalizer.normalizeLine(
+				"data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"city\\\": \\\"\"}}"));
+		lines.addAll(normalizer.normalizeLine("event: content_block_delta"));
+		lines.addAll(normalizer.normalizeLine(
+				"data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"Paris\\\"}\"}}"));
+		lines.addAll(normalizer.normalizeLine("event: content_block_stop"));
+		lines.addAll(normalizer.normalizeLine("data: {\"type\":\"content_block_stop\",\"index\":0}"));
+		lines.addAll(normalizer.normalizeLine("event: message_delta"));
+		lines.addAll(normalizer.normalizeLine(
+				"data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"},\"usage\":{\"output_tokens\":20}}"));
+		lines.addAll(normalizer.normalizeLine("event: message_stop"));
+		lines.addAll(normalizer.normalizeLine("data: {\"type\":\"message_stop\"}"));
+
+		assertEquals(5, lines.size()); // header + 2 arg deltas + finished(tool_calls) + DONE
+		JsonNode headerChunk = chunk(lines.getFirst());
+		assertEquals(
+				"get_weather",
+				headerChunk.path("choices").get(0).path("delta").path("tool_calls").get(0).path("function")
+				           .path("name").asString()
+		);
+
+		JsonNode finishChunk = chunk(lines.get(3));
+		assertEquals("tool_calls", finishChunk.path("choices").get(0).path("finish_reason").asString());
+		assertEquals("data: [DONE]", lines.getLast());
+		assertTrue(normalizer.isDone());
 	}
 
 	@Test
@@ -280,6 +320,48 @@ class AnthropicSseNormalizerTest {
 		assertNotNull(usage);
 		assertEquals(0, usage.promptTokens());
 		assertEquals(5, usage.completionTokens());
+	}
+
+	@Test
+	@DisplayName("tests remaining edge branches for Anthropic SSE normalizer")
+	void testsRemainingEdgeBranches() {
+		AnthropicSseNormalizer normalizer = new AnthropicSseNormalizer(objectMapper, "fallback-model", true);
+
+		// contentBlockStart with non-tool_use type
+		List<String> textBlockStart = normalizer.normalizeLine(
+				"data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\"}}");
+		assertTrue(textBlockStart.isEmpty());
+
+		// contentDelta with empty thinking delta
+		List<String> emptyThinking = normalizer.normalizeLine(
+				"data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"\"}}");
+		assertTrue(emptyThinking.isEmpty());
+
+		// contentDelta with unknown type
+		List<String> unknownDelta = normalizer.normalizeLine(
+				"data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"unknown_delta\"}}");
+		assertTrue(unknownDelta.isEmpty());
+
+		// messageDelta with stop_sequence, max_tokens, and custom unknown stop_reason
+		normalizer.normalizeLine("data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"max_tokens\"}}");
+		normalizer.normalizeLine("data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"stop_sequence\"}}");
+		normalizer.normalizeLine(
+				"data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"unknown_custom_reason\"}}");
+
+		// messageStart with tokens
+		normalizer.normalizeLine("data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":50}}}");
+
+		// messageStop
+		List<String> stopLines = normalizer.normalizeLine("data: {\"type\":\"message_stop\"}");
+		assertEquals(3, stopLines.size()); // usage, finished, DONE
+
+		// Usage with only input tokens
+		AnthropicSseNormalizer inputOnly = new AnthropicSseNormalizer(objectMapper, "fallback", false);
+		inputOnly.normalizeLine("data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":40}}}");
+		inputOnly.normalizeLine("data: {\"type\":\"message_stop\"}");
+		assertNotNull(inputOnly.usage());
+		assertEquals(40, inputOnly.usage().promptTokens());
+		assertEquals(0, inputOnly.usage().completionTokens());
 	}
 
 	private static String messageStart() {

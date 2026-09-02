@@ -1,5 +1,6 @@
 package io.github.kxng0109.aegisgate.proxy.embeddings;
 
+import io.github.kxng0109.aegisgate.config.SensitiveString;
 import io.github.kxng0109.aegisgate.contracts.ProviderConfig;
 import io.github.kxng0109.aegisgate.contracts.ProviderType;
 import io.github.kxng0109.aegisgate.proxy.embeddings.dto.EmbeddingRequest;
@@ -52,7 +53,7 @@ class OllamaEmbeddingAdapterTest {
 				"ollama",
 				ProviderType.OLLAMA,
 				URI.create("http://localhost:11434"),
-				new io.github.kxng0109.aegisgate.config.SensitiveString("key-123"),
+				new SensitiveString("key-123"),
 				Duration.ofSeconds(5),
 				Duration.ofSeconds(60)
 		);

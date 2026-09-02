@@ -294,6 +294,22 @@ class EmbeddingBatchOrchestratorTest {
 		                   .embedding()).isEqualTo(VectorEncodingUtils.encodeToBase64(new float[]{0.0f}));
 		assertThat(response.data().get(1).embedding()).isEqualTo(VectorEncodingUtils.encodeToBase64(new float[]{1.0f}));
 		assertThat(response.data().get(2).embedding()).isEqualTo(VectorEncodingUtils.encodeToBase64(new float[]{2.0f}));
+
+		// Multi-batch with upstream base64 vectors
+		when(adapter.parseResponse(eq("chunk0".getBytes()), any(), any()))
+				.thenReturn(NormalizedEmbeddingResult.ofBase64(
+						List.of("b64_0", "b64_1"),
+						List.of(new float[]{0.0f}, new float[]{1.0f}),
+						4
+				));
+		when(adapter.parseResponse(eq("chunk1".getBytes()), any(), any()))
+				.thenReturn(NormalizedEmbeddingResult.ofBase64(List.of("b64_2"), List.of(new float[]{2.0f}), 2));
+		EmbeddingResponse preB64Res = orchestrator.execute(
+				request, adapter, providerConfig, URI.create("https://api.openai.com/v1/embeddings")
+		);
+		assertThat(preB64Res.data().getFirst().embedding()).isEqualTo("b64_0");
+		assertThat(preB64Res.data().get(1).embedding()).isEqualTo("b64_1");
+		assertThat(preB64Res.data().get(2).embedding()).isEqualTo("b64_2");
 	}
 
 	@Test
@@ -328,5 +344,16 @@ class EmbeddingBatchOrchestratorTest {
 		))
 				.isInstanceOf(IOException.class)
 				.hasMessageContaining("Unexpected crash");
+
+		// InterruptedException
+		doThrow(new InterruptedException("Interrupted sub-batch")).when(httpClient).send(any(), any());
+		assertThatThrownBy(() -> orchestrator.execute(
+				request,
+				adapter,
+				providerConfig,
+				URI.create("https://api.openai.com/v1/embeddings")
+		))
+				.isInstanceOf(InterruptedException.class)
+				.hasMessageContaining("Interrupted sub-batch");
 	}
 }

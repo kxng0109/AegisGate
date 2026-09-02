@@ -1,5 +1,7 @@
 package io.github.kxng0109.aegisgate.proxy.failover;
 
+import io.github.kxng0109.aegisgate.contracts.GatewayProperties;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.data.redis.autoconfigure.DataRedisProperties;
 import org.springframework.core.env.MapPropertySource;
@@ -19,6 +21,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@code spring.data.redis}) never reaches: explicit host/port, credentials, Sentinel/Cluster/master-replica topology
  * selection, and the {@code instance-id} resolution.
  */
+@DisplayName("CircuitBreakerConfig")
+@SuppressWarnings("DataFlowIssue")
 class CircuitBreakerConfigTest {
 
 	private final CircuitBreakerConfig config = new CircuitBreakerConfig();
@@ -182,7 +186,7 @@ class CircuitBreakerConfigTest {
 				config.circuitRecordSuccessScript(),
 				cbProps,
 				InstanceId.generate(),
-				new io.github.kxng0109.aegisgate.contracts.GatewayProperties(),
+				new GatewayProperties(),
 				bulkhead
 		);
 		assertThat(factory).isNotNull();
