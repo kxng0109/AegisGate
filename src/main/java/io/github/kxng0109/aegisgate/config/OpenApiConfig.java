@@ -40,7 +40,7 @@ public class OpenApiConfig {
 				.openapi("3.1.0")
 				.info(new Info()
 						      .title("AegisGate AI Gateway & Resilient Reverse Proxy")
-						      .version("1.2.0")
+						      .version("1.3.0")
 						      .summary(
 								      "Enterprise-grade AI proxy gateway with rate limiting, multi-tier caching, universal tool calling, and failover")
 						      .description("""
