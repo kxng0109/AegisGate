@@ -1,5 +1,6 @@
 package io.github.kxng0109.aegisgate.proxy.failover;
 
+import io.github.kxng0109.aegisgate.security.compliance.DataResidencyBreachException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -10,7 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Maps {@link UpstreamUnavailableException} to a client facing status code.
+ * Maps {@link UpstreamUnavailableException} and compliance exceptions to client facing status codes.
  *
  * <p>The mapping rules, aligned with RFC 9110:</p>
  * <ul>
@@ -19,7 +20,8 @@ import java.util.Map;
  *   <li>504 when at least one attempt timed out;</li>
  *   <li>503 when nothing usable was reachable (all circuits open, nothing
  *       configured, or a blocked target);</li>
- *   <li>502 in every other all providers failed case.</li>
+ *   <li>502 in every other all providers failed case;</li>
+ *   <li>503 for DataResidencyBreachException when sovereignty prevents failover.</li>
  * </ul>
  *
  * <p>Responses carry only generic messages so internal details never reach
@@ -28,6 +30,23 @@ import java.util.Map;
 @Slf4j
 @RestControllerAdvice
 public class GatewayExceptionHandler {
+
+	/**
+	 * Handles data residency and sovereignty policy breach exceptions.
+	 *
+	 * @param exception the data residency violation
+	 * @return HTTP 503 response with DATA_SOVEREIGNTY_VIOLATION payload
+	 */
+	@ExceptionHandler(DataResidencyBreachException.class)
+	public ResponseEntity<Map<String, Object>> handleDataResidencyBreach(DataResidencyBreachException exception) {
+		log.warn("Data sovereignty violation: {}", exception.getMessage());
+		Map<String, Object> error = new LinkedHashMap<>();
+		error.put("code", "DATA_SOVEREIGNTY_VIOLATION");
+		error.put("message", exception.getMessage());
+		Map<String, Object> body = new LinkedHashMap<>();
+		body.put("error", error);
+		return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(body);
+	}
 
 	/**
 	 * Handles an upstream failure surfaced by the failover orchestrator.

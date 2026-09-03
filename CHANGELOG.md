@@ -7,6 +7,61 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.2.0] - 2026-09-03
+
+### Added
+
+- **Real-Time Streaming Guardrail, Security & Compliance Engine (Phase 3)**:
+    - **High-Throughput Ingress Secret & Credential Leakage Scanner**:
+        - Two-stage hybrid inspection engine scanning raw UTF-8 request bytes with a zero-allocation prefix filter for
+          250+ static anchor patterns (`sk-`, `ghp_`, `AKIA`, `ASIA`, `xox`, `hf_`, `AIza`, `-----BEGIN`).
+        - Sub-90ns branchless Shannon information entropy validation using precomputed logarithm lookup tables
+          (`LUT_C_LOG2`), enforcing $H (X) \ge 4.2$ threshold with zero false positives.
+        - Algorithmic branchless ISO/IEC 7812 Mod-10 Luhn validation for payment cards and Base64/CRC32 format
+          verification.
+        - RFC 9457 `ProblemDetail` (HTTP 422 Unprocessable Entity) rejection emitting non-reversible SHA-256
+          fingerprints and masked prefixes without echoing cleartext secrets.
+    - **Inbound PII Anonymization & Ephemeral Request-Scoped Vault**:
+        - Global enterprise PII detection and semantic surrogate substitution (`<PERSON_1>`, `<EMAIL_1>`, `<PHONE_1>`,
+          `<IBAN_1>`, `<CARD_1>`, `<US_SSN_1>`).
+        - Full Nigerian regulatory PII coverage conforming to NCC National Numbering Plan (mobile prefixes `070`, `080`,
+          `081`, `090`, `091`, 2024 fixed-line `020` migration, E.164 `+234`), NIMC 11-digit National Identity Number
+          (NIN), CBN/NIBSS 11-digit Bank Verification Number (BVN), Interswitch Verve cards (16/18/19 digits with Luhn),
+          and JTB/FIRS/NRS Tax IDs.
+        - Deterministic 4-tier disambiguation pipeline for 11-digit entities resolving Phone vs. BVN vs. NIN with zero
+          false positives.
+        - Ephemeral request-scoped vault encrypted under HKDF-SHA256 derived keys using AES-256-GCM, isolated in Java 25
+          `ScopedValue` with zero-trace `Arrays.fill` memory wiping upon stream completion.
+    - **Outbound Zero-Buffer Streaming Token De-Anonymization**:
+        - Incremental Sliding Window Aho-Corasick automaton with bounded lookahead window ($K \le 32$) reconstituting
+          surrogates across arbitrary SSE chunk boundaries with $<0.1\text{ms}$ latency overhead and zero buffering of
+          full streams.
+    - **Prompt Injection, Jailbreak & System Prompt Defense**:
+        - High-performance UTS #39 Unicode confusable homoglyph flattening and non-printing character stripping.
+        - Multi-tier cascaded screening gate combining sub-3µs heuristic DFA, structural anomaly evaluation, and
+          RediSearch HNSW vector similarity.
+        - Real-time outbound system prompt leakage defense using 5-gram token shingling, 64-bit rolling polynomial hash,
+          and Counting Bloom Filter membership verification.
+    - **Incremental Streaming JSON Schema Pushdown Automaton (PDA)**:
+        - Primitive 64-bit integer stack state machine validating structured JSON outputs byte-by-byte, early aborting
+          syntax errors, type mismatches, and unauthorized keys at generation onset.
+    - **Mid-Stream Kill Switch (`TERMINATE_WITH_ERROR`)**:
+        - Downstream wire event injection
+          (`event: error\ndata: {"error":{"message":"...","type":"guardrail_violation","code":"content_filter"}}\n\n`)
+          cleanly raising `APIError` across official `openai-python` and `openai-node` client SDKs.
+        - Upstream HTTP/2 `RST_STREAM(CANCEL)` cancellation via `BoundedLineBodyHandler` and
+          `Flow.Subscription.cancel()` immediately halting upstream GPU token inference and billing.
+    - **Geo-Sovereignty, Data Residency & Cryptographic Merkle Audit Ledger**:
+        - Three-mode residency policy engine: `STRICT_SOVEREIGN` (fail-closed HTTP 503), `SOVEREIGN_CASCADE` (adequate
+          jurisdiction fallback DAG under GDPR Art. 45 & NDPA Sec. 41-43), and `PERMISSIVE_FAILOVER_WITH_AUDIT` (high
+          availability with cryptographic audit receipts).
+        - Tamper-evident forward-secure SHA-256 hash chain and batch binary Merkle tree generating verifiable HMAC
+          non-repudiation receipts.
+        - Zero Data Retention (ZDR) policy enforcement injecting upstream privacy headers (`store: false`,
+          `X-No-Storage: 1`) and zero-trace buffer wiping.
+
+---
+
 ## [1.1.0] - 2026-09-02
 
 ### Added

@@ -1,8 +1,12 @@
 package io.github.kxng0109.aegisgate.proxy.failover;
 
 import io.github.kxng0109.aegisgate.contracts.*;
+import io.github.kxng0109.aegisgate.security.compliance.GeoSovereigntyRouter;
+import io.github.kxng0109.aegisgate.security.compliance.Jurisdiction;
+import io.github.kxng0109.aegisgate.security.compliance.ResidencyPolicy;
+import io.github.kxng0109.aegisgate.security.guardrail.common.GuardrailProperties;
 import lombok.extern.slf4j.Slf4j;
-
+import org.jspecify.annotations.Nullable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -62,31 +66,86 @@ public class FailoverOrchestrator {
 	private final UpstreamUrlValidator urlValidator;
 	private final GatewayProperties gatewayProperties;
 	private final CircuitBreakerFactory circuitBreakerFactory;
+	private final @Nullable GeoSovereigntyRouter sovereigntyRouter;
+	private final @Nullable GuardrailProperties guardrailProperties;
 	private final Clock clock;
 
 	private final Map<String, Boolean> validatedProviders = new ConcurrentHashMap<>();
 	private final Map<String, Boolean> blockedProviders = new ConcurrentHashMap<>();
 
 	/**
-	 * Creates the orchestrator with the shared circuit breaker factory and the system clock.
-	 *
-	 * @param clientAdapter          the provider client adapter
-	 * @param urlValidator           validates provider URLs before first use
-	 * @param gatewayProperties      the configured providers and aliases
-	 * @param circuitBreakerFactory  the shared, Redis backed breaker store
+	 * Convenience constructor for existing tests and contexts without compliance components.
 	 */
-	@Autowired
 	public FailoverOrchestrator(
 			ProviderClientAdapter clientAdapter,
 			UpstreamUrlValidator urlValidator,
 			GatewayProperties gatewayProperties,
 			CircuitBreakerFactory circuitBreakerFactory
 	) {
+		this(clientAdapter, urlValidator, gatewayProperties, circuitBreakerFactory, null, null);
+	}
+
+	/**
+	 * Full constructor injecting all dependencies including geo-sovereignty router.
+	 *
+	 * @param clientAdapter          the provider client adapter
+	 * @param urlValidator           validates provider URLs before first use
+	 * @param gatewayProperties      the configured providers and aliases
+	 * @param circuitBreakerFactory  the shared, Redis backed breaker store
+	 * @param sovereigntyRouter      geo-sovereignty router
+	 * @param guardrailProperties    guardrail configuration properties
+	 */
+	@Autowired
+	public FailoverOrchestrator(
+			ProviderClientAdapter clientAdapter,
+			UpstreamUrlValidator urlValidator,
+			GatewayProperties gatewayProperties,
+			CircuitBreakerFactory circuitBreakerFactory,
+			@Nullable GeoSovereigntyRouter sovereigntyRouter,
+			@Nullable GuardrailProperties guardrailProperties
+	) {
 		this.clientAdapter = clientAdapter;
 		this.urlValidator = urlValidator;
 		this.gatewayProperties = gatewayProperties;
 		this.circuitBreakerFactory = circuitBreakerFactory;
+		this.sovereigntyRouter = sovereigntyRouter;
+		this.guardrailProperties = guardrailProperties;
 		this.clock = Clock.systemUTC();
+	}
+
+	/**
+	 * Executes the request against the chain described by the alias, enforcing data residency if active.
+	 *
+	 * @param alias              the routing plan for the requested model
+	 * @param requestBody        the client request body, OpenAI shaped
+	 * @param residencyPolicy    tenant residency policy override
+	 * @param originJurisdiction tenant origin jurisdiction
+	 * @return a future completing with the winning provider response
+	 */
+	public CompletableFuture<ProviderResponse> execute(
+			ModelAlias alias,
+			String requestBody,
+			@Nullable ResidencyPolicy residencyPolicy,
+			@Nullable Jurisdiction originJurisdiction
+	) {
+		List<ProviderRef> chain = alias.chain();
+		if (sovereigntyRouter != null && guardrailProperties != null && guardrailProperties.isDataResidencyEnabled()) {
+			ResidencyPolicy policy = residencyPolicy != null ? residencyPolicy
+					: ResidencyPolicy.valueOf(guardrailProperties.getDefaultResidencyPolicy());
+			Jurisdiction origin = originJurisdiction != null ? originJurisdiction : Jurisdiction.GLOBAL;
+			chain = sovereigntyRouter.filterChain(
+					chain,
+					gatewayProperties.getProviders(),
+					policy,
+					origin,
+					alias.toString()
+			);
+		}
+
+		if (alias.strategy() == FailoverStrategy.RACE) {
+			return executeRace(chain, requestBody);
+		}
+		return executeSequential(chain, requestBody);
 	}
 
 	/**
@@ -98,10 +157,7 @@ public class FailoverOrchestrator {
 	 * {@link UpstreamUnavailableException}
 	 */
 	public CompletableFuture<ProviderResponse> execute(ModelAlias alias, String requestBody) {
-		if (alias.strategy() == FailoverStrategy.RACE) {
-			return executeRace(alias.chain(), requestBody);
-		}
-		return executeSequential(alias.chain(), requestBody);
+		return execute(alias, requestBody, null, null);
 	}
 
 	// ---------------------------------------------------------------------

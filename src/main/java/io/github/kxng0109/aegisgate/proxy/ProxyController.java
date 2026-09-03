@@ -24,7 +24,16 @@ import io.github.kxng0109.aegisgate.proxy.sse.SseConnectionLimitException;
 import io.github.kxng0109.aegisgate.proxy.sse.SseFlushStrategy;
 import io.github.kxng0109.aegisgate.proxy.sse.SseLineGuard;
 import io.github.kxng0109.aegisgate.proxy.sse.SseLineGuardAutoConfig.SseLineGuardFactory;
+import io.github.kxng0109.aegisgate.security.compliance.MerkleAuditLedger;
+import io.github.kxng0109.aegisgate.security.compliance.ZeroDataRetentionEnforcer;
+import io.github.kxng0109.aegisgate.security.filter.IngressSecurityFilter;
 import io.github.kxng0109.aegisgate.security.filter.KeyAuthFilter;
+import io.github.kxng0109.aegisgate.security.guardrail.common.GuardrailProperties;
+import io.github.kxng0109.aegisgate.security.guardrail.injection.SystemPromptProtectionEngine;
+import io.github.kxng0109.aegisgate.security.guardrail.pii.EphemeralPiiVault;
+import io.github.kxng0109.aegisgate.security.guardrail.streaming.MidStreamKillSwitch;
+import io.github.kxng0109.aegisgate.security.guardrail.streaming.SlidingWindowAhoCorasick;
+import io.github.kxng0109.aegisgate.security.guardrail.streaming.StreamingJsonPdaValidator;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.headers.Header;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -51,6 +60,7 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -90,9 +100,13 @@ public class ProxyController {
 	private final SseLineGuardFactory lineGuardFactory;
 	private final @Nullable AegisCacheService cacheService;
 	private final @Nullable CachedStreamReconstitution cachedStreamReconstitution;
+	private final @Nullable MerkleAuditLedger auditLedger;
+	private final @Nullable SystemPromptProtectionEngine systemPromptProtectionEngine;
+	private final @Nullable GuardrailProperties guardrailProperties;
+	private final @Nullable ZeroDataRetentionEnforcer zdrEnforcer;
 
 	/**
-	 * Primary constructor injecting all components including cache layer.
+	 * Full enterprise constructor injecting all components including cache, security, and compliance subsystems.
 	 */
 	@Autowired
 	public ProxyController(
@@ -105,7 +119,11 @@ public class ProxyController {
 			SseFlushStrategy flushStrategy,
 			SseLineGuardFactory lineGuardFactory,
 			@Nullable AegisCacheService cacheService,
-			@Nullable CachedStreamReconstitution cachedStreamReconstitution
+			@Nullable CachedStreamReconstitution cachedStreamReconstitution,
+			@Nullable MerkleAuditLedger auditLedger,
+			@Nullable SystemPromptProtectionEngine systemPromptProtectionEngine,
+			@Nullable GuardrailProperties guardrailProperties,
+			@Nullable ZeroDataRetentionEnforcer zdrEnforcer
 	) {
 		this.failoverOrchestrator = failoverOrchestrator;
 		this.gatewayProperties = gatewayProperties;
@@ -117,10 +135,47 @@ public class ProxyController {
 		this.lineGuardFactory = lineGuardFactory;
 		this.cacheService = cacheService;
 		this.cachedStreamReconstitution = cachedStreamReconstitution;
+		this.auditLedger = auditLedger;
+		this.systemPromptProtectionEngine = systemPromptProtectionEngine;
+		this.guardrailProperties = guardrailProperties;
+		this.zdrEnforcer = zdrEnforcer;
 	}
 
 	/**
-	 * Convenience constructor for existing tests without cache subsystem.
+	 * Constructor for tests and contexts with cache subsystem.
+	 */
+	public ProxyController(
+			FailoverOrchestrator failoverOrchestrator,
+			GatewayProperties gatewayProperties,
+			ObjectMapper objectMapper,
+			ProtocolAdapterResolver adapterResolver,
+			CostCalculator costCalculator,
+			ApplicationEventPublisher eventPublisher,
+			SseFlushStrategy flushStrategy,
+			SseLineGuardFactory lineGuardFactory,
+			@Nullable AegisCacheService cacheService,
+			@Nullable CachedStreamReconstitution cachedStreamReconstitution
+	) {
+		this(
+				failoverOrchestrator,
+				gatewayProperties,
+				objectMapper,
+				adapterResolver,
+				costCalculator,
+				eventPublisher,
+				flushStrategy,
+				lineGuardFactory,
+				cacheService,
+				cachedStreamReconstitution,
+				null,
+				null,
+				null,
+				null
+		);
+	}
+
+	/**
+	 * Convenience constructor for existing tests without cache or guardrail subsystems.
 	 */
 	public ProxyController(
 			FailoverOrchestrator failoverOrchestrator,
@@ -141,6 +196,10 @@ public class ProxyController {
 				eventPublisher,
 				flushStrategy,
 				lineGuardFactory,
+				null,
+				null,
+				null,
+				null,
 				null,
 				null
 		);
@@ -363,6 +422,16 @@ public class ProxyController {
 		headers.setCacheControl("no-cache");
 		headers.set("X-Accel-Buffering", "no");
 
+		if (auditLedger != null) {
+			MerkleAuditLedger.AuditReceipt receipt = auditLedger.recordTransaction(
+					ownerId, String.valueOf(requestId), trimmed.getBytes(StandardCharsets.UTF_8), null
+			);
+			headers.set("X-Aegis-Audit-Receipt", receipt.receiptHeaderValue());
+		}
+		if (zdrEnforcer != null) {
+			zdrEnforcer.applyHeaders(headers);
+		}
+
 		return ResponseEntity.ok().headers(headers).body(out -> relaySse(
 				providerResponse, adapter.newNormalizer(clientWantsUsage, model), out,
 				requestId, ownerId, providerType, providerResponse.providerName(), model,
@@ -401,6 +470,25 @@ public class ProxyController {
 				UUID.randomUUID()
 		);
 
+		EphemeralPiiVault vault = (EphemeralPiiVault) servletRequest.getAttribute(IngressSecurityFilter.PII_VAULT_ATTRIBUTE);
+		SlidingWindowAhoCorasick deAnonymizer = vault != null ? new SlidingWindowAhoCorasick(vault) : null;
+		StreamingJsonPdaValidator jsonPda = (guardrailProperties != null
+				&& guardrailProperties.isStreamingValidationEnabled())
+				? new StreamingJsonPdaValidator() : null;
+
+		SystemPromptProtectionEngine.StreamingShingleTracker shingleTracker = null;
+		if (systemPromptProtectionEngine != null && chatRequest != null && chatRequest.messages() != null) {
+			for (OpenAiChatRequest.Message msg : chatRequest.messages()) {
+				if ("system".equalsIgnoreCase(msg.role()) && msg.content() != null && msg.content().isTextual()) {
+					var hashes = systemPromptProtectionEngine.computeShingleHashes(msg.content().asText());
+					if (!hashes.isEmpty()) {
+						shingleTracker = systemPromptProtectionEngine.newTracker(hashes);
+						break;
+					}
+				}
+			}
+		}
+
 		StringBuilder accumulatedContent = new StringBuilder();
 		try {
 			try (var lines = providerResponse.response().body()) {
@@ -426,6 +514,24 @@ public class ProxyController {
 
 					List<String> normalized = normalizer.normalizeLine(line);
 					for (String toWrite : normalized) {
+						String delta = extractDelta(toWrite);
+						if (delta != null && !delta.isEmpty()) {
+							if (shingleTracker != null && shingleTracker.ingestChunk(delta)) {
+								MidStreamKillSwitch.terminate(out, lines, "system_prompt_exfiltration");
+								lineGuard.onStreamAbort("system_prompt_exfiltration");
+								return;
+							}
+							if (jsonPda != null) {
+								jsonPda.ingest(delta);
+							}
+							if (deAnonymizer != null) {
+								String deAnonymized = deAnonymizer.processChunk(delta);
+								if (!deAnonymized.equals(delta)) {
+									toWrite = replaceDeltaContent(toWrite, deAnonymized);
+								}
+							}
+						}
+
 						extractDeltaContent(toWrite, accumulatedContent);
 						byte[] bytes = toWrite.getBytes(StandardCharsets.UTF_8);
 						out.write(bytes);
@@ -439,6 +545,12 @@ public class ProxyController {
 						}
 					}
 					if (normalizer.isDone()) {
+						if (deAnonymizer != null) {
+							String leftover = deAnonymizer.flush();
+							if (!leftover.isEmpty()) {
+								accumulatedContent.append(leftover);
+							}
+						}
 						break;
 					}
 				}
@@ -452,6 +564,9 @@ public class ProxyController {
 			// Downstream client disconnected
 			return;
 		} finally {
+			if (vault != null) {
+				vault.close();
+			}
 			if (flushHandle != null) {
 				flushStrategy.unregister(flushHandle);
 			}
@@ -482,6 +597,13 @@ public class ProxyController {
 	}
 
 	private void extractDeltaContent(String line, StringBuilder accumulator) {
+		String delta = extractDelta(line);
+		if (delta != null) {
+			accumulator.append(delta);
+		}
+	}
+
+	private @Nullable String extractDelta(String line) {
 		if (line != null && line.startsWith("data: ") && !line.contains("[DONE]")) {
 			String json = line.substring(6).trim();
 			try {
@@ -490,12 +612,35 @@ public class ProxyController {
 				if (choices.isArray() && !choices.isEmpty()) {
 					JsonNode delta = choices.get(0).path("delta");
 					if (delta.has("content") && delta.get("content").isString()) {
-						accumulator.append(delta.get("content").asString());
+						return delta.get("content").asString();
 					}
 				}
 			} catch (Exception ignored) {
 			}
 		}
+		return null;
+	}
+
+	String replaceDeltaContent(String line, String newContent) {
+		if (line != null && line.startsWith("data: ") && !line.contains("[DONE]")) {
+			String json = line.substring(6).trim();
+			try {
+				JsonNode node = objectMapper.readTree(json);
+				JsonNode choices = node.path("choices");
+				if (choices.isArray() && !choices.isEmpty()) {
+					JsonNode choice0 = choices.get(0);
+					if (choice0 instanceof ObjectNode choiceObj) {
+						JsonNode delta = choiceObj.path("delta");
+						if (delta instanceof ObjectNode deltaObj) {
+							deltaObj.put("content", newContent);
+							return "data: " + objectMapper.writeValueAsString(node);
+						}
+					}
+				}
+			} catch (Exception ignored) {
+			}
+		}
+		return line;
 	}
 
 	private String buildCompletionJson(String model, String content, int promptTokens, int completionTokens) {

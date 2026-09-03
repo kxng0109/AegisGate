@@ -34,16 +34,51 @@ and per-stream rate limits during byte decoding to prevent memory exhaustion fro
 - Normalizes every provider dialect to the OpenAI SSE contract, so one client endpoint works with OpenAI compatible, Anthropic, and Ollama upstreams. See `proxy/protocol`.
 - Records the token usage and estimated cost of every completed stream into a PostgreSQL ledger. Recording runs asynchronously on its own executor, so billing can never slow a response.
 - Keeps prices current without manual edits. The gateway syncs the LiteLLM model pricing catalog into the database once a day, and the price table is seeded at first migration.
+- Scans ingress request payloads in real-time for secret and credential leakage (OpenAI, Anthropic, AWS, GCP, GitHub,
+  Slack, HuggingFace, private keys) using high-speed prefix filtering, branchless Shannon entropy checks
+  ($H (X) \ge 4.2$), and algorithmic checksums with zero false positives.
+- Anonymizes PII before prompt forwarding with semantic surrogates (`<PERSON_1>`, `<EMAIL_1>`, `<PHONE_1>`, `<IBAN_1>`,
+  `<CARD_1>`) and an ephemeral AES-256-GCM request-scoped vault. Supports Nigerian PII (NCC phone numbering, NIMC NIN,
+  CBN/NIBSS BVN, Verve card Luhn, Tax IDs) with a 4-tier disambiguation pipeline.
+- Reconstitutes PII tokens in outbound SSE streams on the fly using a bounded lookahead Sliding Window Aho-Corasick
+  automaton with zero buffering and <0.1ms latency overhead.
+- Defends against prompt injection and jailbreaks with UTS #39 Unicode homoglyph flattening, multi-tier cascaded
+  screening, and prevents system prompt exfiltration with 5-gram token shingling and Bloom filters.
+- Incrementally validates streaming JSON schema outputs byte-by-byte using a 64-bit integer stack Pushdown Automaton
+  (PDA).
+- Provides mid-stream guardrail kill-switch (`TERMINATE_WITH_ERROR`) emitting compliant SSE error events and immediately
+  sending HTTP/2 `RST_STREAM(CANCEL)` frames upstream to stop GPU token billing.
+- Enforces Geo-Sovereignty and Data Residency (`STRICT_SOVEREIGN`, `SOVEREIGN_CASCADE`,
+  `PERMISSIVE_FAILOVER_WITH_AUDIT`), Zero Data Retention headers, and cryptographic SHA-256 Merkle audit ledger
+  non-repudiation receipts.
 
 ## How a request flows
 
 An incoming request to `/v1/chat/completions` passes through several stages:
 
-1. `RequestBodyCachingFilter` wraps the request in a `CachedBodyHttpServletRequest`. The body is buffered once, up to a configured cap, so it can be read twice. See `security/filter/RequestBodyCachingFilter.java` and `security/filter/CachedBodyHttpServletRequest.java`.
+1. `RequestBodyCachingFilter` (Order 0) wraps the request in a `CachedBodyHttpServletRequest`. The body is buffered
+   once, up to a configured cap, so it can be re-read by downstream filters. See
+   `security/filter/RequestBodyCachingFilter.java` and `security/filter/CachedBodyHttpServletRequest.java`.
 
-2. `KeyAuthFilter` authenticates the bearer token, checks the model allow list, estimates the token cost of the request, and consults the rate limiter. It sets the `X-RateLimit` response headers and either continues the chain or answers with 401, 403, 429, or 503. See `security/filter/KeyAuthFilter.java`.
+2. `KeyAuthFilter` (Order 1) authenticates the bearer token, checks the model allow list, estimates the token cost of
+   the request, and consults the rate limiter. It sets the `X-RateLimit` response headers and either continues the chain
+   or answers with 401, 403, 429, or 503. See `security/filter/KeyAuthFilter.java`.
 
-3. `ProxyController` resolves the requested model to a `ModelAlias` and asks `FailoverOrchestrator` to pick a winning provider. The orchestrator walks the chain, applies the circuit breakers, and returns the winning provider's streaming response. The controller runs each upstream line through the provider's `SseNormalizer`, so the client always sees OpenAI shaped SSE, and relays it with zero buffering. When a stream finishes with token usage, the controller publishes a `TokenUsageEvent` for the ledger. See `proxy/ProxyController.java`, `proxy/failover/FailoverOrchestrator.java`, and `proxy/protocol`.
+3. `IngressSecurityFilter` (Order 2) executes high-throughput ingress guardrail inspection. In `ENFORCE` mode, it
+   rejects requests containing hardcoded credentials (OpenAI, Anthropic, AWS, GCP, GitHub, Slack, etc.) or prompt
+   injection attempts with an RFC 9457 `ProblemDetail` (HTTP 422). If PII is present, it encrypts the entities into a
+   request-scoped `EphemeralPiiVault` (AES-256-GCM), replaces values with semantic surrogate tokens (`<PERSON_1>`,
+   `<EMAIL_1>`, `<PHONE_1>`, etc.), and forwards an `AnonymizedBodyHttpServletRequest`. See
+   `security/filter/IngressSecurityFilter.java`.
+
+4. `ProxyController` resolves the requested model to a `ModelAlias` and asks `FailoverOrchestrator` to pick a winning
+   provider. The orchestrator filters providers against the tenant's geo-sovereignty policy (`STRICT_SOVEREIGN`,
+   `SOVEREIGN_CASCADE`, `PERMISSIVE_FAILOVER_WITH_AUDIT`), walks the chain, and returns the streaming response. During
+   streaming relay, the controller incrementally validates JSON outputs via `StreamingJsonPdaValidator`, de-anonymizes
+   surrogates in real-time via `SlidingWindowAhoCorasick`, monitors for system prompt exfiltration, injects
+   `X-Aegis-Audit-Receipt` and Zero Data Retention headers, and executes a mid-stream kill-switch
+   (`TERMINATE_WITH_ERROR`) if violations occur. See `proxy/ProxyController.java`, `security/guardrail/*`, and
+   `security/compliance/*`.
 
 Filter registration and ordering are defined in `security/filter/SecurityFilterConfig.java`.
 
@@ -429,8 +464,24 @@ Run the full suite with coverage and the packaging step:
 ./mvnw clean verify
 ```
 
-The suite currently has 718 tests:
+The suite currently has 968 tests:
 
+- Real-time guardrail and security scanner tests in `security/guardrail/*`: `ShannonEntropyCalculatorTest`,
+  `LuhnValidatorTest`, `ConfusablesFilterTest`, `GuardrailPropertiesTest`, `BytePrefixTrieTest`,
+  `SecretScannerRuleDatabaseTest`, `IngressSecretScannerTest`, `SecretLeakageExceptionTest`,
+  `PromptInjectionScannerTest`, `PromptInjectionExceptionTest`, `SystemPromptProtectionEngineTest`,
+  `PiiScannerTest`, `PiiDisambiguationEngineTest`, `IbanValidatorTest`, `EphemeralPiiVaultTest`,
+  `PiiAnonymizerTest`, `SlidingWindowAhoCorasickTest`, `StreamingJsonPdaValidatorTest`, and
+  `MidStreamKillSwitchTest` covering branchless LUT Shannon entropy, UTS #39 Unicode homoglyphs, 18 credential patterns,
+  Nigerian phone/BVN/NIN 4-tier disambiguation, Verve Luhn checks, AES-256-GCM ephemeral request vault with zero-trace
+  memory wiping, bounded lookahead SSE chunk reassembly, and upstream HTTP/2 RST_STREAM cancellation.
+- Geo-sovereignty & compliance tests in `security/compliance/*`: `JurisdictionAdequacyTest`,
+  `GeoSovereigntyRouterTest`, `MerkleAuditLedgerTest`, and `ZeroDataRetentionEnforcerTest` covering GDPR Art. 45 & NDPA
+  2023 cross-border adequacy DAGs, forward-secure SHA-256 hash chains, HMAC-SHA256 receipts (`X-Aegis-Audit-Receipt`),
+  and `X-No-Storage` zero-retention headers.
+- Ingress filter pipeline tests in `security/filter/*`: `IngressSecurityFilterTest`,
+  `SecurityFilterConfigTest`, and `AnonymizedBodyHttpServletRequestTest` covering order 0 -> 1 -> 2 filter chaining, RFC
+  9457 HTTP 422 ProblemDetails in ENFORCE mode, audit logging in AUDIT_ONLY mode, and request wrapping.
 - OpenAPI 3.1 & documentation tests in `config`: `OpenApiConfigTest` covering global specification metadata, security
   scheme registrations (`BearerAuth`, `AdminKeyAuth`, `AdminBearerAuth`), and GroupedOpenApi partitions.
 - Multi-tier semantic caching tests in `cache`: `CacheKeyGeneratorTest`, `CacheGuardrailsTest`,

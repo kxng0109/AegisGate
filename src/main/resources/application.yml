@@ -136,6 +136,16 @@ gateway:
     dead-letter-path: ${GATEWAY_LEDGER_DEAD_LETTER_PATH:logs/ledger-deadletter.log}
   circuit-breaker:
     redis-timeout: 250ms
+  guardrails:
+    mode: ${GATEWAY_GUARDRAILS_MODE:ENFORCE}
+    secret-scanning-enabled: ${GATEWAY_GUARDRAILS_SECRET_SCANNING:true}
+    pii-anonymization-enabled: ${GATEWAY_GUARDRAILS_PII_ANONYMIZATION:true}
+    prompt-injection-defense-enabled: ${GATEWAY_GUARDRAILS_PROMPT_INJECTION:true}
+    streaming-validation-enabled: ${GATEWAY_GUARDRAILS_STREAMING_VALIDATION:true}
+    kill-switch-mode: ${GATEWAY_GUARDRAILS_KILL_SWITCH_MODE:TERMINATE_WITH_ERROR}
+    system-prompt-exfiltration-defense-enabled: ${GATEWAY_GUARDRAILS_SYSTEM_PROMPT_DEFENSE:true}
+    data-residency-enabled: ${GATEWAY_GUARDRAILS_DATA_RESIDENCY:true}
+    default-residency-policy: ${GATEWAY_GUARDRAILS_DEFAULT_RESIDENCY_POLICY:STRICT_SOVEREIGN}
 
 aegisgate:
   sse:
