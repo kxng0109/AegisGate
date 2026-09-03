@@ -13,7 +13,7 @@ import java.util.UUID;
 
 /**
  * Rewrites the Anthropic Messages streaming event sequence into OpenAI shaped chunks,
- * supporting text content, tool calling ({@code tool_use}), thinking deltas, and usage telemetry.
+ * supporting text content, tool calling ({@code tool_use}), thinking deltas, and prompt caching telemetry.
  */
 @Slf4j
 public final class AnthropicSseNormalizer implements SseNormalizer {
@@ -30,6 +30,9 @@ public final class AnthropicSseNormalizer implements SseNormalizer {
 	private String pendingEvent = "";
 	private @Nullable Long inputTokens;
 	private @Nullable Long outputTokens;
+	private @Nullable Long cacheCreationInputTokens;
+	private @Nullable Long cacheReadInputTokens;
+	private @Nullable Long reasoningTokens;
 	private @Nullable String upstreamModel;
 	private String finishReason = "stop";
 	private int activeToolIndex;
@@ -104,6 +107,33 @@ public final class AnthropicSseNormalizer implements SseNormalizer {
 		return upstreamModel != null ? upstreamModel : fallbackModel;
 	}
 
+	/**
+	 * Returns prompt cache write tokens observed from Anthropic usage.
+	 *
+	 * @return write token count or 0 if not reported
+	 */
+	public long cacheCreationInputTokens() {
+		return cacheCreationInputTokens != null ? cacheCreationInputTokens : 0L;
+	}
+
+	/**
+	 * Returns prompt cache read tokens observed from Anthropic usage.
+	 *
+	 * @return read token count or 0 if not reported
+	 */
+	public long cacheReadInputTokens() {
+		return cacheReadInputTokens != null ? cacheReadInputTokens : 0L;
+	}
+
+	/**
+	 * Returns reasoning / thinking tokens observed from Anthropic usage.
+	 *
+	 * @return reasoning token count or 0 if not reported
+	 */
+	public long reasoningTokens() {
+		return reasoningTokens != null ? reasoningTokens : 0L;
+	}
+
 	private List<String> messageStart(JsonNode node) {
 		JsonNode message = node.get("message");
 		if (message != null && message.isObject()) {
@@ -111,9 +141,16 @@ public final class AnthropicSseNormalizer implements SseNormalizer {
 			if (modelNode != null && modelNode.isString() && !modelNode.asString().isEmpty()) {
 				upstreamModel = modelNode.asString();
 			}
-			long tokens = message.path("usage").path("input_tokens").asLong(0);
+			JsonNode usageNode = message.path("usage");
+			long tokens = usageNode.path("input_tokens").asLong(0);
 			if (tokens > 0 || inputTokens == null) {
 				inputTokens = tokens;
+			}
+			if (usageNode.has("cache_creation_input_tokens")) {
+				cacheCreationInputTokens = usageNode.path("cache_creation_input_tokens").asLong(0);
+			}
+			if (usageNode.has("cache_read_input_tokens")) {
+				cacheReadInputTokens = usageNode.path("cache_read_input_tokens").asLong(0);
 			}
 		}
 		return List.of();
@@ -182,8 +219,13 @@ public final class AnthropicSseNormalizer implements SseNormalizer {
 			}
 		}
 		JsonNode usageNode = node.get("usage");
-		if (usageNode != null && usageNode.isObject() && usageNode.has("output_tokens")) {
-			outputTokens = usageNode.get("output_tokens").asLong();
+		if (usageNode != null && usageNode.isObject()) {
+			if (usageNode.has("output_tokens")) {
+				outputTokens = usageNode.get("output_tokens").asLong();
+			}
+			if (usageNode.has("output_tokens_details")) {
+				reasoningTokens = usageNode.path("output_tokens_details").path("thinking_tokens").asLong(0);
+			}
 		}
 		return List.of();
 	}
@@ -194,9 +236,10 @@ public final class AnthropicSseNormalizer implements SseNormalizer {
 		if (includeUsageInResponse) {
 			UsageInfo usageInfo = usage();
 			if (usageInfo != null) {
-				lines.add(OpenAiSseLine.usage(
+				lines.add(OpenAiSseLine.usageWithDetails(
 						objectMapper, chunkId, created, model(),
-						usageInfo.promptTokens(), usageInfo.completionTokens()
+						usageInfo.promptTokens(), usageInfo.completionTokens(),
+						cacheReadInputTokens(), reasoningTokens()
 				));
 			}
 		}

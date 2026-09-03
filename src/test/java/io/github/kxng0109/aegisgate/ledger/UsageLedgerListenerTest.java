@@ -1,5 +1,6 @@
 package io.github.kxng0109.aegisgate.ledger;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -10,6 +11,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.*;
@@ -147,7 +149,7 @@ class UsageLedgerListenerTest {
 	@DisplayName("records Micrometer metrics for tokens, cost, and dead letters")
 	void recordsMicrometerMetrics() {
 		UsageLedgerRepository repository = mock(UsageLedgerRepository.class);
-		io.micrometer.core.instrument.simple.SimpleMeterRegistry registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+		SimpleMeterRegistry registry = new SimpleMeterRegistry();
 		UsageLedgerListener listener = new UsageLedgerListener(
 				repository,
 				tempDir.resolve("deadletter.log").toString(),
@@ -161,18 +163,12 @@ class UsageLedgerListenerTest {
 
 		listener.onTokenUsage(event);
 
-		org.junit.jupiter.api.Assertions.assertEquals(
-				100.0,
-				registry.get("aegis.tokens").tag("type", "prompt").tag("provider", "openai").counter().count()
-		);
-		org.junit.jupiter.api.Assertions.assertEquals(
-				50.0,
-				registry.get("aegis.tokens").tag("type", "completion").tag("provider", "openai").counter().count()
-		);
-		org.junit.jupiter.api.Assertions.assertEquals(
-				2500.0,
-				registry.get("aegis.cost.micros").tag("provider", "openai").counter().count()
-		);
+		assertThat(registry.get("aegis.tokens").tag("type", "prompt").tag("provider", "openai").counter().count())
+				.isEqualTo(100.0);
+		assertThat(registry.get("aegis.tokens").tag("type", "completion").tag("provider", "openai").counter().count())
+				.isEqualTo(50.0);
+		assertThat(registry.get("aegis.cost.micros").tag("provider", "openai").counter().count())
+				.isEqualTo(2500.0);
 	}
 
 	@Test
@@ -181,7 +177,7 @@ class UsageLedgerListenerTest {
 		UsageLedgerRepository repository = mock(UsageLedgerRepository.class);
 		when(repository.save(any(UsageLedgerEntry.class)))
 				.thenThrow(new DataAccessResourceFailureException("db down"));
-		io.micrometer.core.instrument.simple.SimpleMeterRegistry registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+		SimpleMeterRegistry registry = new SimpleMeterRegistry();
 		UsageLedgerListener listener = new UsageLedgerListener(
 				repository,
 				tempDir.resolve("deadletter.log").toString(),
@@ -195,10 +191,8 @@ class UsageLedgerListenerTest {
 
 		listener.onTokenUsage(event);
 
-		org.junit.jupiter.api.Assertions.assertEquals(
-				1.0,
-				registry.get("aegis.ledger.dead_letter").tag("provider", "anthropic").counter().count()
-		);
+		assertThat(registry.get("aegis.ledger.dead_letter").tag("provider", "anthropic").counter().count())
+				.isEqualTo(1.0);
 	}
 
 	@Test
@@ -223,7 +217,7 @@ class UsageLedgerListenerTest {
 	@DisplayName("handles null provider and model in metrics and dead letter")
 	void handlesNullProviderAndModelInMetrics() {
 		UsageLedgerRepository repository = mock(UsageLedgerRepository.class);
-		io.micrometer.core.instrument.simple.SimpleMeterRegistry registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+		SimpleMeterRegistry registry = new SimpleMeterRegistry();
 		UsageLedgerListener listener = new UsageLedgerListener(
 				repository,
 				tempDir.resolve("deadletter.log").toString(),
@@ -237,11 +231,9 @@ class UsageLedgerListenerTest {
 
 		listener.onTokenUsage(event);
 
-		org.junit.jupiter.api.Assertions.assertEquals(
-				10.0,
-				registry.get("aegis.tokens").tag("type", "prompt").tag("provider", "unknown").tag("model", "unknown")
-				        .counter().count()
-		);
+		assertThat(registry.get("aegis.tokens").tag("type", "prompt").tag("provider", "unknown").tag("model", "unknown")
+		                   .counter().count())
+				.isEqualTo(10.0);
 
 		// Also trigger dead letter with null provider
 		when(repository.save(any(UsageLedgerEntry.class)))
@@ -254,10 +246,8 @@ class UsageLedgerListenerTest {
 
 		listener.onTokenUsage(failureEvent);
 
-		org.junit.jupiter.api.Assertions.assertEquals(
-				1.0,
-				registry.get("aegis.ledger.dead_letter").tag("provider", "unknown").counter().count()
-		);
+		assertThat(registry.get("aegis.ledger.dead_letter").tag("provider", "unknown").counter().count())
+				.isEqualTo(1.0);
 	}
 
 	private static TokenUsageEvent event() {

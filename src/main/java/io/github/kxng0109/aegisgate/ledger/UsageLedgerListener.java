@@ -82,7 +82,14 @@ public class UsageLedgerListener {
 					safeInt(event.totalTokens()),
 					event.costUsdMicros(),
 					event.durationMs(),
-					event.timestamp()
+					event.timestamp(),
+					safeInt(event.uncachedPromptTokens()),
+					safeInt(event.cacheReadTokens()),
+					safeInt(event.cacheWriteTokens()),
+					safeInt(event.reasoningTokens()),
+					event.effectiveCostMicros(),
+					event.billedCostMicros(),
+					event.requestHash()
 			);
 			repository.save(entry);
 			recordMetrics(event);

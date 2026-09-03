@@ -15,10 +15,7 @@ import io.github.kxng0109.aegisgate.ledger.TokenUsageEvent;
 import io.github.kxng0109.aegisgate.proxy.failover.FailoverOrchestrator;
 import io.github.kxng0109.aegisgate.proxy.failover.ProviderResponse;
 import io.github.kxng0109.aegisgate.proxy.failover.UpstreamUnavailableException;
-import io.github.kxng0109.aegisgate.proxy.protocol.OpenAiChatRequest;
-import io.github.kxng0109.aegisgate.proxy.protocol.ProtocolAdapter;
-import io.github.kxng0109.aegisgate.proxy.protocol.ProtocolAdapterResolver;
-import io.github.kxng0109.aegisgate.proxy.protocol.SseNormalizer;
+import io.github.kxng0109.aegisgate.proxy.protocol.*;
 import io.github.kxng0109.aegisgate.proxy.sse.LineTooLongException;
 import io.github.kxng0109.aegisgate.proxy.sse.SseConnectionLimitException;
 import io.github.kxng0109.aegisgate.proxy.sse.SseFlushStrategy;
@@ -576,7 +573,27 @@ public class ProxyController {
 		if (usage != null) {
 			long durationMs = (System.nanoTime() - startedNanos) / 1_000_000;
 			String model = normalizer.upstreamModel() == null ? requestedModel : normalizer.upstreamModel();
-			long costUsdMicros = costCalculator.calculate(
+
+			long cacheRead = 0L;
+			long cacheWrite = 0L;
+			long reasoning = 0L;
+			if (normalizer instanceof AnthropicSseNormalizer anthropicNormalizer) {
+				cacheRead = anthropicNormalizer.cacheReadInputTokens();
+				cacheWrite = anthropicNormalizer.cacheCreationInputTokens();
+				reasoning = anthropicNormalizer.reasoningTokens();
+			} else if (normalizer instanceof DeepSeekSseNormalizer deepSeekNormalizer) {
+				cacheRead = deepSeekNormalizer.cachedTokens() != null ? deepSeekNormalizer.cachedTokens() : 0L;
+				reasoning = deepSeekNormalizer.reasoningTokens() != null ? deepSeekNormalizer.reasoningTokens() : 0L;
+			}
+			long uncachedPrompt = Math.max(0L, usage.promptTokens() - cacheRead);
+
+			long costUsdMicros = (cacheRead > 0 || cacheWrite > 0)
+					? costCalculator.calculate(
+					providerType, model,
+					usage.promptTokens(), usage.completionTokens(),
+					uncachedPrompt, cacheRead, cacheWrite
+			)
+					: costCalculator.calculate(
 					providerType, model,
 					usage.promptTokens(), usage.completionTokens()
 			);
@@ -584,7 +601,9 @@ public class ProxyController {
 					requestId, ownerId, providerName, model,
 					usage.promptTokens(), usage.completionTokens(),
 					usage.promptTokens() + usage.completionTokens(),
-					durationMs, costUsdMicros, Instant.now()
+					durationMs, costUsdMicros, Instant.now(),
+					uncachedPrompt, cacheRead, cacheWrite, reasoning,
+					costUsdMicros, costUsdMicros, null
 			));
 
 			if (cacheService != null && chatRequest != null) {

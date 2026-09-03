@@ -203,12 +203,18 @@ class GeminiSseNormalizerTest {
 		assertTrue(emptyPartsOut.isEmpty());
 		assertEquals("gemini-custom", normalizer.upstreamModel());
 
-		// Function call with null args
+		// Function call with null args and missing args
 		String funcCallNullArgs = "data: {\"candidates\": [{\"content\": {\"parts\": [{\"functionCall\": {\"name\": \"test_fn\"}}]}, \"finishReason\": \"STOP\"}]}";
 		List<String> funcOut = normalizer.normalizeLine(funcCallNullArgs);
 		assertFalse(funcOut.isEmpty());
 		assertTrue(funcOut.getFirst().contains("\"arguments\":\"{}\""));
 		assertTrue(normalizer.isDone());
+
+		GeminiSseNormalizer fnNullNorm = new GeminiSseNormalizer(objectMapper, "m", false);
+		String funcCallExplicitNull = "data: {\"candidates\": [{\"content\": {\"parts\": [{\"functionCall\": {\"name\": \"test_fn\", \"args\": null}}]}}]}";
+		List<String> explicitNullOut = fnNullNorm.normalizeLine(funcCallExplicitNull);
+		assertFalse(explicitNullOut.isEmpty());
+		assertTrue(explicitNullOut.getFirst().contains("\"arguments\":\"{}\""));
 
 		// Normalize line after done
 		assertTrue(normalizer.normalizeLine("data: {\"text\": \"after done\"}").isEmpty());

@@ -109,12 +109,24 @@ class ProxyControllerTest {
 	void setUp() {
 		gatewayProperties.setAliases(Map.of(
 				"gpt-5.6-luna", new ModelAlias(
-						List.of(new ProviderRef("openai", null)), FailoverStrategy.SEQUENTIAL)
+						List.of(new ProviderRef("openai", null)), FailoverStrategy.SEQUENTIAL),
+				"claude-sonnet-5", new ModelAlias(
+						List.of(new ProviderRef("anthropic", null)), FailoverStrategy.SEQUENTIAL),
+				"deepseek-r1", new ModelAlias(
+						List.of(new ProviderRef("deepseek", null)), FailoverStrategy.SEQUENTIAL)
 		));
 		gatewayProperties.setProviders(Map.of(
 				"openai", new ProviderConfig(
 						"openai", ProviderType.OPENAI, URI.create("https://api.openai.com"),
 						new SensitiveString("sk-test"), Duration.ofSeconds(3), Duration.ofSeconds(30)
+				),
+				"anthropic", new ProviderConfig(
+						"anthropic", ProviderType.ANTHROPIC, URI.create("https://api.anthropic.com"),
+						new SensitiveString("sk-ant"), Duration.ofSeconds(3), Duration.ofSeconds(30)
+				),
+				"deepseek", new ProviderConfig(
+						"deepseek", ProviderType.DEEPSEEK, URI.create("https://api.deepseek.com"),
+						new SensitiveString("sk-ds"), Duration.ofSeconds(3), Duration.ofSeconds(30)
 				)
 		));
 		ProtocolAdapterResolver resolver = new ProtocolAdapterResolver(
@@ -472,6 +484,149 @@ class ProxyControllerTest {
 		assertEquals(15, event.totalTokens());
 		assertEquals(4200, event.costUsdMicros());
 		assertEquals("owner-1", event.ownerId());
+	}
+
+	@Test
+	@DisplayName("publishes usage event with Anthropic prompt caching and reasoning details")
+	void publishesUsageEventWithAnthropicPromptCachingAndReasoning() throws Exception {
+		ProviderResponse response = providerResponse(
+				"anthropic", 200, sseHeaders(),
+				Stream.of(
+						"event: message_start",
+						"data: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-sonnet-5\",\"usage\":{\"input_tokens\":1000,\"cache_read_input_tokens\":400,\"cache_creation_input_tokens\":200}}}",
+						"event: content_block_delta",
+						"data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"hi\"}}",
+						"event: message_delta",
+						"data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":500,\"output_tokens_details\":{\"thinking_tokens\":100}}}",
+						"event: message_stop",
+						"data: {\"type\":\"message_stop\"}"
+				)
+		);
+		when(orchestrator.execute(any(), anyString()))
+				.thenReturn(CompletableFuture.completedFuture(response));
+		when(costCalculator.calculate(ProviderType.ANTHROPIC, "claude-sonnet-5", 1000, 500, 600, 400, 200))
+				.thenReturn(6250L);
+
+		String anthropicBody = "{\"model\":\"claude-sonnet-5\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true}";
+		ResponseEntity<StreamingResponseBody> responseEntity = controller.proxyChatCompletions(
+				anthropicBody,
+				request()
+		);
+
+		assertTrue(body(responseEntity).contains("data: [DONE]"));
+		ArgumentCaptor<TokenUsageEvent> captor = ArgumentCaptor.forClass(TokenUsageEvent.class);
+		verify(eventPublisher, atLeastOnce()).publishEvent(captor.capture());
+		TokenUsageEvent event = captor.getValue();
+		assertEquals("claude-sonnet-5", event.model());
+		assertEquals("anthropic", event.provider());
+		assertEquals(1000, event.promptTokens());
+		assertEquals(500, event.completionTokens());
+		assertEquals(600, event.uncachedPromptTokens());
+		assertEquals(400, event.cacheReadTokens());
+		assertEquals(200, event.cacheWriteTokens());
+		assertEquals(100, event.reasoningTokens());
+		assertEquals(6250, event.costUsdMicros());
+	}
+
+	@Test
+	@DisplayName("publishes usage event with DeepSeek prompt caching and reasoning details")
+	void publishesUsageEventWithDeepSeekPromptCachingAndReasoning() throws Exception {
+		ProviderResponse response = providerResponse(
+				"deepseek", 200, sseHeaders(),
+				Stream.of(
+						"data: {\"model\":\"deepseek-r1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hello\"}}]}",
+						"data: {\"model\":\"deepseek-r1\",\"choices\":[],\"usage\":{\"prompt_tokens\":2000,\"completion_tokens\":800,\"prompt_cache_hit_tokens\":1500,\"completion_tokens_details\":{\"reasoning_tokens\":350}}}",
+						"data: [DONE]"
+				)
+		);
+		when(orchestrator.execute(any(), anyString()))
+				.thenReturn(CompletableFuture.completedFuture(response));
+		when(costCalculator.calculate(ProviderType.DEEPSEEK, "deepseek-r1", 2000, 800, 500, 1500, 0))
+				.thenReturn(3500L);
+
+		String deepseekBody = "{\"model\":\"deepseek-r1\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}],\"stream\":true}";
+		ResponseEntity<StreamingResponseBody> responseEntity = controller.proxyChatCompletions(deepseekBody, request());
+
+		assertTrue(body(responseEntity).contains("data: [DONE]"));
+		ArgumentCaptor<TokenUsageEvent> captor = ArgumentCaptor.forClass(TokenUsageEvent.class);
+		verify(eventPublisher, atLeastOnce()).publishEvent(captor.capture());
+		TokenUsageEvent event = captor.getValue();
+		assertEquals("deepseek-r1", event.model());
+		assertEquals("deepseek", event.provider());
+		assertEquals(2000, event.promptTokens());
+		assertEquals(800, event.completionTokens());
+		assertEquals(500, event.uncachedPromptTokens());
+		assertEquals(1500, event.cacheReadTokens());
+		assertEquals(350, event.reasoningTokens());
+		assertEquals(3500, event.costUsdMicros());
+	}
+
+	@Test
+	@DisplayName("publishes usage event with DeepSeek when cached tokens and reasoning tokens are null")
+	void publishesUsageEventWithDeepSeekNoCacheNullTokens() throws Exception {
+		ProviderResponse response = providerResponse(
+				"deepseek", 200, sseHeaders(),
+				Stream.of(
+						"data: {\"model\":\"deepseek-r1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hello\"}}]}",
+						"data: {\"model\":\"deepseek-r1\",\"choices\":[],\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":50}}",
+						"data: [DONE]"
+				)
+		);
+		when(orchestrator.execute(any(), anyString()))
+				.thenReturn(CompletableFuture.completedFuture(response));
+		when(costCalculator.calculate(ProviderType.DEEPSEEK, "deepseek-r1", 100, 50))
+				.thenReturn(500L);
+
+		String deepseekBody = "{\"model\":\"deepseek-r1\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}],\"stream\":true}";
+		ResponseEntity<StreamingResponseBody> responseEntity = controller.proxyChatCompletions(deepseekBody, request());
+
+		assertTrue(body(responseEntity).contains("data: [DONE]"));
+		ArgumentCaptor<TokenUsageEvent> captor = ArgumentCaptor.forClass(TokenUsageEvent.class);
+		verify(eventPublisher, atLeastOnce()).publishEvent(captor.capture());
+		TokenUsageEvent event = captor.getValue();
+		assertEquals(100, event.promptTokens());
+		assertEquals(50, event.completionTokens());
+		assertEquals(0, event.cacheReadTokens());
+		assertEquals(0, event.reasoningTokens());
+		assertEquals(500, event.costUsdMicros());
+	}
+
+	@Test
+	@DisplayName("publishes usage event with Anthropic when only cache write is present (cacheRead == 0)")
+	void publishesUsageEventWithAnthropicCacheWriteOnly() throws Exception {
+		ProviderResponse response = providerResponse(
+				"anthropic", 200, sseHeaders(),
+				Stream.of(
+						"event: message_start",
+						"data: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-sonnet-5\",\"usage\":{\"input_tokens\":500,\"cache_creation_input_tokens\":100}}}",
+						"event: content_block_delta",
+						"data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"hi\"}}",
+						"event: message_delta",
+						"data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":200}}",
+						"event: message_stop",
+						"data: {\"type\":\"message_stop\"}"
+				)
+		);
+		when(orchestrator.execute(any(), anyString()))
+				.thenReturn(CompletableFuture.completedFuture(response));
+		when(costCalculator.calculate(ProviderType.ANTHROPIC, "claude-sonnet-5", 500, 200, 500, 0, 100))
+				.thenReturn(2100L);
+
+		String anthropicBody = "{\"model\":\"claude-sonnet-5\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true}";
+		ResponseEntity<StreamingResponseBody> responseEntity = controller.proxyChatCompletions(
+				anthropicBody,
+				request()
+		);
+
+		assertTrue(body(responseEntity).contains("data: [DONE]"));
+		ArgumentCaptor<TokenUsageEvent> captor = ArgumentCaptor.forClass(TokenUsageEvent.class);
+		verify(eventPublisher, atLeastOnce()).publishEvent(captor.capture());
+		TokenUsageEvent event = captor.getValue();
+		assertEquals(500, event.promptTokens());
+		assertEquals(200, event.completionTokens());
+		assertEquals(0, event.cacheReadTokens());
+		assertEquals(100, event.cacheWriteTokens());
+		assertEquals(2100, event.costUsdMicros());
 	}
 
 	@Test

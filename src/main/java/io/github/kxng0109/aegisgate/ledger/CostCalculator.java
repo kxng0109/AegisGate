@@ -37,6 +37,30 @@ public class CostCalculator {
 	 * @return the cost in micro dollars, rounded half up
 	 */
 	public long calculate(ProviderType type, String model, long promptTokens, long completionTokens) {
+		return calculate(type, model, promptTokens, completionTokens, promptTokens, 0L, 0L);
+	}
+
+	/**
+	 * Computes request cost with prompt caching discounts and write surcharges.
+	 *
+	 * @param type                 provider dialect
+	 * @param model                model id reported by the provider
+	 * @param totalPromptTokens    total prompt tokens
+	 * @param completionTokens     output tokens
+	 * @param uncachedPromptTokens uncached prompt tokens
+	 * @param cacheReadTokens      prompt tokens read from cache
+	 * @param cacheWriteTokens     prompt tokens written to cache
+	 * @return the billed cost in micro dollars, rounded half up
+	 */
+	public long calculate(
+			ProviderType type,
+			String model,
+			long totalPromptTokens,
+			long completionTokens,
+			long uncachedPromptTokens,
+			long cacheReadTokens,
+			long cacheWriteTokens
+	) {
 		ModelPricingEntry entry = catalog.lookup(type, model).orElse(null);
 		if (entry == null) {
 			log.warn(
@@ -45,11 +69,51 @@ public class CostCalculator {
 			);
 			return 0;
 		}
-		BigDecimal inputCost = BigDecimal.valueOf(promptTokens).multiply(entry.inputCostPerToken());
-		BigDecimal outputCost = BigDecimal.valueOf(completionTokens).multiply(entry.outputCostPerToken());
-		return inputCost.add(outputCost)
-		                .multiply(MICRO_DOLLARS_PER_DOLLAR)
-		                .setScale(0, RoundingMode.HALF_UP)
-		                .longValue();
+
+		BigDecimal baseInputRate = entry.inputCostPerToken();
+		BigDecimal baseOutputRate = entry.outputCostPerToken();
+
+		BigDecimal uncachedCost = BigDecimal.valueOf(uncachedPromptTokens).multiply(baseInputRate);
+		BigDecimal writeCost = BigDecimal.valueOf(cacheWriteTokens)
+		                                 .multiply(resolveWriteRate(type, entry, baseInputRate));
+		BigDecimal readCost = BigDecimal.valueOf(cacheReadTokens)
+		                                .multiply(resolveReadRate(type, entry, baseInputRate));
+		BigDecimal outputCost = BigDecimal.valueOf(completionTokens).multiply(baseOutputRate);
+
+		return uncachedCost.add(writeCost)
+		                   .add(readCost)
+		                   .add(outputCost)
+		                   .multiply(MICRO_DOLLARS_PER_DOLLAR)
+		                   .setScale(0, RoundingMode.HALF_UP)
+		                   .longValue();
+	}
+
+	private BigDecimal resolveWriteRate(ProviderType type, ModelPricingEntry entry, BigDecimal baseRate) {
+		if (entry.cacheCreationInputTokenCost() != null) {
+			return entry.cacheCreationInputTokenCost();
+		}
+		if (type == ProviderType.ANTHROPIC) {
+			return baseRate.multiply(new BigDecimal("1.25"));
+		}
+		if (type == ProviderType.DEEPSEEK) {
+			return BigDecimal.ZERO;
+		}
+		return baseRate;
+	}
+
+	private BigDecimal resolveReadRate(ProviderType type, ModelPricingEntry entry, BigDecimal baseRate) {
+		if (entry.cacheReadInputTokenCost() != null) {
+			return entry.cacheReadInputTokenCost();
+		}
+		if (type == ProviderType.ANTHROPIC) {
+			return baseRate.multiply(new BigDecimal("0.10"));
+		}
+		if (type == ProviderType.OPENAI) {
+			return baseRate.multiply(new BigDecimal("0.50"));
+		}
+		if (type == ProviderType.DEEPSEEK) {
+			return baseRate.multiply(new BigDecimal("0.10"));
+		}
+		return baseRate;
 	}
 }
