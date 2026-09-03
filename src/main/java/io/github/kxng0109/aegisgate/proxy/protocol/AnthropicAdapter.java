@@ -118,7 +118,7 @@ public final class AnthropicAdapter implements ProtocolAdapter {
 
 		Double temperature = request.temperature();
 		if (temperature != null) {
-			body.put("temperature", Math.min(MAX_TEMPERATURE, Math.max(0.0, temperature)));
+			body.put("temperature", Math.clamp(temperature, 0.0, MAX_TEMPERATURE));
 		}
 		Double topP = request.topP();
 		if (topP != null) {

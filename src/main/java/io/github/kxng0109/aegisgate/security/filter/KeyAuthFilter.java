@@ -8,6 +8,7 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.jspecify.annotations.Nullable;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.connection.PoolException;
 import org.springframework.http.HttpHeaders;
@@ -311,7 +312,7 @@ public class KeyAuthFilter extends OncePerRequestFilter {
 	 * @param bodyBytes the buffered request body
 	 * @return the model id, or {@code null}
 	 */
-	private String extractModel(byte[] bodyBytes) {
+	private @Nullable String extractModel(byte[] bodyBytes) {
 		if (bodyBytes.length == 0) {
 			return null;
 		}

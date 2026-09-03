@@ -1,5 +1,7 @@
 package io.github.kxng0109.aegisgate.proxy.sse;
 
+import org.jspecify.annotations.Nullable;
+
 import java.net.http.HttpResponse;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
@@ -251,7 +253,7 @@ public final class BoundedLineBodyHandler
 			}
 
 			@Override
-			public java.util.Spliterator<String> trySplit() {
+			public java.util.@Nullable Spliterator<String> trySplit() {
 				return null;
 			}
 

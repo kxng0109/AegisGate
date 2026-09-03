@@ -1,7 +1,7 @@
 package io.github.kxng0109.aegisgate.proxy.failover;
 
 import io.github.kxng0109.aegisgate.contracts.GatewayProperties;
-
+import org.jspecify.annotations.Nullable;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.data.redis.autoconfigure.DataRedisProperties;
@@ -10,13 +10,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 import org.springframework.core.env.Environment;
 import org.springframework.core.io.ClassPathResource;
-import org.springframework.data.redis.connection.RedisClusterConfiguration;
-import org.springframework.data.redis.connection.RedisConfiguration;
-import org.springframework.data.redis.connection.RedisConnectionFactory;
-import org.springframework.data.redis.connection.RedisPassword;
-import org.springframework.data.redis.connection.RedisSentinelConfiguration;
-import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
-import org.springframework.data.redis.connection.RedisStaticMasterReplicaConfiguration;
+import org.springframework.data.redis.connection.*;
 import org.springframework.data.redis.connection.lettuce.LettuceClientConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -241,7 +235,7 @@ public class CircuitBreakerConfig {
 	}
 
 	private static void applyCredentials(RedisConfiguration.WithAuthentication configuration,
-			String username, String password) {
+	                                     @Nullable String username, @Nullable String password) {
 		if (username != null && !username.isBlank()) {
 			configuration.setUsername(username);
 		}
@@ -251,7 +245,7 @@ public class CircuitBreakerConfig {
 	}
 
 	private static void applySentinelCredentials(RedisSentinelConfiguration configuration,
-			String username, String password) {
+	                                             @Nullable String username, @Nullable String password) {
 		if (username != null && !username.isBlank()) {
 			configuration.setSentinelUsername(username);
 		}

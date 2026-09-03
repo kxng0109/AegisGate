@@ -454,8 +454,9 @@ class E12CoverageSupportTest {
 
 		SHA256Hash h1 = SHA256Hash.fromRawKey("gw-key1");
 		SHA256Hash h2 = SHA256Hash.fromRawKey("gw-key2");
+		Object foreignObj = "string";
 		assertThat(h1.equals(null)).isFalse();
-		assertThat(h1.equals("string")).isFalse();
+		assertThat(h1.equals(foreignObj)).isFalse();
 		assertThat(h1.equals(h2)).isFalse();
 		assertThat(h1.equals(h1)).isTrue();
 		assertThat(h1.hashCode()).isEqualTo(h1.hashCode());

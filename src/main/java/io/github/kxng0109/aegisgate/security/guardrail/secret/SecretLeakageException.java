@@ -33,7 +33,7 @@ public class SecretLeakageException extends RuntimeException {
 	 */
 	public ProblemDetail toProblemDetail(String instancePath) {
 		ProblemDetail problem = ProblemDetail.forStatusAndDetail(
-				HttpStatus.UNPROCESSABLE_ENTITY,
+				HttpStatus.UNPROCESSABLE_CONTENT,
 				"Request body contains an active secret or credential (" + result.description()
 						+ "). Transmission was blocked to prevent token exposure."
 		);

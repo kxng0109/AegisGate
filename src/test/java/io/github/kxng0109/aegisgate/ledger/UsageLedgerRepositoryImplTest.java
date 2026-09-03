@@ -17,11 +17,10 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 @DisplayName("UsageLedgerRepositoryImpl")
-@SuppressWarnings({"unchecked", "rawtypes", "DataFlowIssue"})
+@SuppressWarnings("unchecked")
 class UsageLedgerRepositoryImplTest {
 
 	private final EntityManager em = mock(EntityManager.class);

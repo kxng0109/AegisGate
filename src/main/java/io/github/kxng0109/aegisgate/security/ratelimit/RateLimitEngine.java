@@ -102,7 +102,7 @@ public class RateLimitEngine {
 	 *                                       (fail-closed)
 	 */
 	public RateLimitDecision checkRateLimit(SHA256Hash keyHash, VirtualApiKey key, int estimatedTokens) {
-		int clampedTokens = Math.max(MIN_ESTIMATED_TOKENS, Math.min(estimatedTokens, MAX_ESTIMATED_TOKENS));
+		int clampedTokens = Math.clamp(estimatedTokens, MIN_ESTIMATED_TOKENS, MAX_ESTIMATED_TOKENS);
 
 		List<String> keys = List.of(
 				RPM_KEY_PREFIX + keyHash.hex(),

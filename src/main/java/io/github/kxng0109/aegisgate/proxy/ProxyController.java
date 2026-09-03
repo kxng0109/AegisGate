@@ -479,8 +479,8 @@ public class ProxyController {
 		SystemPromptProtectionEngine.StreamingShingleTracker shingleTracker = null;
 		if (systemPromptProtectionEngine != null && chatRequest != null && chatRequest.messages() != null) {
 			for (OpenAiChatRequest.Message msg : chatRequest.messages()) {
-				if ("system".equalsIgnoreCase(msg.role()) && msg.content() != null && msg.content().isTextual()) {
-					var hashes = systemPromptProtectionEngine.computeShingleHashes(msg.content().asText());
+				if ("system".equalsIgnoreCase(msg.role()) && msg.content() != null && msg.content().isString()) {
+					var hashes = systemPromptProtectionEngine.computeShingleHashes(msg.content().asString());
 					if (!hashes.isEmpty()) {
 						shingleTracker = systemPromptProtectionEngine.newTracker(hashes);
 						break;
@@ -685,7 +685,7 @@ public class ProxyController {
 		}
 	}
 
-	private String extractModel(String rawBody) {
+	private @Nullable String extractModel(String rawBody) {
 		try {
 			JsonNode root = objectMapper.readTree(rawBody);
 			if (root == null || !root.isObject()) {

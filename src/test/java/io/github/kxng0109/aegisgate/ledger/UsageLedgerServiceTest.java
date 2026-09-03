@@ -21,12 +21,9 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @DisplayName("UsageLedgerService")
-@SuppressWarnings("DataFlowIssue")
 class UsageLedgerServiceTest {
 
 	private final UsageLedgerRepository repository = mock(UsageLedgerRepository.class);

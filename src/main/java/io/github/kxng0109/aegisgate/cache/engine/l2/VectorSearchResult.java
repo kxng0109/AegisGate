@@ -20,6 +20,6 @@ public record VectorSearchResult(
 	 * @return cosine similarity in the range [-1.0, 1.0]
 	 */
 	public float similarityScore() {
-		return (float) Math.max(-1.0, Math.min(1.0, 1.0 - distance));
+		return (float) Math.clamp(1.0 - distance, -1.0, 1.0);
 	}
 }

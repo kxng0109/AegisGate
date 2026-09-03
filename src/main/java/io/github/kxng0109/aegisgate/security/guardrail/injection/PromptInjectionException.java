@@ -32,7 +32,7 @@ public class PromptInjectionException extends RuntimeException {
 	 */
 	public ProblemDetail toProblemDetail(String instancePath) {
 		ProblemDetail problem = ProblemDetail.forStatusAndDetail(
-				HttpStatus.UNPROCESSABLE_ENTITY,
+				HttpStatus.UNPROCESSABLE_CONTENT,
 				"The prompt contains patterns indicative of adversarial prompt injection (" + result.detail()
 						+ "). Transmission was blocked by policy."
 		);

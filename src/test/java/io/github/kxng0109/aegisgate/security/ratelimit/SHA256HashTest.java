@@ -6,7 +6,6 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
-@SuppressWarnings("DataFlowIssue")
 class SHA256HashTest {
 
 	@Test
@@ -41,14 +40,18 @@ class SHA256HashTest {
 	@Test
 	void equalsRejectsNullAndForeignTypes() {
 		SHA256Hash hash = SHA256Hash.fromRawKey("gw-x");
-		assertNotEquals(null, hash);
-		assertNotEquals("not-a-hash", hash);
+		Object nullObj = null;
+		Object foreignObj = "not-a-hash";
+		assertNotEquals(nullObj, hash);
+		assertNotEquals(foreignObj, hash);
 	}
 
 	@Test
 	void equalsInvokedDirectlyRejectsNullAndForeignTypes() {
 		SHA256Hash hash = SHA256Hash.fromRawKey("gw-x");
-		assertNotEquals(null, hash);
-		assertNotEquals("not-a-hash", hash);
+		Object nullObj = null;
+		Object foreignObj = "not-a-hash";
+		assertNotEquals(nullObj, hash);
+		assertNotEquals(foreignObj, hash);
 	}
 }

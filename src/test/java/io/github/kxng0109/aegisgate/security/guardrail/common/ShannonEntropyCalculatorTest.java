@@ -25,7 +25,8 @@ class ShannonEntropyCalculatorTest {
 	@Test
 	@DisplayName("calculate(byte[]) returns 0.0 on invalid boundary conditions")
 	void calculateBytesBoundaryChecks() {
-		assertThat(ShannonEntropyCalculator.calculate((byte[]) null, 0, 10)).isEqualTo(0.0);
+		byte[] nullBytes = null;
+		assertThat(ShannonEntropyCalculator.calculate(nullBytes, 0, 10)).isEqualTo(0.0);
 		assertThat(ShannonEntropyCalculator.calculate(new byte[10], 0, 0)).isEqualTo(0.0);
 		assertThat(ShannonEntropyCalculator.calculate(new byte[10], 0, 1)).isEqualTo(0.0);
 		assertThat(ShannonEntropyCalculator.calculate(new byte[10], -1, 5)).isEqualTo(0.0);
@@ -35,7 +36,8 @@ class ShannonEntropyCalculatorTest {
 	@Test
 	@DisplayName("calculate(CharSequence) returns 0.0 on invalid boundary conditions")
 	void calculateCharSequenceBoundaryChecks() {
-		assertThat(ShannonEntropyCalculator.calculate((CharSequence) null)).isEqualTo(0.0);
+		CharSequence nullSeq = null;
+		assertThat(ShannonEntropyCalculator.calculate(nullSeq)).isEqualTo(0.0);
 		assertThat(ShannonEntropyCalculator.calculate("")).isEqualTo(0.0);
 		assertThat(ShannonEntropyCalculator.calculate("a")).isEqualTo(0.0);
 	}

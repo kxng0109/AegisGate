@@ -42,11 +42,10 @@ import java.util.concurrent.CompletionException;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 @DisplayName("ProxyController")
-@SuppressWarnings("DataFlowIssue")
 class ProxyControllerTest {
 
 	private static final String PATH_BODY = "{\"model\":\"gpt-5.6-luna\",\"messages\":[]}";

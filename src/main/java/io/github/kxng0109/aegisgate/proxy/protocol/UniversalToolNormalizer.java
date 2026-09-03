@@ -1,5 +1,6 @@
 package io.github.kxng0109.aegisgate.proxy.protocol;
 
+import org.jspecify.annotations.Nullable;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ArrayNode;
@@ -29,7 +30,7 @@ public final class UniversalToolNormalizer {
 	 * @param objectMapper JSON object mapper
 	 * @return Anthropic formatted tools array, or {@code null} if empty
 	 */
-	public static ArrayNode toAnthropicTools(JsonNode openAiTools, ObjectMapper objectMapper) {
+	public static @Nullable ArrayNode toAnthropicTools(@Nullable JsonNode openAiTools, ObjectMapper objectMapper) {
 		if (openAiTools == null || !openAiTools.isArray() || openAiTools.isEmpty()) {
 			return null;
 		}
@@ -70,7 +71,7 @@ public final class UniversalToolNormalizer {
 	 * @param objectMapper      JSON object mapper
 	 * @return Anthropic formatted tool_choice object, or {@code null} if not applicable
 	 */
-	public static ObjectNode toAnthropicToolChoice(JsonNode toolChoice, Boolean parallelToolCalls, ObjectMapper objectMapper) {
+	public static @Nullable ObjectNode toAnthropicToolChoice(@Nullable JsonNode toolChoice, @Nullable Boolean parallelToolCalls, ObjectMapper objectMapper) {
 		if (toolChoice == null || toolChoice.isNull()) {
 			return null;
 		}
@@ -107,7 +108,7 @@ public final class UniversalToolNormalizer {
 	 * @param objectMapper JSON object mapper
 	 * @return Gemini formatted tools container array, or {@code null} if empty
 	 */
-	public static ArrayNode toGeminiTools(JsonNode openAiTools, ObjectMapper objectMapper) {
+	public static @Nullable ArrayNode toGeminiTools(@Nullable JsonNode openAiTools, ObjectMapper objectMapper) {
 		if (openAiTools == null || !openAiTools.isArray() || openAiTools.isEmpty()) {
 			return null;
 		}
@@ -190,7 +191,7 @@ public final class UniversalToolNormalizer {
 	/**
 	 * Maps lowercase JSON schema types to uppercase OpenAPI types for Gemini.
 	 */
-	public static String mapToGeminiType(String jsonType) {
+	public static String mapToGeminiType(@Nullable String jsonType) {
 		if (jsonType == null) {
 			return "OBJECT";
 		}
@@ -212,7 +213,7 @@ public final class UniversalToolNormalizer {
 	 * @param objectMapper JSON object mapper
 	 * @return Gemini toolConfig object, or {@code null} if not applicable
 	 */
-	public static ObjectNode toGeminiToolConfig(JsonNode toolChoice, ObjectMapper objectMapper) {
+	public static @Nullable ObjectNode toGeminiToolConfig(@Nullable JsonNode toolChoice, ObjectMapper objectMapper) {
 		if (toolChoice == null || toolChoice.isNull()) {
 			return null;
 		}
@@ -246,7 +247,7 @@ public final class UniversalToolNormalizer {
 	 * @param index        index of the tool call in the candidates
 	 * @return synthetic tool call ID starting with {@code call_gen_}
 	 */
-	public static String generateSyntheticToolCallId(String functionName, int index) {
+	public static String generateSyntheticToolCallId(@Nullable String functionName, int index) {
 		String rawUuid = UUID.randomUUID().toString().replace("-", "").substring(0, 16);
 		return "call_gen_" + (
 				functionName != null ? functionName.substring(0, Math.min(8, functionName.length())) + "_" : "") + index
@@ -260,7 +261,7 @@ public final class UniversalToolNormalizer {
 	 * @param objectMapper JSON object mapper
 	 * @return structured JsonNode object
 	 */
-	public static JsonNode normalizeToolResultForGemini(String content, ObjectMapper objectMapper) {
+	public static JsonNode normalizeToolResultForGemini(@Nullable String content, ObjectMapper objectMapper) {
 		if (content == null || content.isBlank()) {
 			return objectMapper.createObjectNode().put("result", "");
 		}

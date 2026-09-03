@@ -16,11 +16,9 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 @DisplayName("AdminLedgerController")
-@SuppressWarnings("DataFlowIssue")
 class AdminLedgerControllerTest {
 
 	private final UsageLedgerService usageLedgerService = mock(UsageLedgerService.class);

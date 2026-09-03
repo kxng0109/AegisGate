@@ -27,7 +27,8 @@ class LuhnValidatorTest {
 	@Test
 	@DisplayName("isValid(CharSequence) boundary and null checks")
 	void charSequenceBoundaryChecks() {
-		assertThat(LuhnValidator.isValid((CharSequence) null)).isFalse();
+		CharSequence nullSeq = null;
+		assertThat(LuhnValidator.isValid(nullSeq)).isFalse();
 		assertThat(LuhnValidator.isValid("")).isFalse();
 		assertThat(LuhnValidator.isValid("12345678901")).isFalse(); // 11 digits
 		assertThat(LuhnValidator.isValid("4532-0151-128")).isFalse(); // total < 12 digits
@@ -58,7 +59,8 @@ class LuhnValidatorTest {
 	@DisplayName("isValid(byte[]) boundary checks")
 	void byteArrayBoundaryChecks() {
 		byte[] validBytes = VALID_PAN_16.getBytes(StandardCharsets.UTF_8);
-		assertThat(LuhnValidator.isValid((byte[]) null, 0, 16)).isFalse();
+		byte[] nullBytes = null;
+		assertThat(LuhnValidator.isValid(nullBytes, 0, 16)).isFalse();
 		assertThat(LuhnValidator.isValid(validBytes, 0, 11)).isFalse();
 		assertThat(LuhnValidator.isValid(validBytes, -1, 16)).isFalse();
 		assertThat(LuhnValidator.isValid(validBytes, 5, 12)).isFalse(); // overflow

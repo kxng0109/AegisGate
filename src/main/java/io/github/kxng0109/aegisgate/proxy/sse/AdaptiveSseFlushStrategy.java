@@ -7,6 +7,8 @@ import io.micrometer.core.instrument.Timer;
 import jakarta.servlet.ServletOutputStream;
 
 import java.io.IOException;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.time.Duration;
 import java.util.IdentityHashMap;
 import java.util.concurrent.*;
@@ -191,8 +193,7 @@ public final class AdaptiveSseFlushStrategy implements SseFlushStrategy, AutoClo
 			return false;
 		}
 		long now = nanoSource.getAsLong();
-		state.linesSinceFlush += 1;
-		state.bytesBuffered += Math.max(lineLength, 0);
+		state.recordLine(lineLength);
 		boolean backpressured = false;
 		if (state.flushDue
 				|| state.linesSinceFlush >= props.maxLinesPerFlush()
@@ -348,8 +349,7 @@ public final class AdaptiveSseFlushStrategy implements SseFlushStrategy, AutoClo
 		long durationMs = (finished - state.flushStartedNanos) / NANOS_PER_MILLI;
 		flushDuration.record(Duration.ofMillis(durationMs));
 		state.lastFlushNanos = finished;
-		state.linesSinceFlush = 0;
-		state.bytesBuffered = 0;
+		state.resetFlushCounters();
 		if (durationMs >= props.flushBackpressureThresholdMs()) {
 			backpressureCounter.increment();
 			return true;
@@ -389,6 +389,19 @@ public final class AdaptiveSseFlushStrategy implements SseFlushStrategy, AutoClo
 	 */
 	static final class FlushState {
 
+		private static final VarHandle LINES_SINCE_FLUSH;
+		private static final VarHandle BYTES_BUFFERED;
+
+		static {
+			try {
+				MethodHandles.Lookup lookup = MethodHandles.lookup();
+				LINES_SINCE_FLUSH = lookup.findVarHandle(FlushState.class, "linesSinceFlush", int.class);
+				BYTES_BUFFERED = lookup.findVarHandle(FlushState.class, "bytesBuffered", long.class);
+			} catch (ReflectiveOperationException e) {
+				throw new ExceptionInInitializerError(e);
+			}
+		}
+
 		final long connectionId;
 
 		final ServletOutputStream out;
@@ -419,6 +432,16 @@ public final class AdaptiveSseFlushStrategy implements SseFlushStrategy, AutoClo
 			this.registeredNanos = nowNanos;
 			this.lastFlushNanos = nowNanos;
 			this.tokens = new TokenBucket(nowNanos, flushRate);
+		}
+
+		void recordLine(int lineLength) {
+			LINES_SINCE_FLUSH.getAndAdd(this, 1);
+			BYTES_BUFFERED.getAndAdd(this, (long) Math.max(lineLength, 0));
+		}
+
+		void resetFlushCounters() {
+			LINES_SINCE_FLUSH.setVolatile(this, 0);
+			BYTES_BUFFERED.setVolatile(this, 0L);
 		}
 	}
 

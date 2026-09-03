@@ -20,11 +20,9 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 @DisplayName("AegisCacheService")
-@SuppressWarnings("DataFlowIssue")
 class AegisCacheServiceTest {
 
 	private final InMemoryExactCache l0Cache = mock(InMemoryExactCache.class);

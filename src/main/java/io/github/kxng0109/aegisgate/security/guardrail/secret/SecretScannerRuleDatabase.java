@@ -1,6 +1,5 @@
 package io.github.kxng0109.aegisgate.security.guardrail.secret;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.regex.Pattern;
 
@@ -178,6 +177,6 @@ public final class SecretScannerRuleDatabase {
 	}
 
 	public static List<SecretRule> getRules() {
-		return Collections.unmodifiableList(RULES);
+		return RULES;
 	}
 }

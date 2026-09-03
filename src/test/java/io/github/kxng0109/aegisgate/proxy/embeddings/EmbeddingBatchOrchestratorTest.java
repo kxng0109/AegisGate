@@ -19,11 +19,10 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 @DisplayName("EmbeddingBatchOrchestrator")
-@SuppressWarnings({"unchecked", "DataFlowIssue"})
+@SuppressWarnings("unchecked")
 class EmbeddingBatchOrchestratorTest {
 
 	private final HttpClient httpClient = mock(HttpClient.class);

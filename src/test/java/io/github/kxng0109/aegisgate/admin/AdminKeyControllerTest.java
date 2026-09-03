@@ -20,11 +20,9 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @DisplayName("AdminKeyController")
-@SuppressWarnings("DataFlowIssue")
 class AdminKeyControllerTest {
 
 	private final KeyManagementService keyManagementService = mock(KeyManagementService.class);
