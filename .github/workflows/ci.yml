@@ -21,6 +21,11 @@ jobs:
 
   commitlint:
     name: Validate commit messages
+    # Advisory quality gate: wagoid/commitlint-github-action@v6 crashes on tag-push
+    # events (it dereferences payload.pull_request.commits_url, which is undefined for
+    # tag pushes). Tag-triggered releases must never be blocked by this action, so the
+    # job is marked continue-on-error; branch/PR runs still surface lint results.
+    continue-on-error: true
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
