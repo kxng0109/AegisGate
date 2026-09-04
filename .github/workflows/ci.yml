@@ -158,7 +158,7 @@ jobs:
           awk -v ver="${VERSION}" '
             BEGIN { found=0 }
             $0 ~ "^## \\[" ver "\\]" { found=1; next }
-            found && /^## \\[/ { exit }
+            found && /^## \[/ { exit }
             found { print }
           ' CHANGELOG.md > dist/RELEASE_NOTES.md
 
