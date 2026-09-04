@@ -58,6 +58,29 @@ class AdminKeyControllerTest {
 		assertThat(response.getBody().keyId()).isEqualTo(hash.hex());
 		assertThat(response.getBody().ownerId()).isEqualTo("owner-1");
 		assertThat(response.getBody().rpmLimit()).isEqualTo(60);
+
+		// Create key with allowedTools and deniedTools
+		CreateKeyRequest requestWithTools = new CreateKeyRequest(
+				"owner-1", "test-key-tools", 60, 1000,
+				Set.of("gpt-4o"), Set.of("openai"),
+				Set.of("postgres__*"), Set.of("*:delete_*")
+		);
+		VirtualApiKey keyWithTools = new VirtualApiKey(
+				hash, "gw-", "owner-1", "test-key-tools", 60, 1000,
+				Set.of("gpt-4o"), Set.of("openai"),
+				Set.of("postgres__*"), Set.of("*:delete_*"),
+				true, Instant.now()
+		);
+		when(keyManagementService.createKey(
+				"owner-1", "test-key-tools", 60, 1000,
+				Set.of("gpt-4o"), Set.of("openai"),
+				Set.of("postgres__*"), Set.of("*:delete_*")
+		)).thenReturn(new KeyManagementService.CreatedKey(hash, "gw-secretTools", keyWithTools));
+
+		ResponseEntity<CreatedKeyResponse> responseTools = controller.createKey(requestWithTools);
+		assertThat(responseTools.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		assertThat(responseTools.getBody().allowedTools()).containsExactly("postgres__*");
+		assertThat(responseTools.getBody().deniedTools()).containsExactly("*:delete_*");
 	}
 
 	@Test
@@ -144,6 +167,30 @@ class AdminKeyControllerTest {
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(response.getBody()).isNotNull();
 		assertThat(response.getBody().name()).isEqualTo("renamed-key");
+
+		// Update with tools
+		UpdateKeyRequest requestTools = new UpdateKeyRequest(
+				"renamed-key-tools", 120, 2000,
+				Set.of(), Set.of(),
+				Set.of("postgres__*"), Set.of("*:delete_*"),
+				true
+		);
+		VirtualApiKey updatedWithTools = new VirtualApiKey(
+				hash, "gw-", "owner-1", "renamed-key-tools", 120, 2000,
+				Set.of(), Set.of(),
+				Set.of("postgres__*"), Set.of("*:delete_*"),
+				true, Instant.now()
+		);
+		when(keyManagementService.updateKey(
+				eq(hash), eq("renamed-key-tools"), eq(120), eq(2000),
+				eq(Set.of()), eq(Set.of()),
+				eq(Set.of("postgres__*")), eq(Set.of("*:delete_*")),
+				eq(true)
+		)).thenReturn(Optional.of(updatedWithTools));
+
+		ResponseEntity<KeyResponse> responseTools = controller.updateKey(hash.hex(), requestTools);
+		assertThat(responseTools.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(responseTools.getBody().allowedTools()).containsExactly("postgres__*");
 
 		// Not found
 		SHA256Hash missingHash = SHA256Hash.fromRawKey("gw-missing");

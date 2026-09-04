@@ -7,6 +7,53 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.4.0] - 2026-09-04
+
+### Added
+
+- **Enterprise Model Context Protocol (MCP) Security & Tool Governance Gateway (Phase 6)**:
+    - **Unified Streamable HTTP MCP Endpoint (`POST /v1/mcp`)**:
+        - Implements the modern MCP Streamable HTTP transport (protocol `2026-07-28`) with JSON-RPC 2.0 framing,
+          fast-path L7 header routing (`Mcp-Method`, `Mcp-Name`, MIME Base64 sentinel decoding), and protocol version
+          negotiation across `2026-07-28`, `2025-11-25`, and `2024-11-05`.
+        - Legacy compatibility bridge (`GET /v1/mcp/sse` + `POST /v1/mcp/message`) for pre-2026 clients such as Claude
+          Desktop.
+        - Full method surface: `initialize`, `ping`, `tools/list`, `tools/call`, `resources/list`, `prompts/list`, and
+          change notifications with L0 catalog invalidation.
+    - **Tool-Level RBAC/ABAC Governance on Virtual Keys**:
+        - New `allowedTools` / `deniedTools` policies on virtual API keys (glob patterns such as `postgres__*`,
+          `*:delete_*`), stored in Redis, exposed through key creation/update APIs and bootstrap keys.
+        - Dynamic catalog pruning: unauthorized tools are removed from `tools/list` responses per caller.
+        - Deterministic tool namespacing (`server_id__tool_name`) across federated upstream MCP servers.
+    - **JSON Schema Draft 2020-12 Parameter Validation**:
+        - Strict server-side validation of tool arguments (required fields, type checks, string length bounds, regex
+          patterns, IEEE 754 safe integer limits, `additionalProperties: false`) plus dangerous-path pre-filtering (path
+          traversal, command separators).
+    - **Ingress/Egress Guardrail Scanning for Tool Execution**:
+        - Tool arguments scanned for credential leakage via the existing `IngressSecretScanner`; tool outputs wrapped in
+          nonced `<tool_result nonce="...">` delimiter tags and screened for indirect prompt injection markers.
+    - **Human-in-the-Loop (HITL) Execution Suspension**:
+        - Multi-Round-Trip Request suspension (`InputRequiredResult` / `requestState`) for privileged tools declared via
+          `hitlRequiredTools`.
+        - AES-256-GCM AEAD resumption tokens with SHA-256 argument fingerprints, tenant binding, 300-second TTL, and
+          single-use atomic Redis replay protection.
+        - Administrative approval workflow: `GET/POST /v1/admin/mcp/approvals/{tokenId}` (+ `/approve`, `/reject`).
+    - **Upstream Resilience**:
+        - Per-server in-memory atomic CAS circuit breakers with automatic catalog pruning of tripped servers.
+        - Parallel virtual-thread catalog federation across enabled upstream MCP servers with deterministic sorting and
+          L0 Caffeine W-TinyLFU caching plus scheduled refresh.
+        - Dedicated HTTP/2 multiplexed upstream client (`mcpHttpClient`) with `Redirect.NEVER` SSRF control.
+    - **Configuration Surface (`gateway.mcp.*`)**:
+        - `enabled`, `servers`, `default-protocol-version`, `catalog-cache-ttl`, `catalog-refresh-cron`,
+          `hitl-suspension-ttl`, `hitl-secret`, `max-sse-message-bytes`, `allow-legacy-sse`,
+          `circuit-breaker-failure-threshold`, `circuit-breaker-cooldown`, `client-connect-timeout`.
+    - **Quality Gate**:
+        - Full test suite expanded to **1,147 tests, 100% passing** with JaCoCo coverage ≥ 95% on every counter
+          (INSTRUCTION 99.22%, BRANCH 96.25%, LINE 98.95%, COMPLEXITY 95.20%, METHOD 100%, CLASS 100%), including
+          adversarial protocol, HITL replay, white-box usage-projection, and 10,000 virtual-thread stress harnesses.
+
+---
+
 ## [1.3.0] - 2026-09-04
 
 ### Added

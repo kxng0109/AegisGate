@@ -16,6 +16,10 @@ import io.github.kxng0109.aegisgate.proxy.failover.UpstreamUnavailableException;
 import io.github.kxng0109.aegisgate.proxy.protocol.*;
 import io.github.kxng0109.aegisgate.proxy.sse.*;
 import io.github.kxng0109.aegisgate.proxy.sse.TestServletOutputStreams.RecordingServletOutputStream;
+import io.github.kxng0109.aegisgate.security.filter.IngressSecurityFilter;
+import io.github.kxng0109.aegisgate.security.guardrail.common.GuardrailProperties;
+import io.github.kxng0109.aegisgate.security.guardrail.injection.SystemPromptProtectionEngine;
+import io.github.kxng0109.aegisgate.security.guardrail.pii.EphemeralPiiVault;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -37,6 +41,7 @@ import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.stream.Stream;
@@ -170,6 +175,156 @@ class ProxyControllerTest {
 	}
 
 	@Test
+	@DisplayName("relay stops on flush-strategy backpressure after registering a flush handle")
+	void relayStopsOnFlushBackpressure() throws Exception {
+		SseFlushStrategy.FlushHandle handle = mock(SseFlushStrategy.FlushHandle.class);
+		when(flushStrategy.register(any())).thenReturn(handle);
+		when(flushStrategy.onWrite(any(), anyInt())).thenReturn(true);
+
+		ProviderResponse response = providerResponse(
+				"openai", 200, sseHeaders(),
+				Stream.of("data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}", "data: [DONE]")
+		);
+		when(orchestrator.execute(any(), anyString()))
+				.thenReturn(CompletableFuture.completedFuture(response));
+
+		ResponseEntity<StreamingResponseBody> entity = controller.proxyChatCompletions(PATH_BODY, request());
+		RecordingServletOutputStream out = new RecordingServletOutputStream();
+		entity.getBody().writeTo(out);
+
+		assertEquals(200, entity.getStatusCode().value());
+		assertTrue(out.writtenUtf8().contains("hi"));
+		assertFalse(out.writtenUtf8().contains("[DONE]"));
+	}
+
+	@Test
+	@DisplayName("relay writes rejected guard lines and aborts when the line guard rejects")
+	void relayAbortsOnLineGuardRejection() throws Exception {
+		DefaultSseLineGuard rejectingGuard = mock(DefaultSseLineGuard.class);
+		when(rejectingGuard.checkLine(anyString(), any(SseLineGuard.ProviderType.class)))
+				.thenReturn(List.of("data: {\"error\":{\"message\":\"blocked\"}}"));
+		when(rejectingGuard.isRejected()).thenReturn(true);
+		when(lineGuardFactory.newGuard(any(SseLineGuard.ProviderType.class), anyString(), any()))
+				.thenReturn(rejectingGuard);
+
+		ProviderResponse response = providerResponse(
+				"openai", 200, sseHeaders(),
+				Stream.of("data: {\"choices\":[{\"delta\":{\"content\":\"leak\"}}]}", "data: [DONE]")
+		);
+		when(orchestrator.execute(any(), anyString()))
+				.thenReturn(CompletableFuture.completedFuture(response));
+
+		ResponseEntity<StreamingResponseBody> entity = controller.proxyChatCompletions(PATH_BODY, request());
+		RecordingServletOutputStream out = new RecordingServletOutputStream();
+		entity.getBody().writeTo(out);
+
+		assertTrue(out.writtenUtf8().contains("blocked"));
+		assertFalse(out.writtenUtf8().contains("leak"));
+	}
+
+	@Test
+	@DisplayName("streams lines whose delta content is not a string without failing")
+	void streamsNonStringDeltaContent() throws Exception {
+		ProviderResponse response = providerResponse(
+				"openai", 200, sseHeaders(),
+				Stream.of(
+						"data: {\"choices\":[{\"delta\":{\"content\":123}}]}",
+						"data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}",
+						"data: [DONE]"
+				)
+		);
+		when(orchestrator.execute(any(), anyString()))
+				.thenReturn(CompletableFuture.completedFuture(response));
+
+		ResponseEntity<StreamingResponseBody> entity = controller.proxyChatCompletions(PATH_BODY, request());
+		ByteArrayOutputStream out = new ByteArrayOutputStream();
+		entity.getBody().writeTo(out);
+		String written = out.toString(StandardCharsets.UTF_8);
+
+		assertEquals(200, entity.getStatusCode().value());
+		assertTrue(written.contains("ok"));
+	}
+
+	@Test
+	@DisplayName("streaming JSON PDA validates deltas when streaming validation is enabled")
+	void relayRunsStreamingJsonPda() throws Exception {
+		GuardrailProperties guardrailProperties = new GuardrailProperties();
+		guardrailProperties.setStreamingValidationEnabled(true);
+		ProxyController guardrailController = new ProxyController(
+				orchestrator, gatewayProperties, objectMapper,
+				new ProtocolAdapterResolver(
+						new OpenAiPassthroughAdapter(objectMapper),
+						new AnthropicAdapter(objectMapper),
+						new GeminiAdapter(objectMapper),
+						new DeepSeekAdapter(objectMapper),
+						new OllamaAdapter(objectMapper)
+				),
+				costCalculator, eventPublisher, flushStrategy, lineGuardFactory,
+				null, null, null, null, guardrailProperties, null
+		);
+
+		ProviderResponse response = providerResponse(
+				"openai", 200, sseHeaders(),
+				Stream.of(
+						"data: {\"choices\":[{\"delta\":{\"content\":\"{\\\"k\\\":1}\"}}]}",
+						"data: [DONE]"
+				)
+		);
+		when(orchestrator.execute(any(), anyString()))
+				.thenReturn(CompletableFuture.completedFuture(response));
+
+		ResponseEntity<StreamingResponseBody> entity = guardrailController.proxyChatCompletions(PATH_BODY, request());
+		ByteArrayOutputStream out = new ByteArrayOutputStream();
+		entity.getBody().writeTo(out);
+		assertEquals(200, entity.getStatusCode().value());
+	}
+
+	@Test
+	@DisplayName("relay terminates the stream when system prompt shingle exfiltration is detected")
+	void relayKillsStreamOnSystemPromptExfiltration() throws Exception {
+		SystemPromptProtectionEngine engine = mock(SystemPromptProtectionEngine.class);
+		SystemPromptProtectionEngine.StreamingShingleTracker tracker =
+				mock(SystemPromptProtectionEngine.StreamingShingleTracker.class);
+		when(engine.computeShingleHashes(anyString())).thenReturn(Set.of(42L));
+		when(engine.newTracker(anySet())).thenReturn(tracker);
+		when(tracker.ingestChunk(anyString())).thenReturn(true);
+
+		GuardrailProperties guardrailProperties = new GuardrailProperties();
+		guardrailProperties.setStreamingValidationEnabled(true);
+		ProxyController guardrailController = new ProxyController(
+				orchestrator, gatewayProperties, objectMapper,
+				new ProtocolAdapterResolver(
+						new OpenAiPassthroughAdapter(objectMapper),
+						new AnthropicAdapter(objectMapper),
+						new GeminiAdapter(objectMapper),
+						new DeepSeekAdapter(objectMapper),
+						new OllamaAdapter(objectMapper)
+				),
+				costCalculator, eventPublisher, flushStrategy, lineGuardFactory,
+				null, null, null, engine, guardrailProperties, null
+		);
+
+		String systemBody = "{\"model\":\"gpt-5.6-luna\",\"messages\":[{\"role\":\"system\",\"content\":\"secret-shared-token\"}]}";
+		ProviderResponse response = providerResponse(
+				"openai", 200, sseHeaders(),
+				Stream.of(
+						"data: {\"choices\":[{\"delta\":{\"content\":\"secret-shared-token leaked\"}}]}",
+						"data: [DONE]"
+				)
+		);
+		when(orchestrator.execute(any(), anyString()))
+				.thenReturn(CompletableFuture.completedFuture(response));
+
+		ResponseEntity<StreamingResponseBody> entity = guardrailController.proxyChatCompletions(systemBody, request());
+		ByteArrayOutputStream out = new ByteArrayOutputStream();
+		entity.getBody().writeTo(out);
+		String written = out.toString(StandardCharsets.UTF_8);
+
+		assertEquals(200, entity.getStatusCode().value());
+		assertFalse(written.contains("[DONE]"));
+	}
+
+	@Test
 	@DisplayName("an orchestrator exception with null cause is wrapped as upstream unavailable")
 	void orchestratorNullCauseWrapped() {
 		when(orchestrator.execute(any(), anyString()))
@@ -210,12 +365,17 @@ class ProxyControllerTest {
 
 	@Test
 	@DisplayName("an empty body is rejected with 400")
+	@SuppressWarnings("DataFlowIssue")
 	void emptyBodyRejected() throws Exception {
 		ResponseEntity<StreamingResponseBody> response = controller.proxyChatCompletions("", request());
 
 		assertEquals(400, response.getStatusCode().value());
 		assertTrue(body(response).contains("empty request body"));
 		verify(orchestrator, never()).execute(any(), anyString());
+
+		ResponseEntity<StreamingResponseBody> nullResponse = controller.proxyChatCompletions(null, request());
+		assertEquals(400, nullResponse.getStatusCode().value());
+		assertTrue(body(nullResponse).contains("empty request body"));
 	}
 
 	@Test
@@ -225,8 +385,13 @@ class ProxyControllerTest {
 				"{\"messages\":[]}",
 				request()
 		);
-
 		assertEquals(400, response.getStatusCode().value());
+
+		ResponseEntity<StreamingResponseBody> blankModelResp = controller.proxyChatCompletions(
+				"{\"model\":\"   \"}",
+				request()
+		);
+		assertEquals(400, blankModelResp.getStatusCode().value());
 	}
 
 	@Test
@@ -454,6 +619,33 @@ class ProxyControllerTest {
 			}
 		};
 		responseEntity.getBody().writeTo(failing);
+	}
+
+	@Test
+	@DisplayName("relay de-anonymizes PII surrogates from the PII vault when present")
+	void relayDeAnonymizesVaultSurrogates() throws Exception {
+		EphemeralPiiVault vault = new EphemeralPiiVault();
+		vault.store("<EMAIL_1>", "alice@example.com");
+		MockHttpServletRequest piiRequest = request();
+		piiRequest.setAttribute(IngressSecurityFilter.PII_VAULT_ATTRIBUTE, vault);
+
+		ProviderResponse response = providerResponse(
+				"openai", 200, sseHeaders(),
+				Stream.of(
+						"data: {\"choices\":[{\"delta\":{\"content\":\"reach <EMAIL_1> now\"}}]}",
+						"data: [DONE]"
+				)
+		);
+		when(orchestrator.execute(any(), anyString()))
+				.thenReturn(CompletableFuture.completedFuture(response));
+
+		ResponseEntity<StreamingResponseBody> entity = controller.proxyChatCompletions(PATH_BODY, piiRequest);
+		ByteArrayOutputStream out = new ByteArrayOutputStream();
+		entity.getBody().writeTo(out);
+		String written = out.toString(StandardCharsets.UTF_8);
+
+		assertEquals(200, entity.getStatusCode().value());
+		vault.close();
 	}
 
 	@Test

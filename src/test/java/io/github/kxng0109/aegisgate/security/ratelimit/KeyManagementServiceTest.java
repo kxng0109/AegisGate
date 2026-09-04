@@ -511,6 +511,7 @@ class KeyManagementServiceTest {
 		service.updateKey(hash, null, null, 500, null, null, null);
 		service.updateKey(hash, null, null, null, Set.of("m1"), null, null);
 		service.updateKey(hash, null, null, null, null, Set.of("p1"), null);
+		service.updateKey(hash, "tool-key", null, null, null, null, Set.of("postgres__*"), Set.of("*:delete_*"), null);
 		service.updateKey(hash, null, null, null, null, null, true);
 
 		// When update payload has all null fields (no-op updates map)
@@ -518,6 +519,14 @@ class KeyManagementServiceTest {
 				hash, null, null, null, null, null, null
 		);
 		assertTrue(noOpUpdate.isPresent());
+
+		// Create key with tools
+		KeyManagementService.CreatedKey createdTools = service.createKey(
+				"owner", "name", 10, 100, Set.of("m1"), Set.of("p1"), Set.of("postgres__*"), Set.of("*:delete_*")
+		);
+		assertNotNull(createdTools);
+		assertEquals(Set.of("postgres__*"), createdTools.key().allowedTools());
+		assertEquals(Set.of("*:delete_*"), createdTools.key().deniedTools());
 
 		// When key does not exist in Redis (null or false)
 		SHA256Hash missingHash = hashOf("gw-missingkey");

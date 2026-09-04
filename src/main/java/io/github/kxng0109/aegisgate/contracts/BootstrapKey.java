@@ -22,14 +22,43 @@ public record BootstrapKey(
 		int rpmLimit,
 		int tpmLimit,
 		Set<String> allowedModels,
-		Set<String> allowedProviders
+		Set<String> allowedProviders,
+		Set<String> allowedTools,
+		Set<String> deniedTools
 ) {
 	/**
-	 * Stores immutable copies of the allow lists so callers cannot mutate the
+	 * Stores immutable copies of the allow and deny lists so callers cannot mutate the
 	 * key after it is bound.
 	 */
 	public BootstrapKey {
 		allowedModels = allowedModels == null ? Set.of() : Set.copyOf(allowedModels);
 		allowedProviders = allowedProviders == null ? Set.of() : Set.copyOf(allowedProviders);
+		allowedTools = allowedTools == null ? Set.of() : Set.copyOf(allowedTools);
+		deniedTools = deniedTools == null ? Set.of() : Set.copyOf(deniedTools);
+	}
+
+	/**
+	 * Backwards-compatible constructor omitting tool-level RBAC/ABAC sets.
+	 */
+	public BootstrapKey(
+			String ownerId,
+			String name,
+			String plaintextKey,
+			int rpmLimit,
+			int tpmLimit,
+			Set<String> allowedModels,
+			Set<String> allowedProviders
+	) {
+		this(
+				ownerId,
+				name,
+				plaintextKey,
+				rpmLimit,
+				tpmLimit,
+				allowedModels,
+				allowedProviders,
+				Set.of(),
+				Set.of()
+		);
 	}
 }

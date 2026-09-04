@@ -2,7 +2,20 @@
 
 AegisGate is an AI gateway built in Java 25 on Spring Boot 4.1. It sits between your applications and large language model providers, exposing a single OpenAI compatible chat completions endpoint while handling authentication, rate limiting, secure upstream forwarding, protocol normalization, and usage based cost accounting.
 
-The project is developed in phases. Phase 1 delivered a transparent SSE streaming proxy with SSRF defense and header sanitization. Phase 2 added virtual API key authentication and distributed rate limiting backed by Redis. Phase 3 added resilient multi provider failover with distributed circuit breakers, real-time streaming guardrails (ingress secret scanning, ephemeral PII vault with Nigerian regulatory compliance, prompt injection defense, streaming JSON PDA validator, and mid-stream kill switch), and geo-sovereignty compliance with Merkle audit receipts. Phase 4 added universal protocol normalization (OpenAI, Anthropic Claude, Google Gemini, Google Cloud Vertex AI, DeepSeek V3/R1/V4, Cohere, Ollama), streaming extended reasoning extraction (`<think>` tags and native thinking deltas), a 50,000 RPS lock-free Disruptor RingBuffer queue, a dual-trigger micro-batch PostgreSQL writer, a resilient append-only Spillway WAL disk journal, and a FinOps FOCUS 1.4 prompt caching cost engine.
+The project is developed in phases. Phase 1 delivered a transparent SSE streaming proxy with SSRF defense and header
+sanitization. Phase 2 added virtual API key authentication and distributed rate limiting backed by Redis. Phase 3 added
+resilient multi provider failover with distributed circuit breakers, real-time streaming guardrails (ingress secret
+scanning, ephemeral PII vault with Nigerian regulatory compliance, prompt injection defense, streaming JSON PDA
+validator, and mid-stream kill switch), and geo-sovereignty compliance with Merkle audit receipts. Phase 4 added
+universal protocol normalization (OpenAI, Anthropic Claude, Google Gemini, Google Cloud Vertex AI, DeepSeek V3/R1/V4,
+Cohere, Ollama), streaming extended reasoning extraction (`<think>` tags and native thinking deltas), a 50,000 RPS
+lock-free Disruptor RingBuffer queue, a dual-trigger micro-batch PostgreSQL writer, a resilient append-only Spillway WAL
+disk journal, and a FinOps FOCUS 1.4 prompt caching cost engine. Phase 6 added the Enterprise Model Context Protocol
+(MCP) Security & Tool Governance Gateway: a unified `POST /v1/mcp` Streamable HTTP endpoint (plus a legacy
+`GET /v1/mcp/sse` bridge for Claude Desktop-class clients), federated tool/resource/prompt catalogs across upstream MCP
+servers with deterministic `server__tool` namespacing, tool-level RBAC/ABAC on virtual keys, JSON Schema Draft 2020-12
+argument validation, credential/injection guardrails on tool I/O, Human-in-the-Loop approval enforcement with
+AES-256-GCM resumption tokens, and per-server circuit breaking with auto-pruning of degraded tools.
 
 ## What it does
 
@@ -181,6 +194,73 @@ AegisGate provides universal tool and function calling across all upstream provi
 
 Cost is attributed against the model the provider reports, falling back to the requested model when the provider never reports one. On the OpenAI compatible path the gateway always asks the upstream for usage so it can bill, but the usage chunk is only relayed to a client that explicitly asked for it.
 
+## Model Context Protocol (MCP) Gateway
+
+AegisGate acts as an enterprise Model Context Protocol (MCP) security and tool governance gateway between MCP clients
+(Claude Desktop, Cursor-class IDE integrations, custom MCP SDKs) and any number of upstream MCP servers (PostgreSQL,
+GitHub, local sandboxes, SaaS tools). It exposes one client-facing endpoint per protocol era:
+
+- **`POST /v1/mcp` — Streamable HTTP (protocol `2026-07-28`)**: STATELESS JSON-RPC 2.0 requests with fast-path L7 header
+  routing (`Mcp-Method`, `Mcp-Name`, MIME Base64 sentinels), `MCP-Protocol-Version` negotiation, and zero-buffer
+  proxying over virtual threads.
+- **`GET /v1/mcp/sse` + `POST /v1/mcp/message` — Legacy HTTP+SSE bridge (protocols `2025-11-25` / `2024-11-05`)**:
+  backwards-compatible endpoint event handshake for pre-2026 clients.
+
+Supported methods: `initialize`, `ping`, `tools/list`, `tools/call`, `resources/list`, `prompts/list`, and the
+`notifications/*` lifecycle notifications (with instant L0 catalog invalidation on `notifications/tools/list_changed`).
+
+### Tool governance & security model
+
+- **Federated catalogs with deterministic namespacing**: `McpCatalogAggregator` fans out `tools/list`, `resources/list`,
+  and `prompts/list` to every enabled upstream server in parallel virtual threads, then presents the union to clients as
+  `server_id__tool_name` (e.g. `postgres__run_query`). This prevents tool shadowing, namespace collisions, and prompt
+  hijacking across servers.
+- **Tool-level RBAC/ABAC**: every virtual API key carries `allowedTools` / `deniedTools` glob policies (e.g.
+  `postgres__*`, `*:delete_*`). Tools are pruned from `tools/list` per caller and denied at `tools/call` with JSON-RPC
+  error `-32025`.
+- **JSON Schema Draft 2020-12 parameter validation**: tool arguments are validated strictly (required fields, types,
+  string bounds, regex formats, IEEE 754 safe-integer limits, `additionalProperties: false`) with dangerous-path
+  pre-filtering for path traversal and command separators.
+- **Ingress/egress guardrails**: tool arguments are scanned for credential leakage before dispatch; tool results are
+  wrapped in nonced `<tool_result nonce="..." context="EXTERNAL_UNTRUSTED_DATA">` tags and screened for indirect prompt
+  injection markers.
+- **Human-in-the-Loop (HITL) execution suspension**: tools declared via `hitlRequiredTools` are suspended with an MCP
+  `InputRequiredResult` carrying an AES-256-GCM `requestState` resumption token (SHA-256 argument fingerprint, tenant
+  binding, 300-second TTL, single-use Redis replay protection). Administrators review and approve/reject via
+  `GET/POST /v1/admin/mcp/approvals/{tokenId}[/approve|/reject]`.
+- **Resilience**: each upstream server runs an in-memory atomic CAS circuit breaker (`McpServerCircuitBreakerManager`);
+  tripped servers are automatically pruned from the federated catalog and reject calls with error `-32024`. A dedicated
+  HTTP/2 multiplexed client (`mcpHttpClient`, `Redirect.NEVER`) keeps connection counts and SSRF exposure minimal.
+
+### Configuration
+
+Configure upstream servers under the `gateway.mcp` prefix in `application.yml`:
+
+```yaml
+gateway:
+  mcp:
+    enabled: true
+    default-protocol-version: "2026-07-28"
+    allow-legacy-sse: true
+    hitl-suspension-ttl: 300s
+    hitl-secret: ${AEGIS_MCP_HITL_SECRET}      # 32-byte secret for AEAD resumption tokens
+    circuit-breaker-failure-threshold: 3
+    circuit-breaker-cooldown: 30s
+    catalog-cache-ttl: 5m
+    catalog-refresh-cron: "0 */5 * * * *"
+    servers:
+      postgres:
+        transport: STREAMABLE_HTTP
+        base-url: "http://mcp-postgres:8080"
+        api-key: ${POSTGRES_MCP_KEY}
+        connect-timeout: 5s
+        request-timeout: 30s
+        hitl-required-tools: [ "execute_sql", "*:delete_*" ]
+      github:
+        transport: STREAMABLE_HTTP
+        base-url: "http://mcp-github:8080"
+```
+
 ## Usage and cost ledger
 
 Every completed stream that carries token usage is written to a PostgreSQL ledger through an asynchronous, lock-free, zero-loss ingestion pipeline:
@@ -210,6 +290,23 @@ The code is organized by responsibility under `src/main/java/io/github/kxng0109/
 - `proxy/protocol` contains dialect adapters and SSE normalizers: `ProtocolAdapterResolver`, `OpenAiPassthroughAdapter`, `AnthropicAdapter`, `GeminiAdapter`, `DeepSeekAdapter`, `OllamaAdapter`, `UniversalToolNormalizer`, `ThinkingStreamStateNormalizer`, `AnthropicSseNormalizer`, `GeminiSseNormalizer`, `DeepSeekSseNormalizer`, `OllamaSseNormalizer`, and `OpenAiSseNormalizer`.
 - `proxy/sse` contains streaming protection and guardrails: `BoundedLineBodyHandler`, `DefaultSseLineGuard`, `DefaultSseLineGuardFactory`, `SseLineGuardProperties`, `SseLineGuardAutoConfig`, `AdaptiveSseFlushStrategy`, `SseFlushStrategy`, `SseFlushProperties`, `SseFlushAutoConfig`, `SseFlushConfigReloader`, `SseFlushHealthIndicator`, `TokenBucket`, and `LineTooLongException`.
 - `ledger/queue` contains high-throughput ingestion components: `DisruptorUsageLedgerQueue` and `MicroBatchLedgerWriter`.
+- `mcp/contracts` contains the MCP JSON-RPC 2.0 domain models: `McpJsonRpcRequest`, `McpJsonRpcResponse`,
+  `McpJsonRpcError`, `McpToolDefinition`, `McpResourceDefinition`, `McpPromptDefinition`, `McpServerConfig`,
+  `McpTransportType`, `McpPromptArgument`, and `McpProtocolVersion`.
+- `mcp/config` contains the MCP gateway configuration (`McpGatewayProperties`, prefix `gateway.mcp`) and the dedicated
+  HTTP/2 upstream client (`McpHttpClientConfig`).
+- `mcp/protocol` contains the MCP transports: `McpStreamableHttpController` (Streamable HTTP 2026-07-28 + legacy SSE
+  bridge), `McpHeaderNormalizer` (L7 fast-path headers and MIME Base64 sentinels), and `McpSseEventFormatter`.
+- `mcp/router` contains the federated catalog layer: `McpRouter` (deterministic `server__tool` namespacing),
+  `McpCatalogAggregator` (parallel virtual-thread federation), `McpCatalogCache` (L0 Caffeine W-TinyLFU),
+  `McpAggregatedCatalog`, and `McpResolvedRoute`.
+- `mcp/security` contains the tool governance firewall: `McpToolRbacPolicyEngine` (glob allow/deny),
+  `McpJsonSchemaValidator` (Draft 2020-12), and `McpGuardrailScanner` (credential scanning + nonced tool-result
+  wrapping).
+- `mcp/hitl` contains Human-in-the-Loop governance: `McpHitlSuspensionEngine`, `McpAeadResumptionTokenService`
+  (AES-256-GCM), `McpResumptionClaims`, and `AdminMcpApprovalController` (`/v1/admin/mcp/approvals/**`).
+- `mcp/resilience` contains `McpServerCircuitBreakerManager` with per-server atomic CAS circuit breaking and catalog
+  auto-pruning.
 - `ledger` contains the FinOps ledger engine: `FinOpsPromptCacheCalculator`, `SpillwayJournalManager`, `UsageLedgerListener`, `UsageLedgerRepository`, `UsageLedgerRepositoryImpl`, `UsageLedgerService`, `CostCalculator`, `ModelPriceCatalog`, `ModelPricingRepository`, and `PricingSyncService`.
 - `proxy` contains `ProxyController` and shared `HttpClient` bean in `proxy/config/HttpClientConfig.java`.
 - `config` contains `SensitiveString`, OpenAPI configuration `OpenApiConfig`, and retrying `DatabaseMigrator`.
@@ -462,8 +559,18 @@ Run the full suite with coverage and the packaging step:
 ./mvnw clean verify
 ```
 
-The suite currently has 1,031 tests (100% passing):
+The suite currently has 1,147 tests (100% passing):
 
+- Enterprise Model Context Protocol (MCP) gateway tests in `mcp/*`: `McpContractsAndDtoTest`, `McpHeaderNormalizerTest`,
+  `McpSseEventFormatterTest`, `McpStreamableHttpControllerTest`, `McpAdversarialCoverageTest`,
+  `McpFullCoverageBranchTest`, `McpRouterTest`, `McpCatalogCacheTest`, `McpCatalogAggregatorTest`,
+  `McpToolRbacPolicyEngineTest`, `McpJsonSchemaValidatorTest`, `McpGuardrailScannerTest`,
+  `McpAeadResumptionTokenServiceTest`, `McpHitlSuspensionEngineTest`, `AdminMcpApprovalControllerTest`,
+  `McpServerCircuitBreakerManagerTest`, `McpStressAndConcurrencyHarnessTest`, and `CoverageCompletionTest` covering
+  JSON-RPC 2.0 framing and error codes (-32700..-32025), protocol version negotiation, AES-256-GCM resumption token
+  tamper/expiry/owner-bound attack vectors, single-use Redis replay prevention, glob-pattern RBAC, JSON Schema Draft
+  2020-12 bounds, tool shadowing/namespacing collisions, circuit-breaker auto-pruning, malformed upstream payloads,
+  white-box usage-projection fixtures, and a 10,000 virtual-thread simultaneous burst harness.
 - Extended reasoning and streaming normalizer tests in `proxy/protocol`: `ThinkingStreamStateNormalizerTest`,
   `ProtocolNormalizerAdversarialTest`, Anthropic Claude 3.5/3.7 thinking & tool calling tests, and Ollama NDJSON edge cases
   covering $O(1)$ sliding carry buffer `<think>` tag extraction into `delta.reasoning_content`, Anthropic `thinking_delta`
@@ -524,7 +631,12 @@ The suite currently has 1,031 tests (100% passing):
 - A Testcontainers integration test in `ledger/UsageLedgerIntegrationTest.java` that runs the ledger against a real PostgreSQL container and verifies async persistence, duplicate request handling, the seeded prices, and a pricing refresh.
 - A context load test that verifies the application starts without a live Redis or PostgreSQL.
 
-JaCoCo enforces a minimum coverage of 95 percent on every counter at the bundle level. The circuit breaker and orchestrator retry and race coordination branches are excluded from the gate because they cannot be reached deterministically; the state transitions and failover semantics themselves are fully covered. The Mockito inline mock maker is attached as a Java agent through the `argLine` Maven property, so the suite is future proof against the JDK restriction on self attachment.
+JaCoCo enforces a minimum coverage of 95 percent on every counter at the bundle level. The current gate passes at
+**INSTRUCTION 99.22%, BRANCH 96.25%, LINE 98.95%, COMPLEXITY 95.20%, METHOD 100%, and CLASS 100%** (1,147 tests). The
+circuit breaker and orchestrator retry and race coordination branches are excluded from the gate because they cannot be
+reached deterministically; the state transitions and failover semantics themselves are fully covered. The Mockito inline
+mock maker is attached as a Java agent through the `argLine` Maven property, so the suite is future proof against the
+JDK restriction on self attachment.
 
 ## Design notes
 

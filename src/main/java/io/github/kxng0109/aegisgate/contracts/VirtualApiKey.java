@@ -29,15 +29,50 @@ public record VirtualApiKey(
 		int tpmLimit,
 		Set<String> allowedModels,
 		Set<String> allowedProviders,
+		Set<String> allowedTools,
+		Set<String> deniedTools,
 		boolean enabled,
 		Instant createdAt
 ) {
 	/**
-	 * Stores immutable copies of the allow lists so callers cannot mutate the
+	 * Stores immutable copies of the allow and deny lists so callers cannot mutate the
 	 * key metadata after it is resolved.
 	 */
 	public VirtualApiKey {
 		allowedModels = allowedModels == null ? Set.of() : Set.copyOf(allowedModels);
 		allowedProviders = allowedProviders == null ? Set.of() : Set.copyOf(allowedProviders);
+		allowedTools = allowedTools == null ? Set.of() : Set.copyOf(allowedTools);
+		deniedTools = deniedTools == null ? Set.of() : Set.copyOf(deniedTools);
+	}
+
+	/**
+	 * Backwards-compatible constructor omitting tool-level RBAC/ABAC sets.
+	 */
+	public VirtualApiKey(
+			SHA256Hash keyHash,
+			String keyPrefix,
+			String ownerId,
+			String name,
+			int rpmLimit,
+			int tpmLimit,
+			Set<String> allowedModels,
+			Set<String> allowedProviders,
+			boolean enabled,
+			Instant createdAt
+	) {
+		this(
+				keyHash,
+				keyPrefix,
+				ownerId,
+				name,
+				rpmLimit,
+				tpmLimit,
+				allowedModels,
+				allowedProviders,
+				Set.of(),
+				Set.of(),
+				enabled,
+				createdAt
+		);
 	}
 }

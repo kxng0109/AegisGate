@@ -117,7 +117,9 @@ public class KeyManagementService {
 				template.rpmLimit(),
 				template.tpmLimit(),
 				template.allowedModels(),
-				template.allowedProviders()
+				template.allowedProviders(),
+				template.allowedTools(),
+				template.deniedTools()
 		);
 		return plaintext;
 	}
@@ -142,6 +144,32 @@ public class KeyManagementService {
 			Set<String> allowedModels,
 			Set<String> allowedProviders
 	) {
+		return createKey(ownerId, name, rpmLimit, tpmLimit, allowedModels, allowedProviders, Set.of(), Set.of());
+	}
+
+	/**
+	 * Creates a new virtual API key with model, provider, and tool-level RBAC/ABAC rules.
+	 *
+	 * @param ownerId          owner identifier
+	 * @param name             label for the key
+	 * @param rpmLimit         requests per minute limit (0 = unlimited)
+	 * @param tpmLimit         tokens per minute limit (0 = unlimited)
+	 * @param allowedModels    allowed model names (empty = all)
+	 * @param allowedProviders allowed provider names (empty = all)
+	 * @param allowedTools     allowed tool names or glob patterns (empty = all)
+	 * @param deniedTools      denied tool names or glob patterns (empty = none)
+	 * @return the created key object containing the plaintext and metadata
+	 */
+	public CreatedKey createKey(
+			String ownerId,
+			String name,
+			int rpmLimit,
+			int tpmLimit,
+			Set<String> allowedModels,
+			Set<String> allowedProviders,
+			Set<String> allowedTools,
+			Set<String> deniedTools
+	) {
 		String plaintext = randomPlaintext();
 		Instant now = Instant.now();
 		SHA256Hash hash = SHA256Hash.fromRawKey(plaintext);
@@ -155,10 +183,22 @@ public class KeyManagementService {
 				tpmLimit,
 				allowedModels,
 				allowedProviders,
+				allowedTools,
+				deniedTools,
 				true,
 				now
 		);
-		storeKey(plaintext, ownerId, name, rpmLimit, tpmLimit, allowedModels, allowedProviders);
+		storeKey(
+				plaintext,
+				ownerId,
+				name,
+				rpmLimit,
+				tpmLimit,
+				allowedModels,
+				allowedProviders,
+				allowedTools,
+				deniedTools
+		);
 		return new CreatedKey(hash, plaintext, metadata);
 	}
 
@@ -211,6 +251,34 @@ public class KeyManagementService {
 			Set<String> allowedProviders,
 			Boolean enabled
 	) {
+		return updateKey(hash, name, rpmLimit, tpmLimit, allowedModels, allowedProviders, null, null, enabled);
+	}
+
+	/**
+	 * Updates an existing key's metadata including tool governance rules, invalidating the local cache.
+	 *
+	 * @param hash             key hash to update
+	 * @param name             new name (or null to keep)
+	 * @param rpmLimit         new RPM limit (or null to keep)
+	 * @param tpmLimit         new TPM limit (or null to keep)
+	 * @param allowedModels    new allowed models (or null to keep)
+	 * @param allowedProviders new allowed providers (or null to keep)
+	 * @param allowedTools     new allowed tools (or null to keep)
+	 * @param deniedTools      new denied tools (or null to keep)
+	 * @param enabled          new enabled state (or null to keep)
+	 * @return the updated key metadata, or empty if key was not found
+	 */
+	public Optional<VirtualApiKey> updateKey(
+			SHA256Hash hash,
+			String name,
+			Integer rpmLimit,
+			Integer tpmLimit,
+			Set<String> allowedModels,
+			Set<String> allowedProviders,
+			Set<String> allowedTools,
+			Set<String> deniedTools,
+			Boolean enabled
+	) {
 		String key = redisKey(hash);
 		if (Boolean.FALSE.equals(redisTemplate.hasKey(key))) {
 			return Optional.empty();
@@ -230,6 +298,12 @@ public class KeyManagementService {
 		}
 		if (allowedProviders != null) {
 			updates.put("allowedProviders", toCsv(allowedProviders));
+		}
+		if (allowedTools != null) {
+			updates.put("allowedTools", toCsv(allowedTools));
+		}
+		if (deniedTools != null) {
+			updates.put("deniedTools", toCsv(deniedTools));
 		}
 		if (enabled != null) {
 			updates.put("enabled", enabled.toString());
@@ -305,7 +379,9 @@ public class KeyManagementService {
 						bootstrapKey.rpmLimit(),
 						bootstrapKey.tpmLimit(),
 						bootstrapKey.allowedModels(),
-						bootstrapKey.allowedProviders()
+						bootstrapKey.allowedProviders(),
+						bootstrapKey.allowedTools(),
+						bootstrapKey.deniedTools()
 				);
 			}
 		}
@@ -318,7 +394,9 @@ public class KeyManagementService {
 			int rpmLimit,
 			int tpmLimit,
 			Set<String> allowedModels,
-			Set<String> allowedProviders
+			Set<String> allowedProviders,
+			Set<String> allowedTools,
+			Set<String> deniedTools
 	) {
 		SHA256Hash hash = SHA256Hash.fromRawKey(plaintextKey);
 		Map<String, String> fields = new LinkedHashMap<>();
@@ -329,6 +407,8 @@ public class KeyManagementService {
 		fields.put("enabled", "true");
 		fields.put("allowedModels", toCsv(allowedModels));
 		fields.put("allowedProviders", toCsv(allowedProviders));
+		fields.put("allowedTools", toCsv(allowedTools));
+		fields.put("deniedTools", toCsv(deniedTools));
 		fields.put("createdAt", Instant.now().toString());
 		fields.put("keyPrefix", prefixOf(plaintextKey));
 		redisTemplate.opsForHash().putAll(redisKey(hash), fields);
@@ -356,6 +436,8 @@ public class KeyManagementService {
 			boolean enabled = Boolean.parseBoolean((String) raw.get("enabled"));
 			Set<String> allowedModels = parseCsv((String) raw.get("allowedModels"));
 			Set<String> allowedProviders = parseCsv((String) raw.get("allowedProviders"));
+			Set<String> allowedTools = parseCsv((String) raw.get("allowedTools"));
+			Set<String> deniedTools = parseCsv((String) raw.get("deniedTools"));
 			Instant createdAt = Instant.parse((String) raw.get("createdAt"));
 			String keyPrefix = (String) raw.getOrDefault("keyPrefix", KEY_PREFIX_RAW);
 			return Optional.of(new VirtualApiKey(
@@ -367,6 +449,8 @@ public class KeyManagementService {
 					tpmLimit,
 					allowedModels,
 					allowedProviders,
+					allowedTools,
+					deniedTools,
 					enabled,
 					createdAt
 			));

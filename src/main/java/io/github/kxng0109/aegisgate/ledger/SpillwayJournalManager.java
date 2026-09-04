@@ -141,26 +141,30 @@ public class SpillwayJournalManager {
 			}
 
 			int replayedCount = 0;
-			for (int i = 0; i < recovered.size(); i++) {
-				TokenUsageEvent event = recovered.get(i);
-				try {
-					consumer.accept(event);
-					replayedCount++;
-					recordReplayMetric(event.provider());
-				} catch (RuntimeException ex) {
-					log.warn(
-							"Replay failed for request {}: {}; stopping replay cycle",
-							event.requestId(),
-							ex.getMessage()
-					);
-					// Put back this failed event and all remaining unattempted events
-					List<TokenUsageEvent> remaining = recovered.subList(i, recovered.size());
-					appendBatch(remaining, "Replay deferred: " + ex.getMessage());
-					break;
+			try {
+				for (int i = 0; i < recovered.size(); i++) {
+					TokenUsageEvent event = recovered.get(i);
+					try {
+						consumer.accept(event);
+						replayedCount++;
+						recordReplayMetric(event.provider());
+					} catch (RuntimeException ex) {
+						log.warn(
+								"Replay failed for request {}: {}; stopping replay cycle",
+								event.requestId(),
+								ex.getMessage()
+						);
+						// Put back this failed event and all remaining unattempted events
+						List<TokenUsageEvent> remaining = recovered.subList(i, recovered.size());
+						appendBatch(remaining, "Replay deferred: " + ex.getMessage());
+						break;
+					}
 				}
+			} finally {
+				// The staging file must always be removed, even when replay defers events.
+				Files.deleteIfExists(stagingPath);
 			}
 
-			Files.deleteIfExists(stagingPath);
 			log.info("Successfully replayed {} usage records from spillway journal", replayedCount);
 			return replayedCount;
 		} catch (IOException ex) {

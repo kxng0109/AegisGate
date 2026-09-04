@@ -26,6 +26,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * REST controller for administrative management of virtual API keys under {@code /v1/admin/keys}.
@@ -84,14 +85,28 @@ public class AdminKeyController {
 	})
 	@PostMapping
 	public ResponseEntity<CreatedKeyResponse> createKey(@Valid @RequestBody CreateKeyRequest request) {
-		KeyManagementService.CreatedKey created = keyManagementService.createKey(
-				request.ownerId(),
-				request.name(),
-				request.rpmLimit(),
-				request.tpmLimit(),
-				request.allowedModels(),
-				request.allowedProviders()
-		);
+		KeyManagementService.CreatedKey created;
+		if (request.allowedTools().isEmpty() && request.deniedTools().isEmpty()) {
+			created = keyManagementService.createKey(
+					request.ownerId(),
+					request.name(),
+					request.rpmLimit(),
+					request.tpmLimit(),
+					request.allowedModels(),
+					request.allowedProviders()
+			);
+		} else {
+			created = keyManagementService.createKey(
+					request.ownerId(),
+					request.name(),
+					request.rpmLimit(),
+					request.tpmLimit(),
+					request.allowedModels(),
+					request.allowedProviders(),
+					request.allowedTools(),
+					request.deniedTools()
+			);
+		}
 		CreatedKeyResponse response = new CreatedKeyResponse(
 				created.hash().hex(),
 				created.plaintextKey(),
@@ -102,6 +117,8 @@ public class AdminKeyController {
 				created.key().tpmLimit(),
 				created.key().allowedModels(),
 				created.key().allowedProviders(),
+				created.key().allowedTools(),
+				created.key().deniedTools(),
 				created.key().enabled(),
 				created.key().createdAt()
 		);
@@ -199,18 +216,33 @@ public class AdminKeyController {
 			@Valid @RequestBody UpdateKeyRequest request
 	) {
 		SHA256Hash hash = parseHash(hashHex);
-		return keyManagementService.updateKey(
-				                           hash,
-				                           request.name(),
-				                           request.rpmLimit(),
-				                           request.tpmLimit(),
-				                           request.allowedModels(),
-				                           request.allowedProviders(),
-				                           request.enabled()
-		                           )
-		                           .map(this::toKeyResponse)
-		                           .map(ResponseEntity::ok)
-		                           .orElseGet(() -> ResponseEntity.notFound().build());
+		Optional<VirtualApiKey> updated;
+		if (request.allowedTools() == null && request.deniedTools() == null) {
+			updated = keyManagementService.updateKey(
+					hash,
+					request.name(),
+					request.rpmLimit(),
+					request.tpmLimit(),
+					request.allowedModels(),
+					request.allowedProviders(),
+					request.enabled()
+			);
+		} else {
+			updated = keyManagementService.updateKey(
+					hash,
+					request.name(),
+					request.rpmLimit(),
+					request.tpmLimit(),
+					request.allowedModels(),
+					request.allowedProviders(),
+					request.allowedTools(),
+					request.deniedTools(),
+					request.enabled()
+			);
+		}
+		return updated.map(this::toKeyResponse)
+		              .map(ResponseEntity::ok)
+		              .orElseGet(() -> ResponseEntity.notFound().build());
 	}
 
 	/**
@@ -255,6 +287,8 @@ public class AdminKeyController {
 				key.tpmLimit(),
 				key.allowedModels(),
 				key.allowedProviders(),
+				key.allowedTools(),
+				key.deniedTools(),
 				key.enabled(),
 				key.createdAt()
 		);

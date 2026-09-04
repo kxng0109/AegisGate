@@ -21,7 +21,7 @@ class OpenApiConfigTest {
 		assertThat(openAPI.getOpenapi()).isEqualTo("3.1.0");
 		assertThat(openAPI.getInfo()).isNotNull();
 		assertThat(openAPI.getInfo().getTitle()).contains("AegisGate");
-		assertThat(openAPI.getInfo().getVersion()).isEqualTo("1.3.0");
+		assertThat(openAPI.getInfo().getVersion()).isEqualTo("1.4.0");
 		assertThat(openAPI.getInfo().getLicense().getIdentifier()).isEqualTo("Apache-2.0");
 		assertThat(openAPI.getInfo().getContact()).isNotNull();
 		assertThat(openAPI.getServers()).hasSize(2);
@@ -50,7 +50,7 @@ class OpenApiConfigTest {
 		GroupedOpenApi publicApi = openApiConfig.publicGatewayApi();
 		assertThat(publicApi.getGroup()).isEqualTo("1-public-gateway");
 		assertThat(publicApi.getDisplayName()).contains("Public Gateway");
-		assertThat(publicApi.getPathsToMatch()).containsExactly("/v1/chat/**", "/v1/embeddings/**");
+		assertThat(publicApi.getPathsToMatch()).containsExactly("/v1/chat/**", "/v1/embeddings/**", "/v1/mcp/**");
 
 		OpenAPI publicOpenApi = new OpenAPI();
 		publicApi.getOpenApiCustomizers().forEach(c -> c.customise(publicOpenApi));

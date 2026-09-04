@@ -16,6 +16,8 @@ import java.util.Set;
  * @param tpmLimit         tokens per minute limit
  * @param allowedModels    allowed models
  * @param allowedProviders allowed providers
+ * @param allowedTools     allowed tools
+ * @param deniedTools      denied tools
  * @param enabled          whether the key is active
  * @param createdAt        creation timestamp
  */
@@ -45,10 +47,43 @@ public record KeyResponse(
 		@Schema(description = "Allowed upstream providers", example = "[\"openai\"]")
 		Set<String> allowedProviders,
 
+		@Schema(description = "Allowed MCP tools", example = "[\"postgres__*\"]")
+		Set<String> allowedTools,
+
+		@Schema(description = "Denied MCP tools", example = "[\"*:delete_*\"]")
+		Set<String> deniedTools,
+
 		@Schema(description = "Whether key is enabled", example = "true")
 		boolean enabled,
 
 		@Schema(description = "Creation timestamp (ISO-8601)", example = "2026-09-01T12:00:00Z")
 		Instant createdAt
 ) {
+	public KeyResponse(
+			String keyId,
+			String keyPrefix,
+			String ownerId,
+			String name,
+			int rpmLimit,
+			int tpmLimit,
+			Set<String> allowedModels,
+			Set<String> allowedProviders,
+			boolean enabled,
+			Instant createdAt
+	) {
+		this(
+				keyId,
+				keyPrefix,
+				ownerId,
+				name,
+				rpmLimit,
+				tpmLimit,
+				allowedModels,
+				allowedProviders,
+				Set.of(),
+				Set.of(),
+				enabled,
+				createdAt
+		);
+	}
 }

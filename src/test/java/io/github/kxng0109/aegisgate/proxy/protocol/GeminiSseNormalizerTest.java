@@ -239,4 +239,27 @@ class GeminiSseNormalizerTest {
 		assertEquals(0, outputOnlyNorm.usage().promptTokens());
 		assertEquals(25, outputOnlyNorm.usage().completionTokens());
 	}
+
+	@Test
+	@DisplayName("handles empty thought and text parts without outputting empty lines")
+	void handlesEmptyThoughtAndTextParts() {
+		GeminiSseNormalizer normalizer = new GeminiSseNormalizer(objectMapper, "m", false);
+		String emptyPartsLine = "data: {\"candidates\": [{\"content\": {\"parts\": [{\"thought\": true, \"text\": \"\"}, {\"text\": \"\"}]}}]}";
+		List<String> output = normalizer.normalizeLine(emptyPartsLine);
+		assertTrue(output.isEmpty());
+	}
+
+	@Test
+	@DisplayName("normalizes SAFETY and MAX_TOKENS finish reasons")
+	void normalizesSafetyAndMaxTokens() {
+		GeminiSseNormalizer safetyNorm = new GeminiSseNormalizer(objectMapper, "m", false);
+		List<String> safetyOut = safetyNorm.normalizeLine("data: {\"candidates\": [{\"finishReason\": \"SAFETY\"}]}");
+		assertEquals(2, safetyOut.size());
+		assertTrue(safetyOut.getFirst().contains("\"finish_reason\":\"content_filter\""));
+
+		GeminiSseNormalizer maxTokensNorm = new GeminiSseNormalizer(objectMapper, "m", false);
+		List<String> maxOut = maxTokensNorm.normalizeLine("data: {\"candidates\": [{\"finishReason\": \"MAX_TOKENS\"}]}");
+		assertEquals(2, maxOut.size());
+		assertTrue(maxOut.getFirst().contains("\"finish_reason\":\"length\""));
+	}
 }

@@ -13,6 +13,8 @@ import java.util.Set;
  * @param tpmLimit         new TPM limit (or null to preserve)
  * @param allowedModels    new allowed models (or null to preserve)
  * @param allowedProviders new allowed providers (or null to preserve)
+ * @param allowedTools     new allowed tools (or null to preserve)
+ * @param deniedTools      new denied tools (or null to preserve)
  * @param enabled          new enabled state (or null to preserve)
  */
 @Schema(name = "UpdateKeyRequest", description = "Patch payload for modifying virtual key quotas, allowlists, or enabled status")
@@ -34,7 +36,23 @@ public record UpdateKeyRequest(
 		@Schema(description = "New allowed providers set (optional)", example = "[\"openai\", \"anthropic\"]")
 		Set<String> allowedProviders,
 
+		@Schema(description = "New allowed MCP tools set (optional)", example = "[\"postgres__*\"]")
+		Set<String> allowedTools,
+
+		@Schema(description = "New denied MCP tools set (optional)", example = "[\"*:delete_*\"]")
+		Set<String> deniedTools,
+
 		@Schema(description = "Enable or disable key (optional)", example = "true")
 		Boolean enabled
 ) {
+	public UpdateKeyRequest(
+			String name,
+			Integer rpmLimit,
+			Integer tpmLimit,
+			Set<String> allowedModels,
+			Set<String> allowedProviders,
+			Boolean enabled
+	) {
+		this(name, rpmLimit, tpmLimit, allowedModels, allowedProviders, null, null, enabled);
+	}
 }

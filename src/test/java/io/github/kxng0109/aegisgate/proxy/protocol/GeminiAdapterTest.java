@@ -481,4 +481,24 @@ class GeminiAdapterTest {
 		assertEquals("STOP2", genConfig.path("stopSequences").get(1).asString());
 		assertEquals(0, res.path("contents").get(0).path("parts").size());
 	}
+
+	@Test
+	@DisplayName("translates json_object response format and thinking config")
+	void translatesJsonObjectAndThinkingConfig() throws Exception {
+		String body = """
+				{
+				  "model": "gemini-2.5-flash",
+				  "messages": [
+				    {"role": "user", "content": "Generate JSON"}
+				  ],
+				  "response_format": {"type": "json_object"},
+				  "reasoning_effort": "high",
+				  "thinking": {"type": "enabled"}
+				}""";
+
+		JsonNode res = objectMapper.readTree(adapter.buildRequestBody(body, null));
+		JsonNode genConfig = res.path("generationConfig");
+		assertEquals("application/json", genConfig.path("responseMimeType").asString());
+		assertTrue(genConfig.path("thinkingConfig").path("includeThoughts").asBoolean());
+	}
 }

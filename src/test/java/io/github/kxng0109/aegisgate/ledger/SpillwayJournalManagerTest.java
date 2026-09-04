@@ -1,6 +1,7 @@
 package io.github.kxng0109.aegisgate.ledger;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -36,6 +37,35 @@ class SpillwayJournalManagerTest {
 				new ObjectMapper(),
 				meterRegistry
 		);
+	}
+
+	@AfterEach
+	void cleanUp() throws IOException {
+		// Windows releases file handles asynchronously; recursive delete with short retries is
+		// deterministic here, and it removes staging *.replay.* files as well as the journal itself.
+		for (int attempt = 0; attempt < 3; attempt++) {
+			if (!Files.exists(tempDir)) {
+				return;
+			}
+			try (var paths = Files.walk(tempDir)) {
+				paths.sorted(java.util.Comparator.reverseOrder()).forEach(p -> {
+					try {
+						Files.deleteIfExists(p);
+					} catch (IOException ignored) {
+						// Retried in the next attempt.
+					}
+				});
+			}
+			if (!Files.exists(tempDir)) {
+				return;
+			}
+			try {
+				Thread.sleep(100);
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				return;
+			}
+		}
 	}
 
 	@Test
@@ -153,14 +183,18 @@ class SpillwayJournalManagerTest {
 
 		// Test appendBatch I/O exception when writing to a directory path
 		Path dirAsFile = tempDir.resolve("dir-as-file");
-		Files.createDirectory(dirAsFile);
-		SpillwayJournalManager unwriteableMgr = new SpillwayJournalManager(
-				dirAsFile.toString(),
-				new ObjectMapper(),
-				meterRegistry
-		);
-		// Writing directly to directory as file path throws IOException, which is caught and logged
-		unwriteableMgr.append(event, "err");
+		try {
+			Files.createDirectory(dirAsFile);
+			SpillwayJournalManager unwriteableMgr = new SpillwayJournalManager(
+					dirAsFile.toString(),
+					new ObjectMapper(),
+					meterRegistry
+			);
+			// Writing directly to directory as file path throws IOException, which is caught and logged
+			unwriteableMgr.append(event, "err");
+		} finally {
+			Files.deleteIfExists(dirAsFile);
+		}
 	}
 
 	@Test

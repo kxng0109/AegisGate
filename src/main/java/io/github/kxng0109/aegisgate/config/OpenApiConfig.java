@@ -40,7 +40,7 @@ public class OpenApiConfig {
 				.openapi("3.1.0")
 				.info(new Info()
 						      .title("AegisGate AI Gateway & Resilient Reverse Proxy")
-						      .version("1.3.0")
+						      .version("1.4.0")
 						      .summary(
 								      "Enterprise-grade AI proxy gateway with rate limiting, multi-tier caching, universal tool calling, and failover")
 						      .description("""
@@ -118,7 +118,7 @@ public class OpenApiConfig {
 		return GroupedOpenApi.builder()
 		                     .group("1-public-gateway")
 		                     .displayName("1. Public Gateway APIs")
-		                     .pathsToMatch("/v1/chat/**", "/v1/embeddings/**")
+		                     .pathsToMatch("/v1/chat/**", "/v1/embeddings/**", "/v1/mcp/**")
 		                     .addOpenApiCustomizer(openApi -> openApi.addSecurityItem(
 				                     new SecurityRequirement().addList(SCHEME_BEARER_AUTH)))
 		                     .build();
