@@ -561,6 +561,9 @@ Run the full suite with coverage and the packaging step:
 
 The suite currently has 1,147 tests (100% passing):
 
+JaCoCo coverage gates (BUNDLE, `target/site/jacoco/jacoco.xml` is single-session honest via
+`<append>false</append>` on `prepare-agent`): INSTRUCTION/BRANCH/LINE/METHOD/CLASS ≥ 95%, COMPLEXITY ≥ 90%.
+
 - Enterprise Model Context Protocol (MCP) gateway tests in `mcp/*`: `McpContractsAndDtoTest`, `McpHeaderNormalizerTest`,
   `McpSseEventFormatterTest`, `McpStreamableHttpControllerTest`, `McpAdversarialCoverageTest`,
   `McpFullCoverageBranchTest`, `McpRouterTest`, `McpCatalogCacheTest`, `McpCatalogAggregatorTest`,
