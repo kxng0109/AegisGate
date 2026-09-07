@@ -1,0 +1,80 @@
+name: Release
+
+on:
+  push:
+    tags: [ "v*" ]
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish GitHub release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 25 (Temurin)
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+
+      - name: Build the jar and SBOM
+        run: ./mvnw -B -ntp package
+
+      - name: Stage release artifacts
+        run: |
+          mkdir -p dist
+          cp target/*.jar dist/
+          cp target/bom.json dist/
+          cd dist
+          sha256sum *.jar *.json > checksums.sha256
+          cd ..
+
+      - name: Extract release notes from CHANGELOG
+        id: release-notes
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Processing release for version: ${VERSION}"
+
+          awk -v ver="${VERSION}" '
+            BEGIN { found=0 }
+            $0 ~ "^## \\[" ver "\\]" { found=1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > dist/RELEASE_NOTES.md
+
+          if [ ! -s dist/RELEASE_NOTES.md ]; then
+            echo "Warning: No specific section found in CHANGELOG.md for ${VERSION}. Falling back to default release message."
+            echo "AegisGate release ${VERSION}" > dist/RELEASE_NOTES.md
+          fi
+
+      - name: Attest build provenance (SLSA Build L2)
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
+        with:
+          subject-path: dist/*.jar
+
+      - name: Attest SBOM provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
+        with:
+          subject-path: dist/bom.json
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "AegisGate ${GITHUB_REF_NAME}" \
+            --notes-file dist/RELEASE_NOTES.md \
+            dist/*.jar \
+            dist/bom.json \
+            dist/checksums.sha256

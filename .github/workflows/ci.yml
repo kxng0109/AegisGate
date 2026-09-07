@@ -3,7 +3,6 @@ name: CI
 on:
   push:
     branches: ["**"]
-    tags: [ "v*" ]
   pull_request:
 
 concurrency:
@@ -19,23 +18,64 @@ defaults:
 
 jobs:
 
-  commitlint:
-    name: Validate commit messages
-    # Advisory quality gate: wagoid/commitlint-github-action@v6 crashes on tag-push
-    # events (it dereferences payload.pull_request.commits_url, which is undefined for
-    # tag pushes). Tag-triggered releases must never be blocked by this action, so the
-    # job is marked continue-on-error; branch/PR runs still surface lint results.
-    continue-on-error: true
+  lint-workflows:
+    name: Lint workflow files
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-      - name: Lint commit messages
-        uses: wagoid/commitlint-github-action@v6
+
+      - name: Install actionlint (attestation-verified)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download --repo rhysd/actionlint v1.7.12 \
+            --pattern '*_linux_amd64.tar.gz' --dir /tmp/actionlint
+          gh attestation verify -R rhysd/actionlint \
+            /tmp/actionlint/actionlint_1.7.12_linux_amd64.tar.gz
+          tar xf /tmp/actionlint/actionlint_1.7.12_linux_amd64.tar.gz \
+            -C /tmp/actionlint
+          chmod +x /tmp/actionlint/actionlint
+
+      - name: Lint workflow files
+        run: /tmp/actionlint/actionlint -color
+
+  commitlint:
+    name: Validate commit messages
+    # Non-advisory quality gate: bad commit messages fail the build. The
+    # previous wagoid/commitlint-github-action@v6 was abandoned (last code
+    # change 2025-01-14) and crashes on tag-push events because it dereferences
+    # payload.pull_request.commits_url, which is undefined for tag pushes.
+    # Replaced with the official npx commitlint pattern + a committed
+    # package-lock.json so `npm ci` is deterministic and network-free at lint
+    # time. The all-zeros `before` SHA (first push of a new branch) is
+    # guarded so commitlint falls back to --last instead of failing on an
+    # invalid range.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          configFile: commitlint.config.mjs
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install commitlint (lockfile-pinned, deterministic)
+        run: npm ci
+
+      - name: Lint commit messages
+        run: |
+          if [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ]; then
+            npx --no-install commitlint --last --verbose
+          else
+            npx --no-install commitlint --from ${{ github.event.before }} --to ${{ github.event.after }} --verbose
+          fi
 
   build:
     name: Build, test and verify
@@ -43,12 +83,12 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
 
       - name: Set up JDK 25 (Temurin)
-        uses: actions/setup-java@v6
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6
         with:
           distribution: temurin
           java-version: "25"
@@ -77,7 +117,7 @@ jobs:
 
       - name: Upload JaCoCo coverage report
         if: success()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: jacoco-report
           path: target/site/jacoco/
@@ -85,7 +125,7 @@ jobs:
 
       - name: Upload test reports
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: surefire-reports
           path: target/surefire-reports/
@@ -93,7 +133,7 @@ jobs:
 
       - name: Upload application jar
         if: success()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: aegisgate-jar
           path: |
@@ -115,7 +155,7 @@ jobs:
 
       - name: Upload coverage to Codecov
         if: ${{ steps.codecov-token.outputs.run == 'true' }}
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@a99c28d3f0da835de33ff2feb2e15691c7b9641f # v7
         with:
           files: target/site/jacoco/jacoco.xml
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -133,56 +173,3 @@ jobs:
           ./mvnw -B -ntp org.owasp:dependency-check-maven:13.0.0:check \
             -DfailBuildOnCVSS=11 \
             -Dformat=HTML,SARIF
-
-  release:
-    name: Publish GitHub release
-    needs: [ commitlint, build ]
-    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Download application jar artifact
-        uses: actions/download-artifact@v7
-        with:
-          name: aegisgate-jar
-          path: dist
-
-      - name: Extract release notes and verify version
-        id: release-notes
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          echo "Processing release for version: ${VERSION}"
-
-          # Extract section for this version from CHANGELOG.md
-          awk -v ver="${VERSION}" '
-            BEGIN { found=0 }
-            $0 ~ "^## \\[" ver "\\]" { found=1; next }
-            found && /^## \[/ { exit }
-            found { print }
-          ' CHANGELOG.md > dist/RELEASE_NOTES.md
-
-          if [ ! -s dist/RELEASE_NOTES.md ]; then
-            echo "Warning: No specific section found in CHANGELOG.md for ${VERSION}. Falling back to default release message."
-            echo "AegisGate release ${VERSION}" > dist/RELEASE_NOTES.md
-          fi
-
-          # Generate SHA-256 checksums
-          cd dist
-          sha256sum *.jar > checksums.sha256
-          cd ..
-
-      - name: Create GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release create "${GITHUB_REF_NAME}" \
-            --title "AegisGate ${GITHUB_REF_NAME}" \
-            --notes-file dist/RELEASE_NOTES.md \
-            dist/*.jar \
-            dist/checksums.sha256

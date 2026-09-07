@@ -36,3 +36,4 @@ build/
 
 verify.*
 /logs/
+/node_modules/
