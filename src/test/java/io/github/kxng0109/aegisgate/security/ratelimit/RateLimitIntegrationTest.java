@@ -11,11 +11,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
@@ -41,9 +43,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * that requests which pass authentication never reach an external service: an allowed request fails fast with 502/504,
  * which is the signal that the auth and rate-limit layers admitted it.</p>
  *
- * <p>Redis connection details are injected via {@link DynamicPropertySource}
- * (the canonical Spring testing mechanism) rather than {@code @ServiceConnection}, which in Spring Boot 4.x requires a
- * separate per-database connection-details factory module. Requests are issued with the JDK {@link HttpClient} so the
+ * <p>Redis connection details are injected via {@link DynamicPropertySource},
+ * while PostgreSQL is wired via {@code @ServiceConnection} (auto-creates
+ * {@code JdbcConnectionDetails} for JPA/Flyway). Requests are issued with the JDK {@link HttpClient} so the
  * test needs no additional test-client dependency.</p>
  */
 @Testcontainers
@@ -69,14 +71,10 @@ class RateLimitIntegrationTest {
 	@Container
 	static final RedisContainer REDIS = new RedisContainer(DockerImageName.parse("redis:7-alpine"));
 
-	static {
-		// Start synchronously at class-load time so the container is guaranteed
-		// to be running before @DynamicPropertySource is evaluated (the JUnit
-		// @Testcontainers extension may otherwise start it after the Spring test
-		// context has already been created). @Testcontainers still performs the
-		// after-suite cleanup.
-		REDIS.start();
-	}
+	@Container
+	@ServiceConnection
+	static final PostgreSQLContainer POSTGRES =
+			new PostgreSQLContainer(DockerImageName.parse("postgres:16-alpine"));
 
 	@DynamicPropertySource
 	static void redisProperties(DynamicPropertyRegistry registry) {

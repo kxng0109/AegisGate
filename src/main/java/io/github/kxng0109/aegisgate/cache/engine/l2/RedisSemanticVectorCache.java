@@ -57,6 +57,19 @@ public class RedisSemanticVectorCache {
 	 * @return cached entry if similarity meets threshold and passes guardrails, null otherwise
 	 */
 	public @Nullable CacheEntry findSemanticMatch(CompoundCacheKey key) {
+		return findSemanticMatch(key, null);
+	}
+
+	/**
+	 * L2 semantic lookup scoped by sampling temperature. When {@code temperature} is non-null, only entries stored with
+	 * the identical temperature are eligible; this prevents a low-temperature deterministic request from hitting a
+	 * high-temperature stochastic cached entry. A null temperature disables the filter for backward compatibility.
+	 *
+	 * @param key         compound partition key
+	 * @param temperature sampling temperature of the incoming request, or null to bypass filtering
+	 * @return matching entry or null
+	 */
+	public @Nullable CacheEntry findSemanticMatch(CompoundCacheKey key, Double temperature) {
 		if (!properties.getSemantic().isEnabled() || key.promptText().isBlank()) {
 			return null;
 		}
@@ -66,7 +79,7 @@ public class RedisSemanticVectorCache {
 			return null;
 		}
 
-		String filterQuery = buildFilterQuery(key);
+		String filterQuery = buildFilterQuery(key, temperature);
 		List<VectorSearchResult> results = vectorClient.searchKnn(INDEX_NAME, filterQuery, queryVector, 1);
 		if (results.isEmpty()) {
 			return null;
@@ -119,6 +132,30 @@ public class RedisSemanticVectorCache {
 			int totalTokens,
 			Duration ttl
 	) {
+		storeSemanticEntry(key, responseJson, promptTokens, completionTokens, totalTokens, ttl, null);
+	}
+
+	/**
+	 * Saves a generated completion and its prompt embedding into the L2 vector index, tagged with the sampling
+	 * temperature for regime isolation. A null temperature omits the tag for backward compatibility.
+	 *
+	 * @param key              compound partition key
+	 * @param responseJson     completion JSON payload
+	 * @param promptTokens     tokens in prompt
+	 * @param completionTokens tokens in completion
+	 * @param totalTokens      total tokens
+	 * @param ttl              time-to-live duration
+	 * @param temperature      sampling temperature of the producing request, or null if unknown
+	 */
+	public void storeSemanticEntry(
+			CompoundCacheKey key,
+			String responseJson,
+			int promptTokens,
+			int completionTokens,
+			int totalTokens,
+			Duration ttl,
+			Double temperature
+	) {
 		if (!properties.getSemantic().isEnabled() || key.promptText().isBlank()) {
 			return;
 		}
@@ -157,6 +194,12 @@ public class RedisSemanticVectorCache {
 				"created_at".getBytes(StandardCharsets.UTF_8),
 				Instant.now().toString().getBytes(StandardCharsets.UTF_8)
 		);
+		if (temperature != null) {
+			fields.put(
+					"temperature".getBytes(StandardCharsets.UTF_8),
+					temperature.toString().getBytes(StandardCharsets.UTF_8)
+			);
+		}
 		fields.put("embedding".getBytes(StandardCharsets.UTF_8), VectorEncodingUtils.floatsToLittleEndianBytes(vector));
 
 		vectorClient.saveVectorDocument(docKey, fields, ttl);
@@ -200,7 +243,7 @@ public class RedisSemanticVectorCache {
 		return null;
 	}
 
-	private String buildFilterQuery(CompoundCacheKey key) {
+	private String buildFilterQuery(CompoundCacheKey key, Double temperature) {
 		StringBuilder sb = new StringBuilder();
 		sb.append("@owner_id:{").append(RediSearchVectorClient.escapeTag(key.ownerId())).append("} ");
 		sb.append("@model:{").append(RediSearchVectorClient.escapeTag(key.model())).append("}");
@@ -211,6 +254,9 @@ public class RedisSemanticVectorCache {
 		if (!key.systemPromptHash().isBlank()) {
 			sb.append(" @system_prompt_hash:{").append(RediSearchVectorClient.escapeTag(key.systemPromptHash()))
 			  .append("}");
+		}
+		if (temperature != null) {
+			sb.append(" @temperature:{").append(RediSearchVectorClient.escapeTag(temperature.toString())).append("}");
 		}
 
 		return sb.toString();
@@ -245,8 +291,20 @@ public class RedisSemanticVectorCache {
 				completionTokens,
 				totalTokens,
 				createdAt,
-				score
+				score,
+				parseTemperature(fields.get("temperature"))
 		);
+	}
+
+	private Double parseTemperature(String val) {
+		if (val == null || val.isBlank()) {
+			return null;
+		}
+		try {
+			return Double.valueOf(val);
+		} catch (NumberFormatException e) {
+			return null;
+		}
 	}
 
 	private int parseInt(@Nullable String val, int fallback) {

@@ -123,9 +123,9 @@ class McpContractsAndDtoTest {
 		McpJsonRpcResponse success = McpJsonRpcResponse.success(id, resObj);
 		assertThat(success.isSuccess()).isTrue();
 		ObjectNode successNode = success.toJsonNode(objectMapper);
-		assertThat(successNode.get("jsonrpc").asText()).isEqualTo("2.0");
+		assertThat(successNode.get("jsonrpc").asString()).isEqualTo("2.0");
 		assertThat(successNode.get("id").asInt()).isEqualTo(42);
-		assertThat(successNode.get("result").get("status").asText()).isEqualTo("ok");
+		assertThat(successNode.get("result").get("status").asString()).isEqualTo("ok");
 
 		// Failure response
 		McpJsonRpcError error = McpJsonRpcError.invalidParams("bad param");
@@ -133,14 +133,14 @@ class McpContractsAndDtoTest {
 		assertThat(failure.isSuccess()).isFalse();
 		ObjectNode failureNode = failure.toJsonNode(objectMapper);
 		assertThat(failureNode.get("error").get("code").asInt()).isEqualTo(McpJsonRpcError.INVALID_PARAMS);
-		assertThat(failureNode.get("error").get("message").asText()).contains("bad param");
+		assertThat(failureNode.get("error").get("message").asString()).contains("bad param");
 
-		// Factory failure with data
+		// Factory failure with data (unreadable id: member omitted, never id:null)
 		ObjectNode errData = objectMapper.createObjectNode().put("field", "query");
-		McpJsonRpcResponse failureWithData = McpJsonRpcResponse.failure(null, -32000, "Custom error", errData);
+		McpJsonRpcResponse failureWithData = McpJsonRpcResponse.failure(null, -32603, "Custom error", errData);
 		ObjectNode failureDataNode = failureWithData.toJsonNode(objectMapper);
-		assertThat(failureDataNode.get("id").isNull()).isTrue();
-		assertThat(failureDataNode.get("error").get("data").get("field").asText()).isEqualTo("query");
+		assertThat(failureDataNode.has("id")).isFalse();
+		assertThat(failureDataNode.get("error").get("data").get("field").asString()).isEqualTo("query");
 
 		// Empty result fallback
 		McpJsonRpcResponse emptyRes = new McpJsonRpcResponse("2.0", id, null, null);
@@ -157,12 +157,12 @@ class McpContractsAndDtoTest {
 		assertThat(McpJsonRpcError.invalidParams("missing field").code()).isEqualTo(-32602);
 		assertThat(McpJsonRpcError.internalError("out of memory").code()).isEqualTo(-32603);
 		assertThat(McpJsonRpcError.headerMismatch("protocol mismatch").code()).isEqualTo(-32020);
-		assertThat(McpJsonRpcError.accessDenied("rbac violation").code()).isEqualTo(-32025);
-		assertThat(McpJsonRpcError.circuitBreakerTripped("postgres").code()).isEqualTo(-32024);
+		assertThat(McpJsonRpcError.accessDenied("rbac violation").code()).isEqualTo(-32603);
+		assertThat(McpJsonRpcError.circuitBreakerTripped("postgres").code()).isEqualTo(-32603);
 
 		McpJsonRpcError unsupported = McpJsonRpcError.unsupportedVersion("1.0", objectMapper);
 		assertThat(unsupported.code()).isEqualTo(-32022);
-		assertThat(unsupported.data().get("requested").asText()).isEqualTo("1.0");
+		assertThat(unsupported.data().get("requested").asString()).isEqualTo("1.0");
 		assertThat(unsupported.data().get("supported").isArray()).isTrue();
 	}
 
@@ -176,16 +176,16 @@ class McpContractsAndDtoTest {
 				objectMapper.createObjectNode().put("version", "1.0")
 		);
 		ObjectNode json1 = toolWithSchema.toJsonNode(objectMapper);
-		assertThat(json1.get("name").asText()).isEqualTo("postgres__query");
-		assertThat(json1.get("description").asText()).isEqualTo("Executes a SQL query");
-		assertThat(json1.get("inputSchema").get("type").asText()).isEqualTo("object");
-		assertThat(json1.get("_meta").get("version").asText()).isEqualTo("1.0");
+		assertThat(json1.get("name").asString()).isEqualTo("postgres__query");
+		assertThat(json1.get("description").asString()).isEqualTo("Executes a SQL query");
+		assertThat(json1.get("inputSchema").get("type").asString()).isEqualTo("object");
+		assertThat(json1.get("_meta").get("version").asString()).isEqualTo("1.0");
 
 		McpToolDefinition toolWithoutSchema = new McpToolDefinition("simple_tool", null, null, null);
 		ObjectNode json2 = toolWithoutSchema.toJsonNode(objectMapper);
-		assertThat(json2.get("name").asText()).isEqualTo("simple_tool");
+		assertThat(json2.get("name").asString()).isEqualTo("simple_tool");
 		assertThat(json2.has("description")).isFalse();
-		assertThat(json2.get("inputSchema").get("type").asText()).isEqualTo("object");
+		assertThat(json2.get("inputSchema").get("type").asString()).isEqualTo("object");
 		assertThat(json2.has("_meta")).isFalse();
 	}
 
@@ -200,32 +200,32 @@ class McpContractsAndDtoTest {
 				null
 		);
 		ObjectNode resNode = res.toJsonNode(objectMapper);
-		assertThat(resNode.get("uri").asText()).isEqualTo("postgres://table/users");
-		assertThat(resNode.get("name").asText()).isEqualTo("Users Table");
-		assertThat(resNode.get("description").asText()).isEqualTo("User records");
-		assertThat(resNode.get("mimeType").asText()).isEqualTo("application/json");
+		assertThat(resNode.get("uri").asString()).isEqualTo("postgres://table/users");
+		assertThat(resNode.get("name").asString()).isEqualTo("Users Table");
+		assertThat(resNode.get("description").asString()).isEqualTo("User records");
+		assertThat(resNode.get("mimeType").asString()).isEqualTo("application/json");
 
 		McpPromptArgument arg = new McpPromptArgument("topic", "Topic description", true);
 		ObjectNode argNode = arg.toJsonNode(objectMapper);
-		assertThat(argNode.get("name").asText()).isEqualTo("topic");
-		assertThat(argNode.get("description").asText()).isEqualTo("Topic description");
+		assertThat(argNode.get("name").asString()).isEqualTo("topic");
+		assertThat(argNode.get("description").asString()).isEqualTo("Topic description");
 		assertThat(argNode.get("required").asBoolean()).isTrue();
 
 		McpPromptDefinition prompt = new McpPromptDefinition("summarize", "Summarization prompt", List.of(arg), null);
 		ObjectNode prmNode = prompt.toJsonNode(objectMapper);
-		assertThat(prmNode.get("name").asText()).isEqualTo("summarize");
+		assertThat(prmNode.get("name").asString()).isEqualTo("summarize");
 		assertThat(prmNode.get("arguments").isArray()).isTrue();
-		assertThat(prmNode.get("arguments").get(0).get("name").asText()).isEqualTo("topic");
+		assertThat(prmNode.get("arguments").get(0).get("name").asString()).isEqualTo("topic");
 
 		// Null arguments and null metadata
 		McpPromptDefinition emptyPrompt = new McpPromptDefinition("simple_prompt", null, null, null);
 		ObjectNode emptyPrmNode = emptyPrompt.toJsonNode(objectMapper);
-		assertThat(emptyPrmNode.get("name").asText()).isEqualTo("simple_prompt");
+		assertThat(emptyPrmNode.get("name").asString()).isEqualTo("simple_prompt");
 		assertThat(emptyPrmNode.has("arguments")).isFalse();
 
 		McpResourceDefinition emptyRes = new McpResourceDefinition("res://simple", "Simple", null, null, null);
 		ObjectNode emptyResNode = emptyRes.toJsonNode(objectMapper);
-		assertThat(emptyResNode.get("uri").asText()).isEqualTo("res://simple");
+		assertThat(emptyResNode.get("uri").asString()).isEqualTo("res://simple");
 	}
 
 	@Test

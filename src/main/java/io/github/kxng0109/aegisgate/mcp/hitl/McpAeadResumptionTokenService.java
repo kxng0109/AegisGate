@@ -8,13 +8,16 @@ import tools.jackson.databind.ObjectMapper;
 
 import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
+import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Optional;
 
@@ -31,6 +34,22 @@ public class McpAeadResumptionTokenService {
 	private static final int GCM_IV_LENGTH_BYTES = 12;
 	private static final int GCM_TAG_LENGTH_BITS = 128;
 	private static final SecureRandom RANDOM = new SecureRandom();
+
+	/**
+	 * PBKDF2 iteration count per OWASP Password Storage Cheat Sheet and NIST SP 800-132. 600,000 iterations of
+	 * HMAC-SHA-256 is the canonical minimum for FIPS-140 compliance. Java SE 25 exposes {@code PBKDF2WithHmacSHA256} as
+	 * a standard {@code SecretKeyFactory} algorithm; Argon2/scrypt are not standard JDK algorithms.
+	 */
+	private static final int PBKDF2_ITERATIONS = 600_000;
+	private static final int PBKDF2_KEY_LENGTH_BITS = 256;
+
+	/**
+	 * Fixed application-specific KDF salt. The salt need not be secret; it ensures the derived key is unique to this
+	 * application and defeats precomputation. The HITL secret itself must carry the entropy (enforced at startup via
+	 * {@code @Size(min = 32)} on the configuration property).
+	 */
+	private static final byte[] PBKDF2_SALT =
+			"AegisGate-MCP-HITL-v1".getBytes(StandardCharsets.UTF_8);
 
 	private final SecretKey aesKey;
 	private final ObjectMapper objectMapper;
@@ -151,13 +170,32 @@ public class McpAeadResumptionTokenService {
 		}
 	}
 
+	/**
+	 * Derives an AES-256 key from the HITL secret using PBKDF2-HMAC-SHA256 with 600,000 iterations.
+	 *
+	 * <p>This replaces the previous single-pass SHA-256 derivation, which was a fast hash with no computational
+	 * cost against brute-force attacks (CWE-916). PBKDF2 is the NIST SP 800-132 canonical choice for key
+	 * derivation and is FIPS-140 validated. Called once at construction; zero per-request cost.</p>
+	 *
+	 * @param secret the raw secret string from the runtime environment
+	 * @return a 256-bit AES key
+	 */
 	private static SecretKey deriveAesKey(String secret) {
+		char[] password = secret.toCharArray();
+		PBEKeySpec spec = new PBEKeySpec(password, PBKDF2_SALT, PBKDF2_ITERATIONS, PBKDF2_KEY_LENGTH_BITS);
 		try {
-			MessageDigest md = MessageDigest.getInstance("SHA-256");
-			byte[] keyBytes = md.digest(secret.getBytes(StandardCharsets.UTF_8));
-			return new SecretKeySpec(keyBytes, "AES");
-		} catch (NoSuchAlgorithmException e) {
-			throw new IllegalStateException("SHA-256 algorithm missing", e);
+			SecretKeyFactory factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256");
+			byte[] keyBytes = factory.generateSecret(spec).getEncoded();
+			try {
+				return new SecretKeySpec(keyBytes, "AES");
+			} finally {
+				Arrays.fill(keyBytes, (byte) 0);
+			}
+		} catch (Exception e) {
+			throw new IllegalStateException("PBKDF2 key derivation failed", e);
+		} finally {
+			spec.clearPassword();
+			Arrays.fill(password, '\0');
 		}
 	}
 }

@@ -180,6 +180,26 @@ public final class RedisCircuitBreaker implements CircuitBreaker {
 	}
 
 	/**
+	 * Force-resets this breaker to CLOSED on the local mirror and best-effort deletes the shared Redis key so other
+	 * instances recreate a fresh CLOSED breaker on next access. Unlike {@link #recordSuccess()}, this guarantees OPEN
+	 * to CLOSED for operator use.
+	 */
+	@Override
+	public void reset() {
+		mirror.reset();
+		if (!bulkhead.tryAcquire()) {
+			return;
+		}
+		try {
+			breakerTemplate.delete(key);
+		} catch (DataAccessException ex) {
+			warnThrottled("Redis reset write failed; the reset stays local to this instance", ex);
+		} finally {
+			bulkhead.release();
+		}
+	}
+
+	/**
 	 * @return the current state as observed by the local mirror
 	 */
 	@Override

@@ -24,6 +24,18 @@ public record McpJsonRpcResponse(
 	}
 
 	public static McpJsonRpcResponse success(@Nullable JsonNode id, JsonNode result) {
+		if (id == null || id.isNull()) {
+			throw new IllegalArgumentException(
+					"Success results MUST include a non-null request id (MCP 2026-07-28)");
+		}
+		// MCP 2026-07-28: Result.resultType is REQUIRED on every success result.
+		// Servers implementing this version MUST include it. Default to "complete";
+		// preserve an explicit caller-supplied value (e.g. "input_required" from HITL).
+		// Mutates the caller's ObjectNode in place (zero allocation on the hot path).
+		if (result instanceof ObjectNode objectNode
+				&& (!objectNode.has("resultType") || objectNode.get("resultType").isNull())) {
+			objectNode.put("resultType", "complete");
+		}
 		return new McpJsonRpcResponse("2.0", id, result, null);
 	}
 
@@ -42,10 +54,12 @@ public record McpJsonRpcResponse(
 	public ObjectNode toJsonNode(ObjectMapper mapper) {
 		ObjectNode node = mapper.createObjectNode();
 		node.put("jsonrpc", "2.0");
-		if (id != null) {
+		// MCP 2026-07-28: error responses MUST echo the request id when it was readable.
+		// Omit the id member entirely (do NOT emit id:null) when the id could not be read
+		// (parse error / invalid request). Success results always carry a non-null id
+		// (enforced by success()).
+		if (id != null && !id.isNull()) {
 			node.set("id", id);
-		} else {
-			node.putNull("id");
 		}
 		if (error != null) {
 			ObjectNode errObj = node.putObject("error");

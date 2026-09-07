@@ -243,7 +243,7 @@ gateway:
     default-protocol-version: "2026-07-28"
     allow-legacy-sse: true
     hitl-suspension-ttl: 300s
-    hitl-secret: ${AEGIS_MCP_HITL_SECRET}      # 32-byte secret for AEAD resumption tokens
+    hitl-secret: ${GATEWAY_MCP_HITL_SECRET}  # 32+ byte secret for AEAD resumption tokens (REQUIRED, no default)
     circuit-breaker-failure-threshold: 3
     circuit-breaker-cooldown: 30s
     catalog-cache-ttl: 5m
@@ -559,7 +559,7 @@ Run the full suite with coverage and the packaging step:
 ./mvnw clean verify
 ```
 
-The suite currently has 1,147 tests (100% passing):
+The suite currently has 1,225 tests (100% passing):
 
 JaCoCo coverage gates (BUNDLE, `target/site/jacoco/jacoco.xml` is single-session honest via
 `<append>false</append>` on `prepare-agent`): INSTRUCTION/BRANCH/LINE/METHOD/CLASS ≥ 95%, COMPLEXITY ≥ 90%.
@@ -568,9 +568,16 @@ JaCoCo coverage gates (BUNDLE, `target/site/jacoco/jacoco.xml` is single-session
   `McpSseEventFormatterTest`, `McpStreamableHttpControllerTest`, `McpAdversarialCoverageTest`,
   `McpFullCoverageBranchTest`, `McpRouterTest`, `McpCatalogCacheTest`, `McpCatalogAggregatorTest`,
   `McpToolRbacPolicyEngineTest`, `McpJsonSchemaValidatorTest`, `McpGuardrailScannerTest`,
-  `McpAeadResumptionTokenServiceTest`, `McpHitlSuspensionEngineTest`, `AdminMcpApprovalControllerTest`,
-  `McpServerCircuitBreakerManagerTest`, `McpStressAndConcurrencyHarnessTest`, and `CoverageCompletionTest` covering
-  JSON-RPC 2.0 framing and error codes (-32700..-32025), protocol version negotiation, AES-256-GCM resumption token
+  `McpAeadResumptionTokenServiceTest`, `McpAeadPbkdf2Test`, `McpGatewayPropertiesValidationDiagnosticTest`,
+  `McpHitlSuspensionEngineTest`, `AdminMcpApprovalControllerTest`,
+  `McpServerCircuitBreakerManagerTest`, `McpServerCircuitBreakerManagerResetTest`,
+  `McpStressAndConcurrencyHarnessTest`, `McpJsonRpcContractTest`, `McpVersionNegotiationMatrixTest`, and
+  `CoverageCompletionTest` covering
+  JSON-RPC 2.0 framing and spec-allowed error codes (-32700..-32603 plus -32020/-32021/-32022 only), `resultType`
+  injection (`complete`/`input_required`), id-member omission on unreadable errors, per-request `_meta` version
+  negotiation (header/body match, `-32020` mismatch, `-32022` unsupported, `-32021` missing capabilities as a
+  spec object), Streamable HTTP batch rejection (`-32600`), PBKDF2-HMAC-SHA256 (600K iterations) key derivation,
+  protocol version negotiation, AES-256-GCM resumption token
   tamper/expiry/owner-bound attack vectors, single-use Redis replay prevention, glob-pattern RBAC, JSON Schema Draft
   2020-12 bounds, tool shadowing/namespacing collisions, circuit-breaker auto-pruning, malformed upstream payloads,
   white-box usage-projection fixtures, and a 10,000 virtual-thread simultaneous burst harness.
@@ -580,10 +587,14 @@ JaCoCo coverage gates (BUNDLE, `target/site/jacoco/jacoco.xml` is single-session
   parsing, Ollama `message.thinking` deltas, and malformed chunk boundary resilience.
 - High-throughput ledger & FinOps prompt caching tests in `ledger` and `ledger/queue`:
   `DisruptorUsageLedgerQueueTest`, `MicroBatchLedgerWriterTest`, `SpillwayJournalManagerTest`,
-  `FinOpsPromptCacheCalculatorTest`, `CostCalculatorPrecisionTest`, `UsageLedgerEntryTest`, and
+  `FinOpsPromptCacheCalculatorTest`, `FinOpsPromptCacheCalculatorPropertyTest`, `CostCalculatorPrecisionTest`,
+  `UsageLedgerEntryTest`, and
   `LedgerStressAndBackpressureIntegrationTest` covering lock-free CAS sequence claiming at 50,000 req/s, dual-trigger
-  ($B \ge 5000 \lor \Delta t \ge 50\text{ms}$) micro-batching, append-only WAL disk failover, atomic staging rotation/replay,
-  micro-dollar fixed-point rounding precision, and 17-field FinOps FOCUS 1.4 schema compliance.
+  ($B \ge 5000 \lor \Delta t \ge 50\text{ms}$) micro-batching, append-only WAL disk failover, atomic staging
+  rotation/replay,
+  micro-dollar fixed-point rounding precision, signed cache savings (negative on cold-cache write surcharge),
+  effective-equals-billed FOCUS 1.4 invariant, HALF_UP rounding boundaries, and 17-field FinOps FOCUS 1.4 schema
+  compliance.
 - Real-time guardrail and security scanner tests in `security/guardrail/*`: `ShannonEntropyCalculatorTest`,
   `LuhnValidatorTest`, `ConfusablesFilterTest`, `GuardrailPropertiesTest`, `BytePrefixTrieTest`,
   `SecretScannerRuleDatabaseTest`, `IngressSecretScannerTest`, `SecretLeakageExceptionTest`,
@@ -603,12 +614,14 @@ JaCoCo coverage gates (BUNDLE, `target/site/jacoco/jacoco.xml` is single-session
 - OpenAPI 3.1 & documentation tests in `config`: `OpenApiConfigTest` covering global specification metadata, security
   scheme registrations (`BearerAuth`, `AdminKeyAuth`, `AdminBearerAuth`), and GroupedOpenApi partitions.
 - Multi-tier semantic caching tests in `cache`: `CacheKeyGeneratorTest`, `CacheGuardrailsTest`,
+  `CacheGuardrailsAdversarialTest`, `TemperatureIsolationTest`,
   `RedisSemanticVectorCacheTest`, `RediSearchVectorClientTest`, `InMemoryExactCacheTest`,
   `RedisExactCacheTest`, `SingleFlightManagerTest`, `CachedStreamReconstitutionTest`,
   `CachePolicyEngineTest`, `AegisCacheServiceTest`, `AdminCacheControllerTest`, `CacheContractsTest`,
   `AegisCachePropertiesTest`, `CacheFullCoverageTest`, and `SemanticCacheIntegrationTest` covering L0 in-memory caching,
-  L1 Redis exact matching, L2 RediSearch HNSW vector search, multi-turn prefix partitioning, polarity and entity
-  guardrails, RFC 9111 directive inspection, single-flight stampede prevention, synthetic SSE stream reconstitution, and
+  L1 Redis exact matching, L2 RediSearch HNSW vector search, multi-turn prefix partitioning, polarity and
+  slot-aligned entity-contradiction guardrails, temperature-gated store/lookup symmetry with L2 tag filtering,
+  RFC 9111 directive inspection, single-flight stampede prevention, synthetic SSE stream reconstitution, and
   administrative purge APIs.
 - Embedding gateway tests in `proxy/embeddings`: `VectorEncodingUtilsTest`, `EmbeddingDtoTest`,
   `OpenAiEmbeddingAdapterTest`, `CohereEmbeddingAdapterTest`, `OllamaEmbeddingAdapterTest`,
@@ -618,9 +631,15 @@ JaCoCo coverage gates (BUNDLE, `target/site/jacoco/jacoco.xml` is single-session
 - Administrative, billing & key management tests in `admin`: `AdminAuthFilterTest`, `AdminKeyControllerTest`,
   `AdminCircuitControllerTest`, `AdminLedgerControllerTest`, `AdminFilterConfigTest`, and `AdminDtoTest` covering
   constant-time master key authentication, fail-closed isolation, key creation (single-exposure plaintext), updates,
-  deletions, circuit breaker force-resets, aggregated tenant billing queries, and paginated audit logs.
+  deletions, circuit breaker force-resets (observed-state passthrough), aggregated tenant billing queries, and paginated
+  audit logs.
 - Unit tests for hashing, key management, the rate limit engine, both filters, the body wrapper, the circuit breaker, the provider adapter, the orchestrator, the error handler, and the Phase 1 security components.
-- Distributed circuit breaker tests in `proxy/failover`: `RedisCircuitBreakerTest` and `CircuitBreakerCrossInstanceIntegrationTest` run against a real Redis container and verify shared state, the single flight probe, and the mirror fallback, while `CircuitBreakerConfigTest`, `CircuitBreakerMetricsTest`, `RedisCircuitBreakerFactoryTest`, and `RedisCircuitBreakerEdgeTest` cover configuration, metrics, and the slow or unavailable Redis paths.
+- Distributed circuit breaker tests in `proxy/failover`: `RedisCircuitBreakerTest` and
+  `CircuitBreakerCrossInstanceIntegrationTest` run against a real Redis container and verify shared state, the single
+  flight probe, and the mirror fallback, while `CircuitBreakerConfigTest`, `CircuitBreakerMetricsTest`,
+  `RedisCircuitBreakerFactoryTest`, `ProviderCircuitBreakerResetConcurrencyTest`, and `RedisCircuitBreakerEdgeTest`
+  cover configuration, metrics, lock-free CAS force-reset under 11,000 virtual-thread contention, and the slow or
+  unavailable Redis paths.
 - Unit tests for the streaming protection and guard layer in `proxy/sse`: `AdaptiveSseFlushStrategyTest`,
   `SseFlushConfigReloaderTest`, `SseFlushHealthIndicatorTest`, `SseFlushLoadTest`, `SseFlushSecurityTest`,
   `BoundedLineBodyHandlerTest`, `DefaultSseLineGuardTest`, `TokenBucketTest`, `SseLineGuardPropertiesTest`, and
@@ -635,11 +654,17 @@ JaCoCo coverage gates (BUNDLE, `target/site/jacoco/jacoco.xml` is single-session
 - A context load test that verifies the application starts without a live Redis or PostgreSQL.
 
 JaCoCo enforces a minimum coverage of 95 percent on every counter at the bundle level. The current gate passes at
-**INSTRUCTION 99.22%, BRANCH 96.25%, LINE 98.95%, COMPLEXITY 95.20%, METHOD 100%, and CLASS 100%** (1,147 tests). The
+**INSTRUCTION 99.22%, BRANCH 96.25%, LINE 98.95%, COMPLEXITY 95.20%, METHOD 100%, and CLASS 100%** (1,225 tests). The
 circuit breaker and orchestrator retry and race coordination branches are excluded from the gate because they cannot be
 reached deterministically; the state transitions and failover semantics themselves are fully covered. The Mockito inline
 mock maker is attached as a Java agent through the `argLine` Maven property, so the suite is future proof against the
 JDK restriction on self attachment.
+
+> **Build hygiene note:** Maven never deletes stale files from `target/test-classes`. If a test resource is
+> deleted from `src/test/resources`, its ghost copy continues to shadow `src/main/resources` on the test
+> classpath (this once silently blanked all `gateway.*` binding — diagnosed via `Environment.getProperty`
+> returning null while the YAML was correct). After deleting any test resource, manually remove its
+> `target/test-classes` copy or run `mvn clean`.
 
 ## Design notes
 

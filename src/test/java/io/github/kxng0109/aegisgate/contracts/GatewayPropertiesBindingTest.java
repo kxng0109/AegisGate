@@ -1,9 +1,15 @@
 package io.github.kxng0109.aegisgate.contracts;
 
+import com.redis.testcontainers.RedisContainer;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -12,9 +18,20 @@ import static org.junit.jupiter.api.Assertions.*;
  * whose names contain dots. Dotted YAML keys are quoted so they bind as literal map keys rather than nested property
  * paths.
  */
+@Testcontainers
 @SpringBootTest
 @DisplayName("GatewayProperties binding")
 class GatewayPropertiesBindingTest {
+
+	@Container
+	@ServiceConnection
+	static final PostgreSQLContainer POSTGRES =
+			new PostgreSQLContainer(DockerImageName.parse("postgres:16-alpine"));
+
+	@Container
+	@ServiceConnection
+	static final RedisContainer REDIS =
+			new RedisContainer(DockerImageName.parse("redis:7-alpine"));
 
 	@Autowired
 	private GatewayProperties gatewayProperties;

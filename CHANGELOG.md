@@ -7,6 +7,57 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.5.0] - 2026-09-08
+
+### Security
+
+- **Removed hardcoded HITL AEAD secret (CWE-798):** `McpGatewayProperties.hitlSecret` no longer ships a default;
+  injected exclusively via `GATEWAY_MCP_HITL_SECRET`, enforced at startup by `@Validated` + `@NotNull` + cascaded
+  `@Valid` + dedicated `@HitlSecretLength` (≥32 bytes). Application refuses to start otherwise.
+- **PBKDF2-HMAC-SHA256 key derivation (600,000 iterations, FIPS-140):** replaces single-pass SHA-256 in
+  `McpAeadResumptionTokenService` (CWE-916); fixed application salt, `SecretKeySpec` + password-char wipe
+  (`spec.clearPassword()` + `Arrays.fill`), zero per-request cost (derived once at construction).
+
+### Changed (breaking wire behaviour — see upgrade notes)
+
+- **MCP error-code partition (2026-07-28):** deleted spec-undefined `-32023`/`-32024`/`-32025`, legacy `-32000`,
+  and duplicate `RESOURCE_NOT_FOUND`; RBAC denial and circuit-tripped now surface as `-32603` with messages
+  preserved. Only `-32020`/`-32021`/`-32022` may be emitted from the reserved sub-range.
+- **`resultType` injected** (`complete` default, caller `input_required` preserved) on every success result;
+  `success()` rejects null ids; error responses **omit** (never `id:null`) the id member when unreadable.
+- **Strict per-request `_meta` negotiation on the modern era:** header/body mismatch → `-32020`, unsupported →
+  `-32022` with `data.{supported,requested}`, missing capabilities → `-32021` with `data.requiredCapabilities`
+  as a spec **object** (`{"tools":{}}`); paramless modern requests → `-32602`; legacy eras and notifications
+  passthrough. Streamable HTTP batch arrays rejected as a single `-32600`.
+- **Cache entity guard:** set-equality replaced by slot-aligned contradiction detection (articles skipped);
+  asymmetric one-sided presence still rejected. **Temperature symmetry:** `shouldStoreInCache` mirrors the
+  lookup gate; `temperature` stored on `CacheEntry` + L2 doc with RediSearch tag filter (`findSemanticMatch`/
+  `storeSemanticEntry` overloads, null = backward compatible).
+- **FinOps:** `effectiveCostMicros` computed explicitly (FOCUS 1.4); `cacheSavingsMicros` kept **signed**
+  (negative on cold-cache write surcharge, e.g. Anthropic 1.25×).
+- **Circuit breaker:** new `reset()` force-close contract (lock-free post-CAS zeroing) on `ProviderCircuitBreaker`
+  / `RedisCircuitBreaker`; `McpServerCircuitBreakerManager.reset()` and factories delegate to it; admin reset
+  reports observed state.
+
+### Added
+
+- **77 new tests (suite: 1,225, 100% passing):** startup fail-fast + PBKDF2 + 11K-vthread reset hammer + MCP
+  contract/version-matrix/batch + FinOps property + entity adversarial (incl. lowercase-evasion PIN) + temperature
+  isolation suites. Fresh `verify`: INSTRUCTION 98.95%, BRANCH 95.64%, LINE 98.64%, COMPLEXITY 94.41%,
+  METHOD/CLASS 100% — all gates met.
+- Testcontainers Postgres+Redis `@ServiceConnection` for all full-context tests (fixes 21 pre-existing
+  context errors); surefire `GATEWAY_MCP_HITL_SECRET` test env var.
+- Build-hygiene note in README: prune stale `target/test-classes` copies after deleting test resources (a ghost
+  `application.yml` once blanked all `gateway.*` binding).
+
+### Upgrade notes (1.4.0 → 1.5.0)
+
+- Set `GATEWAY_MCP_HITL_SECRET` (32+ bytes, e.g. `openssl rand -base64 32`) — startup fails without it.
+- MCP clients must send `params._meta` (`protocolVersion` + `clientCapabilities`) on 2026-07-28 and must not
+  depend on removed error codes, `id:null`, missing `resultType`, array-form `requiredCapabilities`, or batch
+  bodies on Streamable HTTP.
+- External `CircuitBreaker` implementors must add `reset()`.
+
 ## [1.4.0] - 2026-09-04
 
 ### Added

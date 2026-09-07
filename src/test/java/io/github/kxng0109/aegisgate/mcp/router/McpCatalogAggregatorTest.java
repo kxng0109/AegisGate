@@ -8,6 +8,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import tools.jackson.databind.ObjectMapper;
@@ -119,7 +120,7 @@ class McpCatalogAggregatorTest {
 		when(pgPromptsResponse.statusCode()).thenReturn(200);
 		when(pgPromptsResponse.body()).thenReturn(promptsJson);
 
-		when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+		when(httpClient.send(any(HttpRequest.class), ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()))
 				.thenAnswer(invocation -> {
 					HttpRequest req = invocation.getArgument(0);
 					String method = req.headers().firstValue("Mcp-Method").orElse("");
@@ -159,7 +160,7 @@ class McpCatalogAggregatorTest {
 	@Test
 	@DisplayName("refreshCatalog gracefully handles upstream 500 errors and network exceptions")
 	void refreshCatalogUpstreamErrors() throws Exception {
-		when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+		when(httpClient.send(any(HttpRequest.class), ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()))
 				.thenThrow(new RuntimeException("Upstream timeout"));
 
 		McpAggregatedCatalog catalog = aggregator.refreshCatalog();
@@ -197,7 +198,7 @@ class McpCatalogAggregatorTest {
 		when(pgPromptsResponse.body()).thenReturn(
 				"{\"jsonrpc\":\"2.0\",\"result\":{\"prompts\":[{\"name\":\"p1\",\"description\":\"d\",\"arguments\":[{\"name\":\"a1\",\"description\":\"d\",\"required\":true}],\"_meta\":{\"k\":\"v\"}}]}}");
 
-		when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+		when(httpClient.send(any(HttpRequest.class), ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()))
 				.thenAnswer(invocation -> {
 					HttpRequest req = invocation.getArgument(0);
 					String method = req.headers().firstValue("Mcp-Method").orElse("");
@@ -243,7 +244,7 @@ class McpCatalogAggregatorTest {
 		when(pgPromptsResponse.statusCode()).thenReturn(200);
 		when(pgPromptsResponse.body()).thenReturn("{\"jsonrpc\":\"2.0\",\"result\":{\"prompts\":[{\"name\":\"p1\"}]}}");
 
-		when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+		when(httpClient.send(any(HttpRequest.class), ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()))
 				.thenAnswer(inv -> {
 					HttpRequest req = inv.getArgument(0);
 					String method = req.headers().firstValue("Mcp-Method").orElse("");

@@ -27,14 +27,15 @@ public interface CircuitBreakerFactory {
 	void reset();
 
 	/**
-	 * Clears local cache and resets the Redis breaker state for a specific provider.
+	 * Clears local cache and force-resets the Redis breaker state for a specific provider to CLOSED,
+	 * unconditionally from any state.
 	 *
 	 * @param providerName provider whose breaker is to be reset
-	 * @return the new state of the provider
+	 * @return the observed state of the provider after the reset
 	 */
 	default CircuitBreaker.State reset(String providerName) {
-		reset();
-		return CircuitBreaker.State.CLOSED;
+		get(providerName).reset();
+		return get(providerName).getState();
 	}
 
 	/**

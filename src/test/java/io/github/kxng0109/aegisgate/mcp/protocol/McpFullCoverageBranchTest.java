@@ -18,6 +18,7 @@ import io.github.kxng0109.aegisgate.security.ratelimit.KeyManagementService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -156,7 +157,7 @@ class McpFullCoverageBranchTest {
 		req.setAttribute("virtualApiKey", "not-a-virtual-api-key");
 		req.addHeader("Authorization", "Basic user:pass");
 		assertThat(controller.handleStreamableHttp(
-				"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}",
+				"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\",\"io.modelcontextprotocol/clientCapabilities\":{}}}}",
 				null,
 				null,
 				req
@@ -166,7 +167,7 @@ class McpFullCoverageBranchTest {
 		req.removeHeader("Authorization");
 		req.addHeader("Authorization", "Bearer   ");
 		assertThat(controller.handleStreamableHttp(
-				"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}",
+				"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\",\"io.modelcontextprotocol/clientCapabilities\":{}}}}",
 				null,
 				null,
 				req
@@ -191,11 +192,16 @@ class McpFullCoverageBranchTest {
 		req.setAttribute("virtualApiKey", apiKey);
 		assertThat(controller.handleStreamableHttp("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"\"}", null, null, req)
 		                     .getBody())
-				.contains("-32600").contains("Missing method");
+				.contains("-32602").contains("Missing required _meta");
 
 		// 4. Method from header when body method is empty
-		assertThat(controller.handleStreamableHttp("{\"jsonrpc\":\"2.0\",\"id\":1}", null, "ping", req).getBody())
-				.contains("\"result\":{}");
+		assertThat(controller.handleStreamableHttp(
+				"{\"jsonrpc\":\"2.0\",\"id\":1,\"params\":{\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\",\"io.modelcontextprotocol/clientCapabilities\":{}}}}",
+				null,
+				"ping",
+				req
+		).getBody())
+				.contains("\"resultType\":\"complete\"");
 
 		// 5. Unhandled notification method
 		assertThat(controller.handleStreamableHttp(
@@ -222,6 +228,7 @@ class McpFullCoverageBranchTest {
 
 		// McpAeadResumptionTokenService with short or non-aead tokens
 		McpGatewayProperties props = new McpGatewayProperties();
+		props.setHitlSecret(new SensitiveString("test-hitl-secret-32-bytes-minimum!!"));
 		McpAeadResumptionTokenService tokenService = new McpAeadResumptionTokenService(props, objectMapper);
 		assertThat(tokenService.verifyAndExtract("not-aead-token", "hash", "owner")).isEmpty();
 		assertThat(tokenService.verifyAndExtract("v2.aead.c2hvcnQ=", "hash", "owner")).isEmpty();
@@ -285,7 +292,7 @@ class McpFullCoverageBranchTest {
 		String resJson = "{\"jsonrpc\":\"2.0\",\"result\":{\"resources\":[{\"uri\":\"u1\",\"name\":\"n1\"}]}}";
 		String prmJson = "{\"jsonrpc\":\"2.0\",\"result\":{\"prompts\":[{\"name\":\"p1\",\"arguments\":[{\"name\":\"a1\",\"required\":true}]}]}}";
 
-		when(mockClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+		when(mockClient.send(any(HttpRequest.class), ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()))
 				.thenAnswer(inv -> {
 					HttpRequest req = inv.getArgument(0);
 					String method = req.headers().firstValue("Mcp-Method").orElse("");
@@ -328,7 +335,7 @@ class McpFullCoverageBranchTest {
 		String resFullJson = "{\"jsonrpc\":\"2.0\",\"result\":{\"resources\":[{\"uri\":\"u2\",\"name\":\"n2\",\"description\":\"d\",\"mimeType\":\"text/plain\",\"_meta\":{\"v\":1}}]}}";
 		String prmFullJson = "{\"jsonrpc\":\"2.0\",\"result\":{\"prompts\":[{\"name\":\"p2\",\"description\":\"d\",\"arguments\":[{\"name\":\"a2\",\"description\":\"d\",\"required\":false}],\"_meta\":{\"v\":1}}]}}";
 
-		when(mockClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+		when(mockClient.send(any(HttpRequest.class), ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()))
 				.thenAnswer(inv -> {
 					HttpRequest req = inv.getArgument(0);
 					String method = req.headers().firstValue("Mcp-Method").orElse("");
@@ -360,6 +367,7 @@ class McpFullCoverageBranchTest {
 	@DisplayName("McpHitlSuspensionEngine covers null arguments, empty required tools, and _meta requestState")
 	void mcpHitlSuspensionEngineEdgeBranches() {
 		McpGatewayProperties props = new McpGatewayProperties();
+		props.setHitlSecret(new SensitiveString("test-hitl-secret-32-bytes-minimum!!"));
 		McpAeadResumptionTokenService tokenService = new McpAeadResumptionTokenService(props, objectMapper);
 		StringRedisTemplate mockRedis = mock(StringRedisTemplate.class);
 
@@ -488,10 +496,13 @@ class McpFullCoverageBranchTest {
 		HttpResponse<String> respNoContent = mock(HttpResponse.class);
 		when(respNoContent.statusCode()).thenReturn(200);
 		when(respNoContent.body()).thenReturn("{\"jsonrpc\":\"2.0\",\"result\":{\"status\":\"success\"}}");
-		when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenReturn(respNoContent);
+		when(httpClient.send(
+				any(HttpRequest.class),
+				ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()
+		)).thenReturn(respNoContent);
 
 		ResponseEntity<String> resp1 = controller.handleStreamableHttp(
-				"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"srv__tool\"}}",
+				"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"srv__tool\",\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\",\"io.modelcontextprotocol/clientCapabilities\":{\"tools\":{}}}}}",
 				null,
 				null,
 				req
@@ -503,10 +514,13 @@ class McpFullCoverageBranchTest {
 		HttpResponse<String> respEmpty = mock(HttpResponse.class);
 		when(respEmpty.statusCode()).thenReturn(200);
 		when(respEmpty.body()).thenReturn("{}");
-		when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenReturn(respEmpty);
+		when(httpClient.send(
+				any(HttpRequest.class),
+				ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()
+		)).thenReturn(respEmpty);
 
 		ResponseEntity<String> resp2 = controller.handleStreamableHttp(
-				"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"srv__tool\"}}",
+				"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"srv__tool\",\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\",\"io.modelcontextprotocol/clientCapabilities\":{\"tools\":{}}}}}",
 				null,
 				null,
 				req

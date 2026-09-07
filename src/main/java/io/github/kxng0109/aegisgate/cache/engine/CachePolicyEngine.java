@@ -80,6 +80,17 @@ public class CachePolicyEngine {
 			return false;
 		}
 
+		// Symmetric temperature gate (mirrors shouldEvaluateCache): high-temperature responses are
+		// only stored when the client explicitly opts in via X-Aegis-Cache-Stochastic. Without this,
+		// high-T stochastic responses would pollute the cache and be served to low-T deterministic
+		// requests. The opt-in is symmetric: the same header is required to store and to retrieve.
+		if (request.temperature() != null && request.temperature() > properties.getSemantic().getTemperatureFloor()) {
+			String allowStochastic = httpRequest.getHeader("X-Aegis-Cache-Stochastic");
+			if (!"true".equalsIgnoreCase(allowStochastic)) {
+				return false;
+			}
+		}
+
 		return true;
 	}
 

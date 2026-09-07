@@ -94,7 +94,7 @@ public class AegisCacheService {
 
 		long start = System.currentTimeMillis();
 		try {
-			return singleFlightManager.execute(key.exactHash(), () -> doLookup(key, start));
+			return singleFlightManager.execute(key.exactHash(), () -> doLookup(key, request.temperature(), start));
 		} catch (Exception ex) {
 			log.warn("Cache evaluation failed non-fatally: {}", ex.getMessage());
 			long duration = System.currentTimeMillis() - start;
@@ -103,7 +103,7 @@ public class AegisCacheService {
 		}
 	}
 
-	private CacheLookupResult doLookup(CompoundCacheKey key, long start) {
+	private CacheLookupResult doLookup(CompoundCacheKey key, Double temperature, long start) {
 		// 1. Tier L0: In-Memory Caffeine exact match (<0.1ms)
 		CacheEntry l0Hit = l0Cache.get(key.exactHash());
 		if (l0Hit != null) {
@@ -124,7 +124,7 @@ public class AegisCacheService {
 		}
 
 		// 3. Tier L2: Distributed RediSearch Vector Similarity Search (10-25ms)
-		CacheEntry l2Hit = l2Cache.findSemanticMatch(key);
+		CacheEntry l2Hit = l2Cache.findSemanticMatch(key, temperature);
 		if (l2Hit != null) {
 			long duration = System.currentTimeMillis() - start;
 			l0Cache.put(key.exactHash(), l2Hit);
@@ -186,7 +186,8 @@ public class AegisCacheService {
 				completionTokens,
 				promptTokens + completionTokens,
 				Instant.now(),
-				1.0f
+				1.0f,
+				request.temperature()
 		);
 
 		// Store into L0 in-memory
@@ -202,7 +203,8 @@ public class AegisCacheService {
 				promptTokens,
 				completionTokens,
 				promptTokens + completionTokens,
-				ttl
+				ttl,
+				request.temperature()
 		);
 	}
 

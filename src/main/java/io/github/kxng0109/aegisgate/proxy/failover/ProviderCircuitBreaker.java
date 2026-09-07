@@ -175,6 +175,37 @@ public final class ProviderCircuitBreaker implements CircuitBreaker {
 	}
 
 	/**
+	 * Force-resets this breaker to CLOSED, clearing the failure count and any in-flight probe, unconditionally from any
+	 * state. Unlike {@link #recordSuccess()}, which is intentionally a no-op while OPEN (only a HALF_OPEN probe closes
+	 * the circuit), this guarantees OPEN to CLOSED for operator use. O(1), lock-free, zero allocation.
+	 *
+	 * <p>Counters are zeroed only AFTER a successful CAS (or a re-verified CLOSED read). The CAS
+	 * store is the linearization point: failures incrementing before it are correctly discarded, failures after it are
+	 * preserved. Zeroing before the CAS would resurrect a failure that linearized before the reset, leaving CLOSED with
+	 * a stale count.</p>
+	 */
+	@Override
+	public void reset() {
+		while (true) {
+			CircuitBreaker.State current = state.get();
+			if (current == CircuitBreaker.State.CLOSED) {
+				consecutiveFailures.set(0);
+				halfOpenProbes.set(0);
+				if (state.get() == CircuitBreaker.State.CLOSED) {
+					return;
+				}
+				continue;
+			}
+			if (state.compareAndSet(current, CircuitBreaker.State.CLOSED)) {
+				consecutiveFailures.set(0);
+				halfOpenProbes.set(0);
+				openedAt = Instant.EPOCH;
+				return;
+			}
+		}
+	}
+
+	/**
 	 * Records a transient failure.
 	 *
 	 * <p>In CLOSED the failure count is incremented and the circuit opens when

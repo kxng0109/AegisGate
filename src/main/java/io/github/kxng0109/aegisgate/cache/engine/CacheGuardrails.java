@@ -2,10 +2,7 @@ package io.github.kxng0109.aegisgate.cache.engine;
 
 import org.springframework.stereotype.Component;
 
-import java.util.HashSet;
-import java.util.List;
-import java.util.Locale;
-import java.util.Set;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -103,30 +100,65 @@ public class CacheGuardrails {
 	/**
 	 * Checks that numbers and proper noun entities in both prompts do not conflict.
 	 *
+	 * <p>Uses slot-aligned contradiction detection: values occupying the same grammatical slot (derived from
+	 * the immediately-preceding context word) must overlap; disjoint values in a shared slot indicate a
+	 * conflict (e.g. "CEO of Apple" vs "CEO of Microsoft"). Compatible prompts with no shared slot
+	 * (e.g. "Mentions France" vs "all lowercase") pass. If exactly one side carries numbers or entities,
+	 * the match is rejected to avoid serving a specific answer for a generic prompt or vice versa.</p>
+	 *
 	 * @param incomingPrompt active user prompt
 	 * @param cachedPrompt   cached entry prompt
 	 * @return true if entities and numbers match or are safely compatible, false on conflicts
 	 */
 	public boolean checkEntityMatch(String incomingPrompt, String cachedPrompt) {
-		// 1. Exact numbers check
-		Set<String> inNumbers = extractNumbers(incomingPrompt);
-		Set<String> cachedNumbers = extractNumbers(cachedPrompt);
-		if (!inNumbers.isEmpty() || !cachedNumbers.isEmpty()) {
-			if (!inNumbers.equals(cachedNumbers)) {
+		// 1. Slot-aligned number contradiction check
+		Map<String, Set<String>> inNumberSlots = extractSlottedNumbers(incomingPrompt);
+		Map<String, Set<String>> cachedNumberSlots = extractSlottedNumbers(cachedPrompt);
+		if (!inNumberSlots.isEmpty() || !cachedNumberSlots.isEmpty()) {
+			if (inNumberSlots.isEmpty() || cachedNumberSlots.isEmpty()) {
+				return false;
+			}
+			if (hasSlotContradiction(inNumberSlots, cachedNumberSlots)) {
 				return false;
 			}
 		}
 
-		// 2. Capitalized entity intersection check
-		Set<String> inEntities = extractEntities(incomingPrompt);
-		Set<String> cachedEntities = extractEntities(cachedPrompt);
-		if (!inEntities.isEmpty() || !cachedEntities.isEmpty()) {
-			if (!inEntities.equals(cachedEntities)) {
+		// 2. Slot-aligned entity contradiction check
+		Map<String, Set<String>> inEntitySlots = extractSlottedEntities(incomingPrompt);
+		Map<String, Set<String>> cachedEntitySlots = extractSlottedEntities(cachedPrompt);
+		if (!inEntitySlots.isEmpty() || !cachedEntitySlots.isEmpty()) {
+			if (inEntitySlots.isEmpty() || cachedEntitySlots.isEmpty()) {
+				return false;
+			}
+			if (hasSlotContradiction(inEntitySlots, cachedEntitySlots)) {
 				return false;
 			}
 		}
 
 		return true;
+	}
+
+	/**
+	 * Returns true if any shared slot holds disjoint value sets (a genuine entity/number swap).
+	 */
+	private boolean hasSlotContradiction(Map<String, Set<String>> incoming, Map<String, Set<String>> cached) {
+		for (Map.Entry<String, Set<String>> entry : incoming.entrySet()) {
+			Set<String> cachedValues = cached.get(entry.getKey());
+			if (cachedValues == null) {
+				continue;
+			}
+			boolean overlaps = false;
+			for (String value : entry.getValue()) {
+				if (cachedValues.contains(value)) {
+					overlaps = true;
+					break;
+				}
+			}
+			if (!overlaps) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private boolean hasNegationTerm(String lower) {
@@ -138,24 +170,55 @@ public class CacheGuardrails {
 		return false;
 	}
 
-	private Set<String> extractNumbers(String text) {
-		Set<String> numbers = new HashSet<>();
+	private Map<String, Set<String>> extractSlottedNumbers(String text) {
+		Map<String, Set<String>> slots = new HashMap<>();
 		Matcher matcher = NUMBER_PATTERN.matcher(text);
 		while (matcher.find()) {
-			numbers.add(matcher.group());
+			String slot = precedingWordSlot(text, matcher.start()) + ":NUM";
+			slots.computeIfAbsent(slot, k -> new HashSet<>()).add(matcher.group());
 		}
-		return numbers;
+		return slots;
 	}
 
-	private Set<String> extractEntities(String text) {
-		Set<String> entities = new HashSet<>();
+	private Map<String, Set<String>> extractSlottedEntities(String text) {
+		Map<String, Set<String>> slots = new HashMap<>();
 		Matcher matcher = CAPITALIZED_ENTITY_PATTERN.matcher(text);
 		while (matcher.find()) {
 			String entity = matcher.group();
 			if (!COMMON_STOP_WORDS.contains(entity.toUpperCase(Locale.ROOT))) {
-				entities.add(entity);
+				String slot = precedingWordSlot(text, matcher.start()) + ":ENT";
+				slots.computeIfAbsent(slot, k -> new HashSet<>()).add(entity);
 			}
 		}
-		return entities;
+		return slots;
+	}
+
+	/**
+	 * Derives the grammatical slot key from the word immediately preceding the match start. Articles ({@code the},
+	 * {@code a}, {@code an}) are skipped because they precede too many unrelated entities ("the CEO" vs "the Apple"
+	 * share "the" but are not a swap); the slot falls back to the nearest preceding content word. Returns the empty
+	 * string for matches at the start of the text.
+	 */
+	private static final Set<String> SLOT_SKIP_WORDS = Set.of("the", "a", "an");
+
+	private static String precedingWordSlot(String text, int matchStart) {
+		int end = matchStart;
+		while (true) {
+			while (end > 0 && !Character.isLetterOrDigit(text.charAt(end - 1))) {
+				end--;
+			}
+			int start = end;
+			while (start > 0 && Character.isLetterOrDigit(text.charAt(start - 1))) {
+				start--;
+			}
+			if (start >= end) {
+				return "";
+			}
+			String word = text.substring(start, end).toLowerCase(Locale.ROOT);
+			if (!SLOT_SKIP_WORDS.contains(word)) {
+				return word;
+			}
+			end = start;
+		}
 	}
 }

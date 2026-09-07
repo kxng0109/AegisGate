@@ -67,7 +67,8 @@ class AegisCacheServiceTest {
 				5,
 				10,
 				Instant.now(),
-				1.0f
+				1.0f,
+				null
 		);
 		when(l0Cache.get(anyString())).thenReturn(entry);
 
@@ -101,7 +102,8 @@ class AegisCacheServiceTest {
 				5,
 				10,
 				Instant.now(),
-				1.0f
+				1.0f,
+				null
 		);
 		when(l1Cache.get(any())).thenReturn(entry);
 
@@ -137,9 +139,10 @@ class AegisCacheServiceTest {
 				5,
 				10,
 				Instant.now(),
-				0.94f
+				0.94f,
+				null
 		);
-		when(l2Cache.findSemanticMatch(any())).thenReturn(entry);
+		when(l2Cache.findSemanticMatch(any(), any())).thenReturn(entry);
 
 		CacheLookupResult result = cacheService.evaluateCache(request, httpReq, "tenant1");
 		assertThat(result.isHit()).isTrue();
@@ -160,7 +163,7 @@ class AegisCacheServiceTest {
 
 		when(l0Cache.get(anyString())).thenReturn(null);
 		when(l1Cache.get(any())).thenReturn(null);
-		when(l2Cache.findSemanticMatch(any())).thenReturn(null);
+		when(l2Cache.findSemanticMatch(any(), any())).thenReturn(null);
 
 		CacheLookupResult result = cacheService.evaluateCache(request, httpReq, "tenant1");
 		assertThat(result.isHit()).isFalse();
@@ -181,7 +184,7 @@ class AegisCacheServiceTest {
 
 		verify(l0Cache).put(anyString(), any());
 		verify(l1Cache).put(any(), any(), any());
-		verify(l2Cache).storeSemanticEntry(any(), eq("{\"content\":\"Hi\"}"), eq(5), eq(10), eq(15), any());
+		verify(l2Cache).storeSemanticEntry(any(), eq("{\"content\":\"Hi\"}"), eq(5), eq(10), eq(15), any(), any());
 
 		// When shouldStoreInCache is false
 		properties.setEnabled(false);
@@ -262,7 +265,8 @@ class AegisCacheServiceTest {
 				1,
 				2,
 				Instant.now(),
-				1.0f
+				1.0f,
+				null
 		);
 		when(l0Cache.get(anyString())).thenReturn(entry);
 		CacheLookupResult hitFaulty = faultyMeterService.evaluateCache(request, httpReq, "t1");

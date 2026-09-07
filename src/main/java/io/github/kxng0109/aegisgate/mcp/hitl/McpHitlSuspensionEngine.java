@@ -171,12 +171,12 @@ public class McpHitlSuspensionEngine {
 		if (params == null) {
 			return null;
 		}
-		if (params.has("requestState") && params.path("requestState").isTextual()) {
-			return params.path("requestState").asText();
+		if (params.has("requestState") && params.path("requestState").isString()) {
+			return params.path("requestState").asString();
 		}
 		JsonNode meta = params.path("_meta");
-		if (meta.has("requestState") && meta.path("requestState").isTextual()) {
-			return meta.path("requestState").asText();
+		if (meta.has("requestState") && meta.path("requestState").isString()) {
+			return meta.path("requestState").asString();
 		}
 		return null;
 	}

@@ -32,7 +32,8 @@ class InMemoryExactCacheTest {
 				20,
 				30,
 				Instant.now(),
-				1.0f
+				1.0f,
+				null
 		);
 
 		cache.put("key1", entry);

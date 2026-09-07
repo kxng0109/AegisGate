@@ -22,7 +22,7 @@ class McpGatewayPropertiesTest {
 		assertThat(props.getCatalogCacheTtl()).isEqualTo(Duration.ofMinutes(5));
 		assertThat(props.getCatalogRefreshCron()).isEqualTo("0 */5 * * * *");
 		assertThat(props.getHitlSuspensionTtl()).isEqualTo(Duration.ofSeconds(300));
-		assertThat(props.getHitlSecret().value()).isNotBlank();
+		assertThat(props.getHitlSecret()).as("HITL secret must be null by default; injected from environment").isNull();
 		assertThat(props.getMaxSseMessageBytes()).isEqualTo(2 * 1024 * 1024);
 		assertThat(props.isAllowLegacySse()).isTrue();
 		assertThat(props.getCircuitBreakerFailureThreshold()).isEqualTo(3);

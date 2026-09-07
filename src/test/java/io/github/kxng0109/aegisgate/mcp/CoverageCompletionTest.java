@@ -25,6 +25,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.ResponseEntity;
@@ -111,7 +112,7 @@ class CoverageCompletionTest {
 				null,
 				keyedRequest()
 		);
-		assertThat(response.getBody()).contains("-32602").contains("params object required");
+		assertThat(response.getBody()).contains("-32602").contains("Missing required _meta");
 	}
 
 	@Test
@@ -134,7 +135,7 @@ class CoverageCompletionTest {
 				)));
 
 		ResponseEntity<String> response = controller.handleStreamableHttp(
-				"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"srv__priv\"}}",
+				"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"srv__priv\",\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\",\"io.modelcontextprotocol/clientCapabilities\":{\"tools\":{}}}}}",
 				null,
 				null,
 				keyedRequest()
@@ -155,7 +156,7 @@ class CoverageCompletionTest {
 				mockUpstream(200, "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[]}}")
 		);
 
-		when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+		when(httpClient.send(any(HttpRequest.class), ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()))
 				.thenAnswer(inv -> {
 					HttpRequest req = inv.getArgument(0);
 					String name = req.headers().firstValue("Mcp-Name").orElse("tool");
@@ -182,7 +183,7 @@ class CoverageCompletionTest {
 
 			ResponseEntity<String> response = controller.handleStreamableHttp(
 					"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"srv__" + tool
-							+ "\"}}",
+							+ "\",\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\",\"io.modelcontextprotocol/clientCapabilities\":{\"tools\":{}}}}}",
 					null,
 					null,
 					keyedRequest()
@@ -210,11 +211,11 @@ class CoverageCompletionTest {
 		when(hitlSuspensionEngine.evaluateOrSuspend(any(), any(), any(), any(), any())).thenReturn(Optional.empty());
 
 		HttpResponse<String> upstream = mockUpstream(200, "{\"jsonrpc\":\"2.0\",\"result\":{\"status\":\"ok\"}}");
-		when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+		when(httpClient.send(any(HttpRequest.class), ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()))
 				.thenReturn(upstream);
 
 		ResponseEntity<String> response = controller.handleStreamableHttp(
-				"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"srv__tool\"}}",
+				"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"srv__tool\",\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\",\"io.modelcontextprotocol/clientCapabilities\":{\"tools\":{}}}}}",
 				null,
 				null,
 				keyedRequest()
@@ -244,7 +245,7 @@ class CoverageCompletionTest {
 				"resources/list", "{\"jsonrpc\":\"2.0\",\"result\":{\"resources\":\"not-array\"}}",
 				"prompts/list", "{\"jsonrpc\":\"2.0\",\"result\":{\"prompts\":\"not-array\"}}"
 		);
-		when(mockClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+		when(mockClient.send(any(HttpRequest.class), ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()))
 				.thenAnswer(inv -> {
 					HttpRequest req = inv.getArgument(0);
 					String method = req.headers().firstValue("Mcp-Method").orElse("");
@@ -263,7 +264,7 @@ class CoverageCompletionTest {
 		assertThat(nonArray.prompts()).isEmpty();
 
 		HttpResponse<String> serverError = mockUpstream(500, "{}");
-		when(mockClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+		when(mockClient.send(any(HttpRequest.class), ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()))
 				.thenReturn(serverError);
 		cache.invalidate();
 		McpAggregatedCatalog errorCatalog = aggregator.refreshCatalog();
@@ -287,7 +288,7 @@ class CoverageCompletionTest {
 		McpCatalogAggregator aggregator = new McpCatalogAggregator(properties, cache, mockClient, objectMapper);
 
 		HttpResponse<String> malformed = mockUpstream(200, "{not-valid-json");
-		when(mockClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+		when(mockClient.send(any(HttpRequest.class), ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()))
 				.thenReturn(malformed);
 		cache.invalidate();
 		McpAggregatedCatalog malformedCatalog = aggregator.refreshCatalog();
@@ -306,7 +307,7 @@ class CoverageCompletionTest {
 				}
 				""";
 		HttpResponse<String> ok = mockUpstream(200, itemsJson);
-		when(mockClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+		when(mockClient.send(any(HttpRequest.class), ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()))
 				.thenReturn(ok);
 		cache.invalidate();
 		McpAggregatedCatalog itemCatalog = aggregator.refreshCatalog();
@@ -333,7 +334,7 @@ class CoverageCompletionTest {
 		when(circuitBreakerManager.tryAcquire("srv")).thenReturn(true);
 
 		ResponseEntity<String> response = controller.handleStreamableHttp(
-				"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}",
+				"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\",\"io.modelcontextprotocol/clientCapabilities\":{\"tools\":{}}}}}",
 				null,
 				null,
 				keyedRequest()
@@ -352,6 +353,7 @@ class CoverageCompletionTest {
 		);
 
 		McpGatewayProperties props = new McpGatewayProperties();
+		props.setHitlSecret(new SensitiveString("test-hitl-secret-32-bytes-minimum!!"));
 		McpAeadResumptionTokenService tokenService = new McpAeadResumptionTokenService(props, objectMapper);
 		org.springframework.data.redis.core.StringRedisTemplate redis = mock(org.springframework.data.redis.core.StringRedisTemplate.class);
 		McpHitlSuspensionEngine hitl = new McpHitlSuspensionEngine(props, tokenService, redis, objectMapper);

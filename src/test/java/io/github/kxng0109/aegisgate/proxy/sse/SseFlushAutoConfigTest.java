@@ -1,12 +1,18 @@
 package io.github.kxng0109.aegisgate.proxy.sse;
 
+import com.redis.testcontainers.RedisContainer;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.health.contributor.Health;
 import org.springframework.boot.health.registry.HealthContributorRegistry;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.ApplicationContext;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -14,9 +20,20 @@ import static org.junit.jupiter.api.Assertions.*;
  * Verifies the Spring wiring of the flush engine: the bound properties, the shared ticker, the strategy bean, the
  * health indicator aggregated into the actuator health registry, and the hot-reload bridge.
  */
+@Testcontainers
 @SpringBootTest
 @DisplayName("SseFlushAutoConfig wiring")
 class SseFlushAutoConfigTest {
+
+	@Container
+	@ServiceConnection
+	static final PostgreSQLContainer POSTGRES =
+			new PostgreSQLContainer(DockerImageName.parse("postgres:16-alpine"));
+
+	@Container
+	@ServiceConnection
+	static final RedisContainer REDIS =
+			new RedisContainer(DockerImageName.parse("redis:7-alpine"));
 
 	@Autowired
 	private ApplicationContext context;

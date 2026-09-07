@@ -146,6 +146,12 @@ gateway:
     system-prompt-exfiltration-defense-enabled: ${GATEWAY_GUARDRAILS_SYSTEM_PROMPT_DEFENSE:true}
     data-residency-enabled: ${GATEWAY_GUARDRAILS_DATA_RESIDENCY:true}
     default-residency-policy: ${GATEWAY_GUARDRAILS_DEFAULT_RESIDENCY_POLICY:STRICT_SOVEREIGN}
+  mcp:
+    # HITL AEAD secret — injected exclusively from the runtime environment.
+    # NEVER hardcode a value here. Generate with: openssl rand -base64 32
+    # Required: GATEWAY_MCP_HITL_SECRET=<32+ byte base64 or random string>
+    # The application refuses to start if this is absent or shorter than 32 bytes.
+    hitl-secret: ${GATEWAY_MCP_HITL_SECRET:}
 
 aegisgate:
   sse:

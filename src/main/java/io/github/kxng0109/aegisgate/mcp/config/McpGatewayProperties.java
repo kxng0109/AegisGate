@@ -3,9 +3,12 @@ package io.github.kxng0109.aegisgate.mcp.config;
 import io.github.kxng0109.aegisgate.config.SensitiveString;
 import io.github.kxng0109.aegisgate.mcp.contracts.McpProtocolVersion;
 import io.github.kxng0109.aegisgate.mcp.contracts.McpServerConfig;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.validation.annotation.Validated;
 
 import java.time.Duration;
 import java.util.Collections;
@@ -14,9 +17,17 @@ import java.util.Map;
 
 /**
  * Configuration properties for the Model Context Protocol (MCP) Security & Tool Governance Gateway.
+ *
+ * <p>All secrets are injected exclusively from the runtime environment (environment variables, Kubernetes Secrets,
+ * AWS Secrets Manager, Azure Key Vault, or HashiCorp Vault). No secret value is ever hardcoded in source. The
+ * {@link #hitlSecret} field is validated at startup via {@link Validated} to fail fast if the secret is absent,
+ * blank, or does not meet the minimum length bar.</p>
+ *
+ * @since 1.4.0
  */
 @Getter
 @Setter
+@Validated
 @ConfigurationProperties(prefix = "gateway.mcp")
 public class McpGatewayProperties {
 
@@ -52,8 +63,15 @@ public class McpGatewayProperties {
 
 	/**
 	 * 256-bit secret key used for AEAD encryption of HITL resumption tokens.
+	 *
+	 * <p>Must be injected via the {@code GATEWAY_MCP_HITL_SECRET} environment variable (or equivalent
+	 * secret-manager injection). Must be at least 32 bytes when decoded. The application will refuse
+	 * to start if this value is absent, blank, or shorter than 32 bytes.</p>
 	 */
-	private SensitiveString hitlSecret = new SensitiveString("aegisgate-default-mcp-hitl-secret-key-32bytes!!");
+	@NotNull(message = "GATEWAY_MCP_HITL_SECRET is required; provide a 32+ byte base64/random secret via the environment or a secret manager")
+	@Valid
+	@HitlSecretLength
+	private SensitiveString hitlSecret;
 
 	/**
 	 * Maximum permissible byte length for a single incoming or outgoing MCP SSE message.

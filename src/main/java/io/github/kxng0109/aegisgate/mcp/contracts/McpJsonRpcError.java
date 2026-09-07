@@ -24,15 +24,13 @@ public record McpJsonRpcError(
 	public static final int INVALID_PARAMS = -32602;
 	public static final int INTERNAL_ERROR = -32603;
 
-	// MCP-Specific Error Code Partition (-32000 to -32099)
-	public static final int SERVER_ERROR = -32000;
-	public static final int RESOURCE_NOT_FOUND = -32602;
+	// MCP-spec-defined codes in the -32020..-32099 sub-range (MCP 2026-07-28 schema.ts, basic spec).
+	// ONLY these three codes may be emitted from this sub-range. Implementations MUST NOT emit any
+	// other code from -32020..-32099. Local implementation errors (RBAC denial, circuit-breaker state)
+	// are surfaced as INTERNAL_ERROR (-32603), never as reserved-range codes.
 	public static final int HEADER_MISMATCH = -32020;
 	public static final int MISSING_REQUIRED_CAPABILITY = -32021;
 	public static final int UNSUPPORTED_PROTOCOL_VERSION = -32022;
-	public static final int HITL_SUSPENDED = -32023;
-	public static final int CIRCUIT_BREAKER_TRIPPED = -32024;
-	public static final int ACCESS_DENIED = -32025;
 
 	public static McpJsonRpcError parseError(String detail) {
 		return new McpJsonRpcError(PARSE_ERROR, "Parse error: " + detail, null);
@@ -54,6 +52,25 @@ public record McpJsonRpcError(
 		return new McpJsonRpcError(INTERNAL_ERROR, "Internal error: " + detail, null);
 	}
 
+	/**
+	 * RBAC policy denial. Surfaced as {@code INTERNAL_ERROR} (-32603) because per-request tool authorization is a local
+	 * policy decision, not a protocol error; the MCP spec forbids emitting undefined codes from the -32020..-32099
+	 * sub-range.
+	 */
+	public static McpJsonRpcError accessDenied(String detail) {
+		return internalError("Access denied: " + detail);
+	}
+
+	/**
+	 * Upstream circuit-breaker open. Surfaced as {@code INTERNAL_ERROR} (-32603) because breaker state is a local
+	 * implementation error, not a protocol error; the MCP spec forbids emitting undefined codes from the -32020..-32099
+	 * sub-range.
+	 */
+	public static McpJsonRpcError circuitBreakerTripped(String serverName) {
+		return internalError("Upstream MCP server '" + serverName
+				                     + "' is temporarily unavailable (circuit breaker open)");
+	}
+
 	public static McpJsonRpcError headerMismatch(String detail) {
 		return new McpJsonRpcError(HEADER_MISMATCH, "Header mismatch: " + detail, null);
 	}
@@ -66,17 +83,5 @@ public record McpJsonRpcError(
 			supportedNode.add(v);
 		}
 		return new McpJsonRpcError(UNSUPPORTED_PROTOCOL_VERSION, "Unsupported protocol version", dataNode);
-	}
-
-	public static McpJsonRpcError accessDenied(String detail) {
-		return new McpJsonRpcError(ACCESS_DENIED, "Access denied: " + detail, null);
-	}
-
-	public static McpJsonRpcError circuitBreakerTripped(String serverName) {
-		return new McpJsonRpcError(
-				CIRCUIT_BREAKER_TRIPPED,
-				"Upstream MCP server '" + serverName + "' is temporarily unavailable (circuit breaker open)",
-				null
-		);
 	}
 }

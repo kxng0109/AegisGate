@@ -1193,7 +1193,7 @@ class ProxyControllerTest {
 		CacheEntry entry = new CacheEntry(
 				"id1", "owner-1", CacheScope.TENANT, "gpt-5.6-luna",
 				"Hi", "", "", "{\"choices\":[{\"message\":{\"content\":\"Cached greeting!\"}}]}", 5, 10, 15,
-				java.time.Instant.now(), 0.96f
+				java.time.Instant.now(), 0.96f, null
 		);
 		CacheLookupResult hit = CacheLookupResult.hit(
 				CacheStatus.HIT_L2, entry, 0.96f, 15L
@@ -1287,7 +1287,7 @@ class ProxyControllerTest {
 		CacheEntry entry = new CacheEntry(
 				"id1", "owner-1", CacheScope.TENANT, "gpt-5.6-luna",
 				"Hi", "", "", "{\"choices\":[{\"message\":{\"content\":\"L0 hit\"}}]}", 5, 10, 15,
-				java.time.Instant.now(), 1.0f
+				java.time.Instant.now(), 1.0f, null
 		);
 
 		when(cacheService.evaluateCache(any(), any(), eq("owner-1"))).thenReturn(
@@ -1311,7 +1311,7 @@ class ProxyControllerTest {
 		// Cache hit with null createdAt
 		CacheEntry entryNullCreated = new CacheEntry(
 				"id1", "owner-1", CacheScope.TENANT, "gpt-5.6-luna",
-				"Hi", "", "", "{\"choices\":[]}", 1, 1, 2, null, 1.0f
+				"Hi", "", "", "{\"choices\":[]}", 1, 1, 2, null, 1.0f, null
 		);
 		when(cacheService.evaluateCache(any(), any(), eq("owner-1"))).thenReturn(
 				CacheLookupResult.hit(

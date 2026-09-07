@@ -33,12 +33,15 @@ public class FinOpsPromptCacheCalculator {
 	private final ModelPriceCatalog catalog;
 
 	/**
-	 * Detailed FinOps calculation result in micro-dollars.
+	 * Detailed FinOps calculation result in micro-dollars (FOCUS 1.4 cost taxonomy).
 	 *
-	 * @param listCostMicros      standard list cost without caching discounts
-	 * @param effectiveCostMicros effective cost considering contracted rates
-	 * @param billedCostMicros    final billed cost taking cache read discounts and write surcharges into account
-	 * @param cacheSavingsMicros  total micro-dollars saved from prompt cache hits
+	 * @param listCostMicros      standard list cost without caching discounts (FOCUS 1.4 List Cost)
+	 * @param effectiveCostMicros effective cost for the charge period; equals billed cost here because no
+	 *                            covering charges are amortized (FOCUS 1.4 Effective Cost)
+	 * @param billedCostMicros    final invoiced cost after cache read discounts and write surcharges
+	 *                            (FOCUS 1.4 Billed Cost)
+	 * @param cacheSavingsMicros  signed delta (list minus billed); negative when caching costs more than
+	 *                            it saves (e.g. Anthropic 1.25x write surcharge on a cold-cache write)
 	 */
 	public record FinOpsCostBreakdown(
 			long listCostMicros,
@@ -98,9 +101,30 @@ public class FinOpsPromptCacheCalculator {
 		BigDecimal billedInputCost = uncachedCost.add(writeCost).add(readCost);
 
 		long billedCostMicros = toMicros(billedInputCost.add(listOutputCost));
-		long cacheSavingsMicros = Math.max(0L, listCostMicros - billedCostMicros);
 
-		return new FinOpsCostBreakdown(listCostMicros, billedCostMicros, billedCostMicros, cacheSavingsMicros);
+		// Effective cost (FOCUS 1.4): equals Billed Cost here because this per-request cache ledger
+		// has no covering/covered charge pairs. Computed explicitly (not aliased) so the invariant
+		// is self-documenting and cannot be silently broken by a positional constructor argument.
+		long effectiveCostMicros = computeEffectiveCostMicros(billedCostMicros);
+
+		// Cache savings: SIGNED delta. A write-surcharge (e.g. Anthropic 1.25x on a cold-cache write)
+		// can make billed exceed list; clamping to zero would hide a real cost increase.
+		long cacheSavingsMicros = listCostMicros - billedCostMicros;
+
+		return new FinOpsCostBreakdown(listCostMicros, effectiveCostMicros, billedCostMicros, cacheSavingsMicros);
+	}
+
+	/**
+	 * Effective Cost for a per-request cache charge (FOCUS 1.4).
+	 *
+	 * <p>Effective Cost equals Billed Cost when the charge is a usage charge that is not covered by other
+	 * eligible charges. It differs from Billed Cost only when covering charges (e.g. prepaid commitment purchases) are
+	 * amortized onto the covered usage. This calculator models a single request with no covering/covered charge
+	 * relationship, so Effective Cost collapses to Billed Cost. The method exists so that invariant is named, tested,
+	 * and cannot be silently aliased.</p>
+	 */
+	private static long computeEffectiveCostMicros(long billedCostMicros) {
+		return billedCostMicros;
 	}
 
 	private BigDecimal resolveWriteRate(ProviderType type, ModelPricingEntry entry, BigDecimal baseRate) {

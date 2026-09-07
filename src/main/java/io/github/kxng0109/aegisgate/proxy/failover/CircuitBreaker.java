@@ -41,6 +41,17 @@ public interface CircuitBreaker {
 	void recordSuccess();
 
 	/**
+	 * Force-resets this circuit breaker to the {@link State#CLOSED} state, clearing the failure count and any in-flight
+	 * probe. Intended for operator/admin use; unlike {@link #recordSuccess()}, this transitions from {@link State#OPEN}
+	 * (and {@link State#HALF_OPEN}) to CLOSED unconditionally.
+	 *
+	 * <p>The transition is atomic and lock-free on the hot path. Implementations must clear derived
+	 * counters before-or-with the state flip so a concurrent {@link #recordFailure()} can never observe CLOSED with a
+	 * stale failure count.</p>
+	 */
+	void reset();
+
+	/**
 	 * Records a transient failure (may open the circuit when the threshold is reached).
 	 */
 	void recordFailure();

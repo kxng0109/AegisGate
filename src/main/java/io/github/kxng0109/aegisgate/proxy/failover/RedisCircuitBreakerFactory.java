@@ -109,18 +109,19 @@ public final class RedisCircuitBreakerFactory implements CircuitBreakerFactory {
 	}
 
 	/**
-	 * Clears the local breaker cache for the specific provider and best-effort deletes its Redis breaker key.
+	 * Force-resets the breaker for the specific provider to CLOSED via its reset() contract and
+	 * best-effort deletes its Redis key so other instances observe the reset.
 	 *
 	 * @param providerName provider whose breaker is to be reset
-	 * @return the new state of the provider
+	 * @return the observed state of the provider after the reset
 	 */
 	@Override
 	public CircuitBreaker.State reset(String providerName) {
-		breakers.remove(providerName);
+		get(providerName).reset();
 		try {
 			breakerTemplate.delete(RedisCircuitBreaker.KEY_PREFIX + providerName);
 		} catch (DataAccessException ignored) {
-			// Best-effort cleanup; the next successful script read recreates the key on demand.
+			// Best-effort cleanup; the local mirror is already CLOSED via reset().
 		}
 		return get(providerName).getState();
 	}

@@ -80,10 +80,12 @@ public class McpServerCircuitBreakerManager {
 	}
 
 	/**
-	 * Resets the circuit breaker for the named server.
+	 * Force-resets the circuit breaker for the named server to CLOSED, unconditionally from any state.
+	 * Delegates to the breaker's force-close reset(), NOT recordSuccess() (which is intentionally a
+	 * no-op while OPEN; only reset() guarantees OPEN to CLOSED, which is what the operator expects).
 	 */
 	public void reset(String serverName) {
-		getBreaker(serverName).recordSuccess();
+		getBreaker(serverName).reset();
 		catalogCache.invalidate();
 	}
 }

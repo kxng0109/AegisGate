@@ -136,7 +136,7 @@ public class McpCatalogAggregator {
 				if (toolsArr.isArray()) {
 					List<McpToolDefinition> list = new ArrayList<>();
 					for (JsonNode toolNode : toolsArr) {
-						String rawName = toolNode.path("name").asText("");
+						String rawName = toolNode.path("name").asString("");
 						if (rawName.isBlank()) {
 							continue;
 						}
@@ -150,7 +150,7 @@ public class McpCatalogAggregator {
 
 						String namespacedName = McpRouter.formatNamespacedName(server.name(), rawName);
 						String description = toolNode.has("description") ? toolNode.path("description")
-						                                                           .asText(null) : null;
+						                                                           .asString(null) : null;
 						JsonNode inputSchema = toolNode.path("inputSchema");
 						JsonNode meta = toolNode.has("_meta") ? toolNode.path("_meta") : null;
 
@@ -177,11 +177,11 @@ public class McpCatalogAggregator {
 				if (resArr.isArray()) {
 					List<McpResourceDefinition> list = new ArrayList<>();
 					for (JsonNode resNode : resArr) {
-						String uri = resNode.path("uri").asText("");
-						String name = resNode.path("name").asText(uri);
+						String uri = resNode.path("uri").asString("");
+						String name = resNode.path("name").asString(uri);
 						String description = resNode.has("description") ? resNode.path("description")
-						                                                         .asText(null) : null;
-						String mimeType = resNode.has("mimeType") ? resNode.path("mimeType").asText(null) : null;
+						                                                         .asString(null) : null;
+						String mimeType = resNode.has("mimeType") ? resNode.path("mimeType").asString(null) : null;
 						JsonNode meta = resNode.has("_meta") ? resNode.path("_meta") : null;
 						list.add(new McpResourceDefinition(uri, name, description, mimeType, meta));
 					}
@@ -206,16 +206,16 @@ public class McpCatalogAggregator {
 				if (prmArr.isArray()) {
 					List<McpPromptDefinition> list = new ArrayList<>();
 					for (JsonNode pNode : prmArr) {
-						String rawName = pNode.path("name").asText("");
+						String rawName = pNode.path("name").asString("");
 						String namespacedName = McpRouter.formatNamespacedName(server.name(), rawName);
-						String description = pNode.has("description") ? pNode.path("description").asText(null) : null;
+						String description = pNode.has("description") ? pNode.path("description").asString(null) : null;
 						List<McpPromptArgument> args = new ArrayList<>();
 						JsonNode argsArr = pNode.path("arguments");
 						if (argsArr.isArray()) {
 							for (JsonNode a : argsArr) {
 								args.add(new McpPromptArgument(
-										a.path("name").asText(""),
-										a.has("description") ? a.path("description").asText(null) : null,
+										a.path("name").asString(""),
+										a.has("description") ? a.path("description").asString(null) : null,
 										a.path("required").asBoolean(false)
 								));
 							}

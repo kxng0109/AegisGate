@@ -18,6 +18,8 @@ import java.time.Instant;
  * @param totalTokens         total tokens
  * @param createdAt           timestamp when the entry was created
  * @param similarityScore     vector cosine similarity score (1.0 for exact matches)
+ * @param temperature         sampling temperature of the request that produced this entry
+ *                            ({@code null} if unknown); used to isolate stochastic from deterministic entries
  */
 public record CacheEntry(
 		String id,
@@ -32,7 +34,8 @@ public record CacheEntry(
 		int completionTokens,
 		int totalTokens,
 		Instant createdAt,
-		float similarityScore
+		float similarityScore,
+		Double temperature
 ) {
 	/**
 	 * Creates a copy of this entry with an updated similarity score.
@@ -54,7 +57,8 @@ public record CacheEntry(
 				completionTokens,
 				totalTokens,
 				createdAt,
-				score
+				score,
+				temperature
 		);
 	}
 }

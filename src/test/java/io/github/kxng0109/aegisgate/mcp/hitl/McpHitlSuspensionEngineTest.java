@@ -121,8 +121,8 @@ class McpHitlSuspensionEngineTest {
 		assertThat(response.isSuccess()).isTrue();
 
 		ObjectNode resultNode = (ObjectNode) response.result();
-		assertThat(resultNode.get("resultType").asText()).isEqualTo("input_required");
-		assertThat(resultNode.get("requestState").asText()).startsWith("v2.aead.");
+		assertThat(resultNode.get("resultType").asString()).isEqualTo("input_required");
+		assertThat(resultNode.get("requestState").asString()).startsWith("v2.aead.");
 		assertThat(resultNode.get("inputRequests").has("human_approval")).isTrue();
 
 		verify(valueOperations).set(startsWith("mcp:hitl:pending:"), anyString(), anyLong(), any());

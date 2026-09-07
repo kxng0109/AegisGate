@@ -102,7 +102,11 @@ public class AdminCircuitController {
 	 */
 	@Operation(
 			summary = "Force-reset provider circuit breaker",
-			description = "Immediately transitions the specified provider's circuit breaker back to `CLOSED` state and resets failure counters.",
+			description = "Force-transitions the specified provider's circuit breaker to CLOSED state and resets "
+					+ "the failure counter, unconditionally from any state (OPEN, HALF_OPEN or CLOSED). "
+					+ "This is an operator action and is NOT equivalent to recording a success: a success "
+					+ "recorded while the circuit is OPEN is intentionally ignored (only a HALF_OPEN probe "
+					+ "closes the circuit). The returned state is observed after the reset.",
 			security = {
 					@SecurityRequirement(name = OpenApiConfig.SCHEME_ADMIN_KEY_HEADER),
 					@SecurityRequirement(name = OpenApiConfig.SCHEME_ADMIN_BEARER)

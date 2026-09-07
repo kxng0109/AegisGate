@@ -18,6 +18,9 @@ import io.github.kxng0109.aegisgate.proxy.embeddings.dto.EmbeddingResponse;
 import io.github.kxng0109.aegisgate.proxy.protocol.OpenAiChatRequest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -33,7 +36,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 
 @DisplayName("CacheFullCoverageTest")
+@ExtendWith(MockitoExtension.class)
 class CacheFullCoverageTest {
+
+	@Mock
+	private StringRedisTemplate mockRedisTemplate;
+	@Mock
+	private ValueOperations<String, String> mockValueOps;
 
 	private final ObjectMapper objectMapper = new ObjectMapper();
 	private final CacheKeyGenerator keyGenerator = new CacheKeyGenerator();
@@ -123,14 +132,12 @@ class CacheFullCoverageTest {
 	@Test
 	@DisplayName("RedisExactCache covers empty string return from Redis")
 	void redisExactCacheEmptyString() {
-		StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
-		ValueOperations<String, String> ops = mock(ValueOperations.class);
-		when(redisTemplate.opsForValue()).thenReturn(ops);
+		when(mockRedisTemplate.opsForValue()).thenReturn(mockValueOps);
 
 		CompoundCacheKey key = new CompoundCacheKey("t1", CacheScope.TENANT, "m", "h", "", "", "p");
-		when(ops.get(key.toExactRedisKey())).thenReturn("   ");
+		when(mockValueOps.get(key.toExactRedisKey())).thenReturn("   ");
 
-		RedisExactCache cache = new RedisExactCache(redisTemplate, objectMapper, properties);
+		RedisExactCache cache = new RedisExactCache(mockRedisTemplate, objectMapper, properties);
 		assertThat(cache.get(key)).isNull();
 	}
 

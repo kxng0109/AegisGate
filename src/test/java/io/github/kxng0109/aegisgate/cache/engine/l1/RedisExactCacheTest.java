@@ -7,6 +7,9 @@ import io.github.kxng0109.aegisgate.cache.contracts.CompoundCacheKey;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import tools.jackson.databind.ObjectMapper;
@@ -18,10 +21,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 
 @DisplayName("RedisExactCache")
+@ExtendWith(MockitoExtension.class)
 class RedisExactCacheTest {
 
-	private final StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
-	private final ValueOperations<String, String> valueOps = mock(ValueOperations.class);
+	@Mock
+	private StringRedisTemplate redisTemplate;
+	@Mock
+	private ValueOperations<String, String> valueOps;
 	private final ObjectMapper objectMapper = new ObjectMapper();
 	private final AegisCacheProperties properties = new AegisCacheProperties();
 	private RedisExactCache cache;
@@ -51,7 +57,8 @@ class RedisExactCacheTest {
 				10,
 				15,
 				Instant.now(),
-				1.0f
+				1.0f,
+				null
 		);
 
 		String json = objectMapper.writeValueAsString(entry);
@@ -76,7 +83,20 @@ class RedisExactCacheTest {
 				"tenant1", CacheScope.TENANT, "gpt-4o", "exactHash123", "", "", "Hello"
 		);
 		CacheEntry entry = new CacheEntry(
-				"id1", "tenant1", CacheScope.TENANT, "gpt-4o", "Hello", "", "", "{}", 5, 10, 15, Instant.now(), 1.0f
+				"id1",
+				"tenant1",
+				CacheScope.TENANT,
+				"gpt-4o",
+				"Hello",
+				"",
+				"",
+				"{}",
+				5,
+				10,
+				15,
+				Instant.now(),
+				1.0f,
+				null
 		);
 
 		// Disabled

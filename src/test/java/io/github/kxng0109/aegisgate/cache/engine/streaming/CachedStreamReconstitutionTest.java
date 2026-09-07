@@ -38,7 +38,8 @@ class CachedStreamReconstitutionTest {
 				15,
 				25,
 				Instant.now(),
-				1.0f
+				1.0f,
+				null
 		);
 
 		ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -100,7 +101,20 @@ class CachedStreamReconstitutionTest {
 		CachedStreamReconstitution faultyReconstitution = new CachedStreamReconstitution(faultyMapper);
 
 		CacheEntry entry = new CacheEntry(
-				"id1", "tenant1", CacheScope.TENANT, "gpt-4o", "p", "", "", "raw text", 5, 5, 10, Instant.now(), 1.0f
+				"id1",
+				"tenant1",
+				CacheScope.TENANT,
+				"gpt-4o",
+				"p",
+				"",
+				"",
+				"raw text",
+				5,
+				5,
+				10,
+				Instant.now(),
+				1.0f,
+				null
 		);
 		ByteArrayOutputStream out = new ByteArrayOutputStream();
 		faultyReconstitution.streamCachedResponse(entry, "gpt-4o", false, out);

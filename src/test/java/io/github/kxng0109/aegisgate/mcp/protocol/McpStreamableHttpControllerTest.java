@@ -20,6 +20,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
@@ -141,14 +142,14 @@ class McpStreamableHttpControllerTest {
 		request.setAttribute("virtualApiKey", validApiKey);
 
 		ResponseEntity<String> response = controller.handleStreamableHttp(
-				"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}",
+				"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\",\"io.modelcontextprotocol/clientCapabilities\":{}}}}",
 				null,
 				null,
 				request
 		);
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
-		assertThat(response.getBody()).contains("-32000").contains("MCP Gateway is disabled");
+		assertThat(response.getBody()).contains("-32603").contains("MCP Gateway is disabled");
 	}
 
 	@Test
@@ -158,7 +159,7 @@ class McpStreamableHttpControllerTest {
 
 		// Missing key
 		ResponseEntity<String> response1 = controller.handleStreamableHttp(
-				"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}",
+				"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\",\"io.modelcontextprotocol/clientCapabilities\":{}}}}",
 				null,
 				null,
 				request
@@ -182,7 +183,7 @@ class McpStreamableHttpControllerTest {
 		);
 		request.setAttribute("virtualApiKey", disabledKey);
 		ResponseEntity<String> response2 = controller.handleStreamableHttp(
-				"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}",
+				"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\",\"io.modelcontextprotocol/clientCapabilities\":{}}}}",
 				null,
 				null,
 				request
@@ -198,7 +199,7 @@ class McpStreamableHttpControllerTest {
 		when(keyManagementService.findByHash(any())).thenReturn(Optional.of(validApiKey));
 
 		ResponseEntity<String> response = controller.handleStreamableHttp(
-				"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}",
+				"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\",\"io.modelcontextprotocol/clientCapabilities\":{}}}}",
 				null,
 				null,
 				request
@@ -214,7 +215,7 @@ class McpStreamableHttpControllerTest {
 		request.setAttribute("virtualApiKey", validApiKey);
 
 		ResponseEntity<String> response = controller.handleStreamableHttp(
-				"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}",
+				"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\",\"io.modelcontextprotocol/clientCapabilities\":{}}}}",
 				"2023-01-01",
 				null,
 				request
@@ -275,17 +276,17 @@ class McpStreamableHttpControllerTest {
 
 		// ping
 		ResponseEntity<String> pingResp = controller.handleStreamableHttp(
-				"{\"jsonrpc\":\"2.0\",\"id\":\"p-1\",\"method\":\"ping\"}",
+				"{\"jsonrpc\":\"2.0\",\"id\":\"p-1\",\"method\":\"ping\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\",\"io.modelcontextprotocol/clientCapabilities\":{}}}}",
 				null,
 				null,
 				request
 		);
 		assertThat(pingResp.getStatusCode()).isEqualTo(HttpStatus.OK);
-		assertThat(pingResp.getBody()).contains("\"result\":{}");
+		assertThat(pingResp.getBody()).contains("\"resultType\":\"complete\"");
 
 		// initialize
 		ResponseEntity<String> initResp = controller.handleStreamableHttp(
-				"{\"jsonrpc\":\"2.0\",\"id\":\"init-1\",\"method\":\"initialize\"}",
+				"{\"jsonrpc\":\"2.0\",\"id\":\"init-1\",\"method\":\"initialize\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\",\"io.modelcontextprotocol/clientCapabilities\":{}}}}",
 				"2026-07-28",
 				null,
 				request
@@ -293,13 +294,13 @@ class McpStreamableHttpControllerTest {
 		assertThat(initResp.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(initResp.getBody())
 				.contains("AegisGate-MCP-Gateway")
-				.contains("1.4.0")
+				.contains("1.5.0")
 				.contains("2026-07-28")
 				.contains("tools");
 
 		// Unknown method -> -32601 Method Not Found
 		ResponseEntity<String> unknownResp = controller.handleStreamableHttp(
-				"{\"jsonrpc\":\"2.0\",\"id\":\"u-1\",\"method\":\"unknown/method\"}",
+				"{\"jsonrpc\":\"2.0\",\"id\":\"u-1\",\"method\":\"unknown/method\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\",\"io.modelcontextprotocol/clientCapabilities\":{}}}}",
 				null,
 				null,
 				request
@@ -348,7 +349,7 @@ class McpStreamableHttpControllerTest {
 		when(circuitBreakerManager.tryAcquire("offline")).thenReturn(false);
 
 		ResponseEntity<String> response = controller.handleStreamableHttp(
-				"{\"jsonrpc\":\"2.0\",\"id\":\"tl-1\",\"method\":\"tools/list\"}",
+				"{\"jsonrpc\":\"2.0\",\"id\":\"tl-1\",\"method\":\"tools/list\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\",\"io.modelcontextprotocol/clientCapabilities\":{\"tools\":{}}}}}",
 				null,
 				null,
 				request
@@ -382,7 +383,7 @@ class McpStreamableHttpControllerTest {
 
 		// resources/list
 		ResponseEntity<String> resResp = controller.handleStreamableHttp(
-				"{\"jsonrpc\":\"2.0\",\"id\":\"r-1\",\"method\":\"resources/list\"}",
+				"{\"jsonrpc\":\"2.0\",\"id\":\"r-1\",\"method\":\"resources/list\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\",\"io.modelcontextprotocol/clientCapabilities\":{\"resources\":{}}}}}",
 				null,
 				null,
 				request
@@ -392,7 +393,7 @@ class McpStreamableHttpControllerTest {
 
 		// prompts/list
 		ResponseEntity<String> prmResp = controller.handleStreamableHttp(
-				"{\"jsonrpc\":\"2.0\",\"id\":\"p-1\",\"method\":\"prompts/list\"}",
+				"{\"jsonrpc\":\"2.0\",\"id\":\"p-1\",\"method\":\"prompts/list\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\",\"io.modelcontextprotocol/clientCapabilities\":{\"prompts\":{}}}}}",
 				null,
 				null,
 				request
@@ -414,7 +415,11 @@ class McpStreamableHttpControllerTest {
 				  "method": "tools/call",
 				  "params": {
 				    "name": "postgres__run_query",
-				    "arguments": {"sql": "SELECT 1"}
+				    "arguments": {"sql": "SELECT 1"},
+				    "_meta": {
+				      "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+				      "io.modelcontextprotocol/clientCapabilities": {"tools": {}}
+				    }
 				  }
 				}
 				""";
@@ -454,7 +459,10 @@ class McpStreamableHttpControllerTest {
 				""";
 		when(mockHttpResponse.statusCode()).thenReturn(200);
 		when(mockHttpResponse.body()).thenReturn(upstreamJson);
-		when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenReturn(mockHttpResponse);
+		when(httpClient.send(
+				any(HttpRequest.class),
+				ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()
+		)).thenReturn(mockHttpResponse);
 		when(guardrailScanner.wrapToolOutputWithNonce(eq("postgres__run_query"), eq("[{\"count\": 1}]")))
 				.thenReturn(
 						"<tool_result name=\"postgres__run_query\" nonce=\"abc12345\">[{\"count\": 1}]</tool_result>");
@@ -475,7 +483,11 @@ class McpStreamableHttpControllerTest {
 				  "method": "tools/call",
 				  "params": {
 				    "name": "postgres__run_query",
-				    "_meta": {"progressToken": "p1"}
+				    "_meta": {
+				      "progressToken": "p1",
+				      "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+				      "io.modelcontextprotocol/clientCapabilities": {"tools": {}}
+				    }
 				  }
 				}
 				""";
@@ -484,12 +496,12 @@ class McpStreamableHttpControllerTest {
 	}
 
 	@Test
-	@DisplayName("tools/call fails closed with -32025 on RBAC permission denial")
+	@DisplayName("tools/call fails closed with -32603 on RBAC permission denial")
 	void handlesToolsCallRbacDenial() {
 		MockHttpServletRequest request = new MockHttpServletRequest();
 		request.setAttribute("virtualApiKey", validApiKey);
 
-		String rawRpc = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"postgres__drop_db\"}}";
+		String rawRpc = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"postgres__drop_db\",\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\",\"io.modelcontextprotocol/clientCapabilities\":{\"tools\":{}}}}}";
 		McpResolvedRoute route = new McpResolvedRoute(postgresServer, "drop_db", "postgres__drop_db");
 		when(router.resolveToolRoute("postgres__drop_db")).thenReturn(Optional.of(route));
 		when(rbacPolicyEngine.isToolAllowed("postgres__drop_db", validApiKey)).thenReturn(false);
@@ -497,7 +509,7 @@ class McpStreamableHttpControllerTest {
 		ResponseEntity<String> response = controller.handleStreamableHttp(rawRpc, null, null, request);
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-		assertThat(response.getBody()).contains("-32025").contains("prohibited by security policy");
+		assertThat(response.getBody()).contains("-32603").contains("prohibited by security policy");
 	}
 
 	@Test
@@ -512,9 +524,9 @@ class McpStreamableHttpControllerTest {
 		assertThat(response.getHeader("X-Accel-Buffering")).isEqualTo("no");
 		assertThat(response.getHeader("Cache-Control")).isEqualTo("no-cache");
 
-		// POST /v1/mcp/message
+		// POST /v1/mcp/message (legacy endpoint forces 2024-11-05; body _meta must match)
 		ResponseEntity<String> msgResp = controller.handleLegacyMessage(
-				"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}",
+				"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2024-11-05\",\"io.modelcontextprotocol/clientCapabilities\":{}}}}",
 				request
 		);
 		assertThat(msgResp.getStatusCode()).isEqualTo(HttpStatus.OK);

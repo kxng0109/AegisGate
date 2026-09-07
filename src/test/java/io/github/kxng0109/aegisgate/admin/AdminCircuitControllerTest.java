@@ -75,4 +75,17 @@ class AdminCircuitControllerTest {
 		ResponseEntity<CircuitStateResponse> notFound = controller.resetCircuit("unknown-provider");
 		assertThat(notFound.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
 	}
+
+	@Test
+	@DisplayName("resetCircuit returns the observed state, not a hardcoded CLOSED")
+	void resetCircuitReturnsObservedState() {
+		when(factory.providerNames()).thenReturn(Set.of("openai"));
+		when(factory.reset("openai")).thenReturn(CircuitBreaker.State.HALF_OPEN);
+
+		ResponseEntity<CircuitStateResponse> reset = controller.resetCircuit("openai");
+		assertThat(reset.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(reset.getBody()).isNotNull();
+		assertThat(reset.getBody().provider()).isEqualTo("openai");
+		assertThat(reset.getBody().state()).isEqualTo("HALF_OPEN");
+	}
 }

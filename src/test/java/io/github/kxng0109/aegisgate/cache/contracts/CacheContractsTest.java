@@ -15,7 +15,20 @@ class CacheContractsTest {
 	void cacheEntryWithSimilarityScore() {
 		Instant now = Instant.now();
 		CacheEntry entry = new CacheEntry(
-				"id1", "tenant1", CacheScope.TENANT, "gpt-4o", "prompt", "sys", "prefix", "{}", 10, 20, 30, now, 1.0f
+				"id1",
+				"tenant1",
+				CacheScope.TENANT,
+				"gpt-4o",
+				"prompt",
+				"sys",
+				"prefix",
+				"{}",
+				10,
+				20,
+				30,
+				now,
+				1.0f,
+				null
 		);
 
 		CacheEntry updated = entry.withSimilarityScore(0.92f);
@@ -48,7 +61,8 @@ class CacheContractsTest {
 				1,
 				2,
 				Instant.now(),
-				1.0f
+				1.0f,
+				null
 		);
 		CacheLookupResult hitL0 = CacheLookupResult.hit(CacheStatus.HIT_L0, entry, 1.0f, 5L);
 		assertThat(hitL0.isHit()).isTrue();

@@ -84,6 +84,35 @@ class FinOpsPromptCacheCalculatorTest {
 	}
 
 	@Test
+	@DisplayName("Reports negative cache savings when write surcharge exceeds read discount (Anthropic cold cache)")
+	void shouldReportNegativeCacheSavingsOnColdCacheWrite() {
+		// Anthropic: write 1.25x, read 0.10x. 1000 write tokens, 0 read, 0 uncached, 0 completion.
+		// list = 1000 * $0.000002 = $0.002 = 2000 micros
+		// billed = 1000 * $0.0000025 = $0.0025 = 2500 micros
+		// savings = 2000 - 2500 = -500 micros (signed, not clamped)
+		ModelPricingEntry entry = new ModelPricingEntry(
+				"claude-sonnet-5",
+				"anthropic",
+				"chat",
+				new BigDecimal("0.000002"),
+				new BigDecimal("0.000010")
+		);
+		when(catalog.lookup(ProviderType.ANTHROPIC, "claude-sonnet-5")).thenReturn(Optional.of(entry));
+
+		FinOpsPromptCacheCalculator.FinOpsCostBreakdown breakdown = calculator.calculateBreakdown(
+				ProviderType.ANTHROPIC,
+				"claude-sonnet-5",
+				1000, 0,
+				0, 0, 1000
+		);
+
+		assertThat(breakdown.listCostMicros()).isEqualTo(2000L);
+		assertThat(breakdown.billedCostMicros()).isEqualTo(2500L);
+		assertThat(breakdown.effectiveCostMicros()).isEqualTo(2500L);
+		assertThat(breakdown.cacheSavingsMicros()).isEqualTo(-500L);
+	}
+
+	@Test
 	@DisplayName("Returns zero breakdown when model is not found in catalog")
 	void shouldReturnZeroOnUnknownModel() {
 		when(catalog.lookup(ProviderType.OPENAI, "unknown-model")).thenReturn(Optional.empty());

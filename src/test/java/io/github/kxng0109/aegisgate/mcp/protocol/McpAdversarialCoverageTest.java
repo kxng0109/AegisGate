@@ -22,6 +22,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.ResponseEntity;
@@ -141,7 +142,7 @@ class McpAdversarialCoverageTest {
 
 		// 1. Missing tool name
 		ResponseEntity<String> resp1 = controller.handleStreamableHttp(
-				"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"\"}}",
+				"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"\",\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\",\"io.modelcontextprotocol/clientCapabilities\":{\"tools\":{}}}}}",
 				null,
 				null,
 				request
@@ -151,7 +152,7 @@ class McpAdversarialCoverageTest {
 		// 2. Unmapped tool
 		when(router.resolveToolRoute("unknown_tool")).thenReturn(Optional.empty());
 		ResponseEntity<String> resp2 = controller.handleStreamableHttp(
-				"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"unknown_tool\"}}",
+				"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"unknown_tool\",\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\",\"io.modelcontextprotocol/clientCapabilities\":{\"tools\":{}}}}}",
 				null,
 				null,
 				request
@@ -179,7 +180,7 @@ class McpAdversarialCoverageTest {
 				"invalid field format"));
 
 		ResponseEntity<String> resp3 = controller.handleStreamableHttp(
-				"{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"test_server__query\",\"arguments\":{\"field\":123}}}",
+				"{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"test_server__query\",\"arguments\":{\"field\":123},\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\",\"io.modelcontextprotocol/clientCapabilities\":{\"tools\":{}}}}}",
 				null,
 				null,
 				request
@@ -221,7 +222,7 @@ class McpAdversarialCoverageTest {
 				null
 		));
 		ResponseEntity<String> resp1 = controller.handleStreamableHttp(
-				"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"test_server__query\"}}",
+				"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"test_server__query\",\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\",\"io.modelcontextprotocol/clientCapabilities\":{\"tools\":{}}}}}",
 				null,
 				null,
 				request
@@ -232,12 +233,12 @@ class McpAdversarialCoverageTest {
 		when(guardrailScanner.scanArguments(any())).thenReturn(SecretScanResult.clean());
 		when(circuitBreakerManager.tryAcquire("test_server")).thenReturn(false);
 		ResponseEntity<String> resp2 = controller.handleStreamableHttp(
-				"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"test_server__query\"}}",
+				"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"test_server__query\",\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\",\"io.modelcontextprotocol/clientCapabilities\":{\"tools\":{}}}}}",
 				null,
 				null,
 				request
 		);
-		assertThat(resp2.getBody()).contains("-32024").contains("circuit breaker open");
+		assertThat(resp2.getBody()).contains("-32603").contains("circuit breaker open");
 	}
 
 	@Test
@@ -261,10 +262,13 @@ class McpAdversarialCoverageTest {
 
 		// 1. Upstream HTTP 500
 		when(mockHttpResponse.statusCode()).thenReturn(500);
-		when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenReturn(mockHttpResponse);
+		when(httpClient.send(
+				any(HttpRequest.class),
+				ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()
+		)).thenReturn(mockHttpResponse);
 
 		ResponseEntity<String> resp1 = controller.handleStreamableHttp(
-				"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"test_server__query\"}}",
+				"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"test_server__query\",\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\",\"io.modelcontextprotocol/clientCapabilities\":{\"tools\":{}}}}}",
 				null,
 				null,
 				request
@@ -276,10 +280,13 @@ class McpAdversarialCoverageTest {
 		when(mockHttpResponse.statusCode()).thenReturn(200);
 		when(mockHttpResponse.body()).thenReturn(
 				"{\"jsonrpc\":\"2.0\",\"id\":2,\"error\":{\"code\":-32000,\"message\":\"Database query syntax error\"}}");
-		when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenReturn(mockHttpResponse);
+		when(httpClient.send(
+				any(HttpRequest.class),
+				ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()
+		)).thenReturn(mockHttpResponse);
 
 		ResponseEntity<String> resp2 = controller.handleStreamableHttp(
-				"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"test_server__query\"}}",
+				"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"test_server__query\",\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\",\"io.modelcontextprotocol/clientCapabilities\":{\"tools\":{}}}}}",
 				null,
 				null,
 				request
@@ -287,10 +294,13 @@ class McpAdversarialCoverageTest {
 		assertThat(resp2.getBody()).contains("-32000").contains("Database query syntax error");
 
 		// 3. Upstream network IOException
-		when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenThrow(new IOException(
+		when(httpClient.send(
+				any(HttpRequest.class),
+				ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()
+		)).thenThrow(new IOException(
 				"Connection reset by peer"));
 		ResponseEntity<String> resp3 = controller.handleStreamableHttp(
-				"{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"test_server__query\"}}",
+				"{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"test_server__query\",\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\",\"io.modelcontextprotocol/clientCapabilities\":{\"tools\":{}}}}}",
 				null,
 				null,
 				request
@@ -304,14 +314,14 @@ class McpAdversarialCoverageTest {
 		MockHttpServletRequest request = new MockHttpServletRequest();
 		request.setAttribute("virtualApiKey", validApiKey);
 
-		// 1. Non-object params
+		// 1. Non-object params (rejected at _meta validation: no params object means no _meta)
 		ResponseEntity<String> resp1 = controller.handleStreamableHttp(
 				"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":\"invalid_scalar\"}",
 				null,
 				null,
 				request
 		);
-		assertThat(resp1.getBody()).contains("-32602").contains("params object required");
+		assertThat(resp1.getBody()).contains("-32602").contains("Missing required _meta");
 
 		// 2. Upstream result with non-text image content and _meta payload
 		McpServerConfig noKeyServer = new McpServerConfig(
@@ -343,10 +353,13 @@ class McpAdversarialCoverageTest {
 		String upstreamImageJson = "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"image\",\"data\":\"base64image\"}]}}";
 		when(mockHttpResponse.statusCode()).thenReturn(200);
 		when(mockHttpResponse.body()).thenReturn(upstreamImageJson);
-		when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenReturn(mockHttpResponse);
+		when(httpClient.send(
+				any(HttpRequest.class),
+				ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()
+		)).thenReturn(mockHttpResponse);
 
 		ResponseEntity<String> resp2 = controller.handleStreamableHttp(
-				"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"nokey__gen_image\",\"_meta\":{\"progressToken\":\"p1\"}}}",
+				"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"nokey__gen_image\",\"_meta\":{\"progressToken\":\"p1\",\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\",\"io.modelcontextprotocol/clientCapabilities\":{\"tools\":{}}}}}",
 				null,
 				null,
 				request

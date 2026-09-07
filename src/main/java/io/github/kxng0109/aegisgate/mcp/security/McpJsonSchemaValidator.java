@@ -49,7 +49,7 @@ public class McpJsonSchemaValidator {
 		// 1. Required property enforcement
 		if (schema.has("required") && schema.path("required").isArray()) {
 			for (JsonNode reqField : schema.path("required")) {
-				String fieldName = reqField.asText();
+				String fieldName = reqField.asString();
 				if (!arguments.has(fieldName) || arguments.path(fieldName).isNull()) {
 					return ValidationResult.error("Missing required parameter: '" + fieldName + "'");
 				}
@@ -92,16 +92,16 @@ public class McpJsonSchemaValidator {
 			return ValidationResult.success();
 		}
 
-		String expectedType = schema.path("type").asText("");
+		String expectedType = schema.path("type").asString("");
 
 		// Type validation
 		if (!expectedType.isBlank()) {
 			switch (expectedType) {
 				case "string" -> {
-					if (!val.isTextual()) {
+					if (!val.isString()) {
 						return ValidationResult.error("Parameter '" + propName + "' must be a string");
 					}
-					String text = val.asText();
+					String text = val.asString();
 					if (schema.has("minLength") && text.length() < schema.path("minLength").asInt()) {
 						return ValidationResult.error("Parameter '" + propName + "' length is below minLength");
 					}
@@ -109,7 +109,7 @@ public class McpJsonSchemaValidator {
 						return ValidationResult.error("Parameter '" + propName + "' length exceeds maxLength");
 					}
 					if (schema.has("pattern")) {
-						String regex = schema.path("pattern").asText();
+						String regex = schema.path("pattern").asString();
 						if (!Pattern.compile(regex).matcher(text).find()) {
 							return ValidationResult.error(
 									"Parameter '" + propName + "' does not match required pattern");

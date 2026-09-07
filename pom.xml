@@ -10,7 +10,7 @@
     </parent>
     <groupId>io.github.kxng0109</groupId>
     <artifactId>AegisGate</artifactId>
-    <version>1.4.0</version>
+    <version>1.5.0</version>
     <name>AegisGate</name>
     <description>Enterprise-Grade AI Reverse Proxy Gateway with Virtual Threads and Semantic Caching</description>
     <url/>
@@ -167,6 +167,19 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- Test-only HITL secret for Spring context tests. Production injects
+                         GATEWAY_MCP_HITL_SECRET via environment/secret manager; this deterministic
+                         placeholder is used ONLY for the test JVM and never ships to production.
+                         Required because McpGatewayProperties enforces @NotBlank at startup. -->
+                    <environmentVariables>
+                        <GATEWAY_MCP_HITL_SECRET>test-only-hitl-secret-32-bytes-minimum!!</GATEWAY_MCP_HITL_SECRET>
+                    </environmentVariables>
+                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.jacoco</groupId>

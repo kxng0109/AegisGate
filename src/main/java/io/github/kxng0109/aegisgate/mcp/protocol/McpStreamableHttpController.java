@@ -42,7 +42,9 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.LinkedHashSet;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -119,13 +121,13 @@ public class McpStreamableHttpController {
 	) {
 		if (!properties.isEnabled()) {
 			return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-			                     .body("{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32000,\"message\":\"MCP Gateway is disabled\"}}");
+			                     .body("{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"MCP Gateway is disabled\"}}");
 		}
 
 		VirtualApiKey apiKey = resolveApiKey(httpRequest);
 		if (apiKey == null || !apiKey.enabled()) {
 			return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-			                     .body("{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32000,\"message\":\"Unauthorized: Invalid or disabled API key\"}}");
+			                     .body("{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"Unauthorized: Invalid or disabled API key\"}}");
 		}
 
 		// Protocol version negotiation
@@ -140,15 +142,31 @@ public class McpStreamableHttpController {
 		McpJsonRpcRequest request;
 		try {
 			JsonNode tree = objectMapper.readTree(rawBody);
-			String jsonrpc = tree.path("jsonrpc").asText("2.0");
+			// F-06: Streamable HTTP bodies MUST be a single JSON-RPC request or notification.
+			// Reject batch arrays explicitly with -32600 instead of silently misprocessing
+			// them into a bogus single "Missing method" error.
+			if (tree.isArray()) {
+				McpJsonRpcError err = McpJsonRpcError.invalidRequest(
+						"Batch requests are not supported on the Streamable HTTP transport; send a single JSON-RPC request object");
+				return ResponseEntity.badRequest()
+				                     .body(McpJsonRpcResponse.failure(null, err).toJsonNode(objectMapper).toString());
+			}
+			String jsonrpc = tree.path("jsonrpc").asString("2.0");
 			JsonNode id = tree.has("id") ? tree.get("id") : null;
-			String method = tree.path("method").asText(headerMethod != null ? headerMethod : "");
+			String method = tree.path("method").asString(headerMethod != null ? headerMethod : "");
 			JsonNode params = tree.has("params") ? tree.get("params") : null;
 			request = new McpJsonRpcRequest(jsonrpc, id, method, params);
 		} catch (Exception e) {
 			McpJsonRpcError err = McpJsonRpcError.parseError(e.getMessage());
 			return ResponseEntity.badRequest()
 			                     .body(McpJsonRpcResponse.failure(null, err).toJsonNode(objectMapper).toString());
+		}
+
+		// F-05: Per-request _meta validation (MCP 2026-07-28, basic spec "Per-request protocol fields").
+		// Required: io.modelcontextprotocol/protocolVersion, io.modelcontextprotocol/clientCapabilities.
+		ResponseEntity<String> metaViolation = validateRequestMeta(request, protocolVersion);
+		if (metaViolation != null) {
+			return metaViolation;
 		}
 
 		if (request.isNotification()) {
@@ -205,6 +223,120 @@ public class McpStreamableHttpController {
 		return handleStreamableHttp(rawBody, McpProtocolVersion.V2024_11_05, null, httpRequest);
 	}
 
+	/**
+	 * Validates per-request {@code _meta} protocol fields (MCP 2026-07-28, basic spec).
+	 *
+	 * <p>On the modern protocol era (2026-07-28), {@code RequestParams._meta} is REQUIRED on every
+	 * request, including parameterless ones: a request missing the required fields is malformed and rejected with
+	 * {@code -32602}. Legacy eras (2025-11-25, 2024-11-05) and notifications keep passthrough for dual-era
+	 * compatibility (their {@code _meta} is optional per schema).</p>
+	 *
+	 * @param request         parsed JSON-RPC request
+	 * @param protocolVersion resolved version from the {@code MCP-Protocol-Version} header
+	 * @return a 400 response entity on violation, or {@code null} if the request is compliant
+	 */
+	private ResponseEntity<String> validateRequestMeta(McpJsonRpcRequest request, String protocolVersion) {
+		boolean modern = McpProtocolVersion.V2026_07_28.equals(protocolVersion);
+		if (request.params() == null || !request.params().isObject()) {
+			if (!modern || request.isNotification()) {
+				return null;
+			}
+			McpJsonRpcError err = McpJsonRpcError.invalidParams(
+					"Missing required _meta fields: io.modelcontextprotocol/protocolVersion"
+							+ " and io.modelcontextprotocol/clientCapabilities");
+			return ResponseEntity.badRequest()
+			                     .body(McpJsonRpcResponse.failure(request.id(), err).toJsonNode(objectMapper)
+			                                             .toString());
+		}
+		JsonNode meta = request.params().path("_meta");
+		String bodyVersion = (meta != null && meta.has("io.modelcontextprotocol/protocolVersion"))
+				? meta.get("io.modelcontextprotocol/protocolVersion").asString(null)
+				: null;
+
+		// 1. Missing required _meta fields -> -32602 Invalid params, 400.
+		if (bodyVersion == null || bodyVersion.isBlank()
+				|| meta == null || !meta.has("io.modelcontextprotocol/clientCapabilities")) {
+			McpJsonRpcError err = McpJsonRpcError.invalidParams(
+					"Missing required _meta fields: io.modelcontextprotocol/protocolVersion"
+							+ " and io.modelcontextprotocol/clientCapabilities");
+			return ResponseEntity.badRequest()
+			                     .body(McpJsonRpcResponse.failure(request.id(), err).toJsonNode(objectMapper)
+			                                             .toString());
+		}
+
+		// 2. Header/body version mismatch -> -32020 HeaderMismatch, 400.
+		if (!bodyVersion.equals(protocolVersion)) {
+			McpJsonRpcError err = McpJsonRpcError.headerMismatch(
+					"MCP-Protocol-Version header '" + protocolVersion
+							+ "' does not match body _meta version '" + bodyVersion + "'");
+			return ResponseEntity.badRequest()
+			                     .body(McpJsonRpcResponse.failure(request.id(), err).toJsonNode(objectMapper)
+			                                             .toString());
+		}
+
+		// 3. Unsupported version -> -32022 UnsupportedProtocolVersion, 400.
+		if (!McpProtocolVersion.isSupported(bodyVersion)) {
+			McpJsonRpcError err = McpJsonRpcError.unsupportedVersion(bodyVersion, objectMapper);
+			return ResponseEntity.badRequest()
+			                     .body(McpJsonRpcResponse.failure(request.id(), err).toJsonNode(objectMapper)
+			                                             .toString());
+		}
+
+		// 4. Required client capabilities -> -32021 MissingRequiredClientCapability, 400.
+		// data.requiredCapabilities is a ClientCapabilities OBJECT ({"tools":{}}), per schema.ts
+		// and the canonical missing-elicitation-capability.json example — not a string array.
+		Set<String> missing = requiredMissingCapabilities(
+				request.method(), meta.get("io.modelcontextprotocol/clientCapabilities"));
+		if (!missing.isEmpty()) {
+			ObjectNode dataNode = objectMapper.createObjectNode();
+			ObjectNode caps = dataNode.putObject("requiredCapabilities");
+			missing.forEach(caps::putObject);
+			McpJsonRpcError err = new McpJsonRpcError(
+					McpJsonRpcError.MISSING_REQUIRED_CAPABILITY,
+					"Client did not declare required capabilities: " + missing, dataNode
+			);
+			return ResponseEntity.badRequest()
+			                     .body(McpJsonRpcResponse.failure(request.id(), err).toJsonNode(objectMapper)
+			                                             .toString());
+		}
+
+		return null;
+	}
+
+	/**
+	 * Determines which client capabilities are required for the given method but absent from the client-declared
+	 * {@code clientCapabilities} object.
+	 */
+	private static Set<String> requiredMissingCapabilities(String method, JsonNode clientCapabilities) {
+		Set<String> missing = new LinkedHashSet<>();
+		if (clientCapabilities == null || !clientCapabilities.isObject()) {
+			missing.add("tools");
+			missing.add("prompts");
+			missing.add("resources");
+			return missing;
+		}
+		switch (method) {
+			case "tools/list", "tools/call" -> {
+				if (!clientCapabilities.has("tools")) {
+					missing.add("tools");
+				}
+			}
+			case "prompts/list", "prompts/get" -> {
+				if (!clientCapabilities.has("prompts")) {
+					missing.add("prompts");
+				}
+			}
+			case "resources/list", "resources/read" -> {
+				if (!clientCapabilities.has("resources")) {
+					missing.add("resources");
+				}
+			}
+			default -> {
+			}
+		}
+		return missing;
+	}
+
 	private McpJsonRpcResponse processRequest(McpJsonRpcRequest request, VirtualApiKey apiKey, String protocolVersion) {
 		String method = request.method();
 		if (method == null || method.isBlank()) {
@@ -242,7 +374,7 @@ public class McpStreamableHttpController {
 
 		ObjectNode serverInfo = result.putObject("serverInfo");
 		serverInfo.put("name", "AegisGate-MCP-Gateway");
-		serverInfo.put("version", "1.4.0");
+		serverInfo.put("version", "1.5.0");
 
 		ObjectNode capabilities = result.putObject("capabilities");
 		capabilities.putObject("tools").put("listChanged", true);
@@ -295,7 +427,7 @@ public class McpStreamableHttpController {
 			return McpJsonRpcResponse.failure(request.id(), McpJsonRpcError.invalidParams("params object required"));
 		}
 
-		String requestedToolName = params.path("name").asText("");
+		String requestedToolName = params.path("name").asString("");
 		if (requestedToolName.isBlank()) {
 			return McpJsonRpcResponse.failure(request.id(), McpJsonRpcError.invalidParams("Tool name is required"));
 		}
@@ -433,8 +565,8 @@ public class McpStreamableHttpController {
 					JsonNode resultNode = respNode.get("result");
 					if (resultNode.has("content") && resultNode.path("content").isArray()) {
 						for (JsonNode contentItem : resultNode.path("content")) {
-							if ("text".equals(contentItem.path("type").asText()) && contentItem.has("text")) {
-								String originalText = contentItem.path("text").asText();
+							if ("text".equals(contentItem.path("type").asString()) && contentItem.has("text")) {
+								String originalText = contentItem.path("text").asString();
 								String wrapped = guardrailScanner.wrapToolOutputWithNonce(
 										route.namespacedName(),
 										originalText
@@ -449,7 +581,7 @@ public class McpStreamableHttpController {
 					return McpJsonRpcResponse.failure(
 							request.id(),
 							errNode.path("code").asInt(-32000),
-							errNode.path("message").asText("Upstream error"),
+							errNode.path("message").asString("Upstream error"),
 							errNode.path("data")
 					);
 				}
