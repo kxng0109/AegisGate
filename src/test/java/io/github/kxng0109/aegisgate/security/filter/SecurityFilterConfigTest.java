@@ -22,7 +22,8 @@ class SecurityFilterConfigTest {
 	@Test
 	@DisplayName("registers RequestBodyCachingFilter at order 0 with correct path and name")
 	void registersRequestBodyCachingFilter() {
-		FilterRegistrationBean<RequestBodyCachingFilter> reg = config.requestBodyCachingFilterRegistration();
+		FilterRegistrationBean<RequestBodyCachingFilter> reg =
+				config.requestBodyCachingFilterRegistration(1_048_576);
 
 		assertThat(reg.getOrder()).isEqualTo(0);
 		assertThat(reg.getUrlPatterns()).containsExactly("/v1/chat/completions");

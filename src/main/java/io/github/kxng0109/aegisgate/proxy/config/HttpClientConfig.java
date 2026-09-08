@@ -1,5 +1,6 @@
 package io.github.kxng0109.aegisgate.proxy.config;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -24,21 +25,19 @@ import java.util.concurrent.Executors;
 public class HttpClientConfig {
 
 	/**
-	 * Default bound for establishing a connection, five seconds.
-	 */
-	static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(5);
-
-	/**
 	 * Creates the shared proxy HTTP client bean.
 	 *
+	 * @param connectTimeoutSeconds bound for establishing a connection in seconds
 	 * @return the shared client
 	 */
 	@Primary
 	@Bean("proxyHttpClient")
-	public HttpClient proxyHttpClient() {
+	public HttpClient proxyHttpClient(
+			@Value("${gateway.proxy.connect-timeout-seconds:5}") long connectTimeoutSeconds
+	) {
 		return HttpClient.newBuilder()
 		                 .version(HttpClient.Version.HTTP_2)
-		                 .connectTimeout(DEFAULT_CONNECT_TIMEOUT)
+		                 .connectTimeout(Duration.ofSeconds(Math.max(1L, connectTimeoutSeconds)))
 		                 .executor(Executors.newVirtualThreadPerTaskExecutor())
 		                 .followRedirects(HttpClient.Redirect.NEVER)
 		                 .build();

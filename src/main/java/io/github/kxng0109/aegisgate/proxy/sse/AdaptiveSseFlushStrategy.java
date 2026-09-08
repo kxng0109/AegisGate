@@ -51,19 +51,12 @@ import java.util.function.LongSupplier;
 public final class AdaptiveSseFlushStrategy implements SseFlushStrategy, AutoCloseable {
 
 	/**
-	 * Granularity of the shared registry scan, milliseconds.
-	 */
-	static final long TICK_PERIOD_MS = 10;
-
-	/**
 	 * Hard ceiling on concurrent SSE streams, enforced with {@link #connectionGate}.
+	 *
+	 * <p>Retained as the documented fallback default mirrored in
+	 * {@link SseCapacityProperties#DEFAULTS}; the strategy honors the bound capacity.</p>
 	 */
 	static final int MAX_CONNECTIONS = 10_000;
-
-	/**
-	 * A flush blocked longer than this is killed by the per-connection watchdog.
-	 */
-	static final long WATCHDOG_TIMEOUT_MS = 30_000L;
 
 	private static final long NANOS_PER_MILLI = 1_000_000L;
 
@@ -115,7 +108,29 @@ public final class AdaptiveSseFlushStrategy implements SseFlushStrategy, AutoClo
 	 * @param meterRegistry registry the SSE metrics are registered with
 	 */
 	public AdaptiveSseFlushStrategy(SseFlushProperties properties, MeterRegistry meterRegistry) {
-		this(properties, meterRegistry, System::nanoTime, TICK_PERIOD_MS, WATCHDOG_TIMEOUT_MS, MAX_CONNECTIONS);
+		this(properties, SseCapacityProperties.DEFAULTS, meterRegistry);
+	}
+
+	/**
+	 * Creates the production strategy with explicit capacity ceilings.
+	 *
+	 * @param properties    initial configuration snapshot
+	 * @param capacity      startup-only capacity ceilings (connections, tick period, watchdog)
+	 * @param meterRegistry registry the SSE metrics are registered with
+	 */
+	public AdaptiveSseFlushStrategy(
+			SseFlushProperties properties,
+			SseCapacityProperties capacity,
+			MeterRegistry meterRegistry
+	) {
+		this(
+				properties,
+				meterRegistry,
+				System::nanoTime,
+				capacity.tickPeriodMs(),
+				capacity.watchdogTimeoutMs(),
+				capacity.maxConnections()
+		);
 	}
 
 	/**
@@ -178,6 +193,15 @@ public final class AdaptiveSseFlushStrategy implements SseFlushStrategy, AutoClo
 		if (tickPeriodMs > 0) {
 			ticker.scheduleAtFixedRate(this::onTimerTick, tickPeriodMs, tickPeriodMs, TimeUnit.MILLISECONDS);
 		}
+	}
+
+	/**
+	 * Returns the concurrent-stream ceiling this strategy was constructed with.
+	 *
+	 * @return max connections
+	 */
+	int maxConnections() {
+		return maxConnections;
 	}
 
 	@Override

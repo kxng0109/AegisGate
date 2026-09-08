@@ -8,9 +8,9 @@ import io.github.kxng0109.aegisgate.ledger.CostCalculator;
 import io.github.kxng0109.aegisgate.ledger.TokenUsageEvent;
 import io.github.kxng0109.aegisgate.proxy.embeddings.dto.EmbeddingRequest;
 import io.github.kxng0109.aegisgate.proxy.embeddings.dto.EmbeddingResponse;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.Nullable;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -28,16 +28,58 @@ import java.util.UUID;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class EmbeddingService {
 
-	private static final int MAX_BATCH_ITEMS = 2048;
+	/**
+	 * Maximum input items accepted in one embedding request.
+	 *
+	 * <p>Retained as the documented fallback default mirrored in
+	 * {@link EmbeddingProperties#DEFAULTS}; the service honors the bound properties.</p>
+	 */
+	public static final int MAX_BATCH_ITEMS = 2048;
 
 	private final GatewayProperties gatewayProperties;
 	private final EmbeddingAdapterResolver adapterResolver;
 	private final EmbeddingBatchOrchestrator batchOrchestrator;
 	private final CostCalculator costCalculator;
 	private final ApplicationEventPublisher eventPublisher;
+	private final EmbeddingProperties properties;
+
+	/**
+	 * Creates the service with default batching ceilings (tests).
+	 */
+	public EmbeddingService(
+			GatewayProperties gatewayProperties,
+			EmbeddingAdapterResolver adapterResolver,
+			EmbeddingBatchOrchestrator batchOrchestrator,
+			CostCalculator costCalculator,
+			ApplicationEventPublisher eventPublisher
+	) {
+		this(
+				gatewayProperties, adapterResolver, batchOrchestrator, costCalculator, eventPublisher,
+				EmbeddingProperties.DEFAULTS
+		);
+	}
+
+	/**
+	 * Creates the service with explicit batching ceilings.
+	 */
+	@Autowired
+	public EmbeddingService(
+			GatewayProperties gatewayProperties,
+			EmbeddingAdapterResolver adapterResolver,
+			EmbeddingBatchOrchestrator batchOrchestrator,
+			CostCalculator costCalculator,
+			ApplicationEventPublisher eventPublisher,
+			EmbeddingProperties properties
+	) {
+		this.gatewayProperties = gatewayProperties;
+		this.adapterResolver = adapterResolver;
+		this.batchOrchestrator = batchOrchestrator;
+		this.costCalculator = costCalculator;
+		this.eventPublisher = eventPublisher;
+		this.properties = properties;
+	}
 
 	/**
 	 * Processes an embedding request, managing batching, upstream routing, and ledger tracking.
@@ -99,10 +141,10 @@ public class EmbeddingService {
 		if (inputs.isEmpty()) {
 			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Parameter 'input' cannot be empty");
 		}
-		if (inputs.size() > MAX_BATCH_ITEMS) {
+		if (inputs.size() > properties.maxBatchItems()) {
 			throw new ResponseStatusException(
 					HttpStatus.BAD_REQUEST,
-					"Batch size of " + inputs.size() + " exceeds maximum allowed limit of " + MAX_BATCH_ITEMS + " items"
+					"Batch size of " + inputs.size() + " exceeds maximum allowed limit of " + properties.maxBatchItems() + " items"
 			);
 		}
 	}

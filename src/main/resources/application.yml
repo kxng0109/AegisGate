@@ -12,9 +12,9 @@ spring:
         pool:
           enabled: true
           max-active: ${REDIS_POOL_MAX_ACTIVE:20}
-          max-idle: 10
-          min-idle: 2
-          max-wait: 2s
+          max-idle: ${REDIS_POOL_MAX_IDLE:10}
+          min-idle: ${REDIS_POOL_MIN_IDLE:2}
+          max-wait: ${REDIS_POOL_MAX_WAIT:2s}
   datasource:
     url: ${POSTGRES_URL:jdbc:postgresql://localhost:5432/aegisgate}
     username: ${POSTGRES_USER:aegisgate}
@@ -26,6 +26,9 @@ spring:
       # file in the meantime. The hot path never depends on the database.
       initialization-fail-timeout: -1
       connection-timeout: 3000
+      maximum-pool-size: ${HIKARI_MAXIMUM_POOL_SIZE:10}
+      minimum-idle: ${HIKARI_MINIMUM_IDLE:10}
+      max-lifetime: ${HIKARI_MAX_LIFETIME:1800000}
   jpa:
     hibernate:
       # Flyway owns the schema (see DatabaseMigrator); Hibernate never creates
@@ -47,26 +50,26 @@ gateway:
       type: OPENAI
       base-url: https://api.openai.com
       api-key: ${OPENAI_API_KEY:}
-      connect-timeout: 5s
-      request-timeout: 60s
+      connect-timeout: ${OPENAI_CONNECT_TIMEOUT:5s}
+      request-timeout: ${OPENAI_REQUEST_TIMEOUT:60s}
     openrouter:
       type: OPENAI
       base-url: https://openrouter.ai/api
       api-key: ${OPENROUTER_API_KEY:}
-      connect-timeout: 5s
-      request-timeout: 60s
+      connect-timeout: ${OPENROUTER_CONNECT_TIMEOUT:5s}
+      request-timeout: ${OPENROUTER_REQUEST_TIMEOUT:60s}
     anthropic:
       type: ANTHROPIC
       base-url: https://api.anthropic.com
       api-key: ${ANTHROPIC_API_KEY:}
-      connect-timeout: 5s
-      request-timeout: 60s
+      connect-timeout: ${ANTHROPIC_CONNECT_TIMEOUT:5s}
+      request-timeout: ${ANTHROPIC_REQUEST_TIMEOUT:60s}
     ollama:
       type: OLLAMA
       base-url: http://localhost:11434
       api-key: ""
-      connect-timeout: 3s
-      request-timeout: 120s
+      connect-timeout: ${OLLAMA_CONNECT_TIMEOUT:3s}
+      request-timeout: ${OLLAMA_REQUEST_TIMEOUT:120s}
   aliases:
     gpt-56-luna:
       chain:
@@ -126,16 +129,56 @@ gateway:
   #   GATEWAY_BOOTSTRAPKEYS_0_TPMLIMIT=100000
   #   GATEWAY_BOOTSTRAPKEYS_0_ALLOWEDMODELS=
   #   GATEWAY_BOOTSTRAPKEYS_0_ALLOWEDPROVIDERS=
-  bootstrap-keys-seed-interval: 30s
+  bootstrap-keys-seed-interval: ${GATEWAY_BOOTSTRAP_KEYS_SEED_INTERVAL:30s}
   database-migrate-enabled: ${GATEWAY_DATABASE_MIGRATE_ENABLED:true}
   database-migrate-interval: ${GATEWAY_DATABASE_MIGRATE_INTERVAL:30s}
+  ingress:
+    # Request body cap in bytes; larger bodies are rejected with 413.
+    max-body-bytes: ${GATEWAY_INGRESS_MAX_BODY_BYTES:1048576}
+  proxy:
+    # Shared upstream HTTP client connect timeout in seconds.
+    connect-timeout-seconds: ${GATEWAY_PROXY_CONNECT_TIMEOUT_SECONDS:5}
+  ratelimit:
+    # Fixed-window length, token-estimate clamps, and key-resolution cache sizing.
+    window-millis: ${GATEWAY_RATELIMIT_WINDOW_MILLIS:60000}
+    min-estimated-tokens: ${GATEWAY_RATELIMIT_MIN_ESTIMATED_TOKENS:1}
+    max-estimated-tokens: ${GATEWAY_RATELIMIT_MAX_ESTIMATED_TOKENS:1000000}
+    key-cache-maximum-size: ${GATEWAY_RATELIMIT_KEY_CACHE_MAXIMUM_SIZE:1000}
+    key-cache-ttl-seconds: ${GATEWAY_RATELIMIT_KEY_CACHE_TTL_SECONDS:5}
+  embeddings:
+    # Embedding batching and provider fan-out ceilings.
+    max-batch-items: ${GATEWAY_EMBEDDINGS_MAX_BATCH_ITEMS:2048}
+    max-concurrent-sub-requests: ${GATEWAY_EMBEDDINGS_MAX_CONCURRENT_SUB_REQUESTS:4}
+    cohere:
+      timeout-seconds: ${GATEWAY_EMBEDDINGS_COHERE_TIMEOUT_SECONDS:30}
+      max-batch-size: ${GATEWAY_EMBEDDINGS_COHERE_MAX_BATCH_SIZE:96}
   pricing:
     source-url: ${GATEWAY_PRICING_URL:https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json}
     refresh-cron: ${GATEWAY_PRICING_REFRESH_CRON:0 0 3 * * *}
+    snapshot-ttl-minutes: ${GATEWAY_PRICING_SNAPSHOT_TTL_MINUTES:15}
+    snapshot-maximum-size: ${GATEWAY_PRICING_SNAPSHOT_MAXIMUM_SIZE:1}
   ledger:
     dead-letter-path: ${GATEWAY_LEDGER_DEAD_LETTER_PATH:logs/ledger-deadletter.log}
+    executor:
+      # Bounded async ledger pool: bursts queue (then CallerRuns) instead of
+      # piling unbounded work onto database writes.
+      core-pool-size: ${GATEWAY_LEDGER_EXECUTOR_CORE_POOL_SIZE:2}
+      max-pool-size: ${GATEWAY_LEDGER_EXECUTOR_MAX_POOL_SIZE:4}
+      queue-capacity: ${GATEWAY_LEDGER_EXECUTOR_QUEUE_CAPACITY:1000}
+      await-termination-seconds: ${GATEWAY_LEDGER_EXECUTOR_AWAIT_TERMINATION_SECONDS:10}
+    batch:
+      max-size: ${GATEWAY_LEDGER_BATCH_MAX_SIZE:5000}
+      interval-ms: ${GATEWAY_LEDGER_BATCH_INTERVAL_MS:50}
+    replay:
+      initial-delay-ms: ${GATEWAY_LEDGER_REPLAY_INITIAL_DELAY_MS:30000}
+      interval-ms: ${GATEWAY_LEDGER_REPLAY_INTERVAL_MS:60000}
+    shutdown-await-seconds: ${GATEWAY_LEDGER_SHUTDOWN_AWAIT_SECONDS:5}
+    query:
+      max-window-days: ${GATEWAY_LEDGER_QUERY_MAX_WINDOW_DAYS:90}
+      max-page-size: ${GATEWAY_LEDGER_QUERY_MAX_PAGE_SIZE:100}
+      default-page-size: ${GATEWAY_LEDGER_QUERY_DEFAULT_PAGE_SIZE:20}
   circuit-breaker:
-    redis-timeout: 250ms
+    redis-timeout: ${GATEWAY_CIRCUIT_BREAKER_REDIS_TIMEOUT:250ms}
   guardrails:
     mode: ${GATEWAY_GUARDRAILS_MODE:ENFORCE}
     secret-scanning-enabled: ${GATEWAY_GUARDRAILS_SECRET_SCANNING:true}
@@ -152,6 +195,8 @@ gateway:
     # Required: GATEWAY_MCP_HITL_SECRET=<32+ byte base64 or random string>
     # The application refuses to start if this is absent or shorter than 32 bytes.
     hitl-secret: ${GATEWAY_MCP_HITL_SECRET:}
+    catalog-cache-maximum-size: ${GATEWAY_MCP_CATALOG_CACHE_MAXIMUM_SIZE:16}
+    legacy-sse-emitter-timeout-minutes: ${GATEWAY_MCP_LEGACY_SSE_EMITTER_TIMEOUT_MINUTES:30}
 
 aegisgate:
   sse:
@@ -160,20 +205,27 @@ aegisgate:
       # are buffered or when this many milliseconds elapsed since the last flush,
       # whichever comes first. Batching keeps the flush syscall rate flat at
       # 1000+ req/min while bounding downstream latency.
-      max-lines-per-flush: 16
-      max-interval-ms: 100
+      max-lines-per-flush: ${AEGIS_SSE_FLUSH_MAX_LINES_PER_FLUSH:16}
+      max-interval-ms: ${AEGIS_SSE_FLUSH_MAX_INTERVAL_MS:100}
       # A flush slower than this counts as downstream backpressure; the stream is
       # aborted so the upstream exchange is cancelled instead of piling memory.
-      flush-backpressure-threshold-ms: 500
+      flush-backpressure-threshold-ms: ${AEGIS_SSE_FLUSH_BACKPRESSURE_THRESHOLD_MS:500}
       # Per-connection cap on buffered-but-unflushed bytes; exceeding it aborts the
       # stream (guards against a malicious upstream flooding tiny lines).
-      max-buffer-bytes: 65536
+      max-buffer-bytes: ${AEGIS_SSE_FLUSH_MAX_BUFFER_BYTES:65536}
       # Per-connection token-bucket cap on flush syscalls.
-      max-flushes-per-second: 1000
-      enabled: true
+      max-flushes-per-second: ${AEGIS_SSE_FLUSH_MAX_FLUSHES_PER_SECOND:1000}
+      enabled: ${AEGIS_SSE_FLUSH_ENABLED:true}
       # How often the hot-reload bridge re-binds this section from the Environment.
       # Not part of the flush record itself; read directly by the reloader.
-      reload-interval: 30s
+      reload-interval: ${AEGIS_SSE_FLUSH_RELOAD_INTERVAL:30s}
+    capacity:
+      # Startup-only SSE ceilings (restart to apply): concurrent streams, registry
+      # scan period, and watchdog timeout. Defaults serve light/moderate load; the
+      # high-throughput profile raises max-connections for 50K-stream operation.
+      max-connections: ${AEGIS_SSE_CAPACITY_MAX_CONNECTIONS:10000}
+      tick-period-ms: ${AEGIS_SSE_CAPACITY_TICK_PERIOD_MS:10}
+      watchdog-timeout-ms: ${AEGIS_SSE_CAPACITY_WATCHDOG_TIMEOUT_MS:30000}
 
 management:
   endpoints:

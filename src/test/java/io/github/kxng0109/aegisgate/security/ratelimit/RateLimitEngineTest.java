@@ -214,7 +214,7 @@ class RateLimitEngineTest {
 		verify(redisTemplate).execute(eq(script), keysCaptor.capture(), argsCaptor.capture());
 
 		assertEquals(
-				List.of("ratelimit:rpm:" + HASH.hex(), "ratelimit:tpm:" + HASH.hex()),
+				List.of("ratelimit:{" + HASH.hex() + "}:rpm", "ratelimit:{" + HASH.hex() + "}:tpm"),
 				keysCaptor.getValue()
 		);
 		Object[] args = argsCaptor.getValue();

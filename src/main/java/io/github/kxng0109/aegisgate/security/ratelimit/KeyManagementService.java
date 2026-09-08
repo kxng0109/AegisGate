@@ -6,7 +6,7 @@ import io.github.kxng0109.aegisgate.contracts.BootstrapKey;
 import io.github.kxng0109.aegisgate.contracts.GatewayProperties;
 import io.github.kxng0109.aegisgate.contracts.SHA256Hash;
 import io.github.kxng0109.aegisgate.contracts.VirtualApiKey;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -31,7 +31,6 @@ import java.util.stream.Collectors;
  * maps it to HTTP 503. A key is never silently treated as absent merely because the backend was down.</p>
  */
 @Service
-@RequiredArgsConstructor
 public class KeyManagementService {
 
 	private static final String REDIS_KEY_PREFIX = "apikey:";
@@ -48,12 +47,33 @@ public class KeyManagementService {
 	/**
 	 * Short-TTL local cache of resolved keys, holding {@link Optional}s so a confirmed miss is cached without colliding
 	 * with an in-flight load. Exceptions thrown by the loader are never cached: they propagate to the caller (fail
-	 * closed).
+	 * closed). Sized by {@link RateLimitProperties}.
 	 */
-	private final Cache<SHA256Hash, Optional<VirtualApiKey>> cache = Caffeine.newBuilder()
-	                                                                         .expireAfterWrite(Duration.ofSeconds(5))
-	                                                                         .maximumSize(1000)
-	                                                                         .build();
+	private final Cache<SHA256Hash, Optional<VirtualApiKey>> cache;
+
+	/**
+	 * Creates the service with default key-cache ceilings.
+	 *
+	 * @param redisTemplate Redis template
+	 */
+	public KeyManagementService(StringRedisTemplate redisTemplate) {
+		this(redisTemplate, RateLimitProperties.DEFAULTS);
+	}
+
+	/**
+	 * Creates the service with explicit key-cache ceilings.
+	 *
+	 * @param redisTemplate Redis template
+	 * @param properties    key-cache ceilings
+	 */
+	@Autowired
+	public KeyManagementService(StringRedisTemplate redisTemplate, RateLimitProperties properties) {
+		this.redisTemplate = redisTemplate;
+		this.cache = Caffeine.newBuilder()
+		                     .expireAfterWrite(Duration.ofSeconds(properties.keyCacheTtlSeconds()))
+		                     .maximumSize(properties.keyCacheMaximumSize())
+		                     .build();
+	}
 
 	private static String randomPlaintext() {
 		StringBuilder sb = new StringBuilder(KEY_PREFIX_RAW);

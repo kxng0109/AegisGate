@@ -93,6 +93,13 @@ services:
     image: aegisgate:latest
     container_name: aegisgate-app
     restart: unless-stopped
+    # File descriptors must cover concurrent streams + Redis/PG/upstream sockets.
+    # Plain integers: Compose schema-types ulimits as integers, so ${}-interpolated
+    # strings fail validation at deploy. Tune by editing these two numbers.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 100000
     ports:
       - "${GATEWAY_PORT:-8080}:8080"
     depends_on:
@@ -107,13 +114,21 @@ services:
       retries: 5
       start_period: 20s
     environment:
+      # Spring profile: default serves light/moderate load; set to
+      # "high-throughput" to unlock the 100K rps / 50K-stream ceilings
+      # (requires tuned Redis/Postgres/kernel/JVM per docs/high-throughput/).
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-default}
       # Infrastructure Connections (matching docker network services)
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_POOL_MAX_ACTIVE: ${REDIS_POOL_MAX_ACTIVE:-20}
+      REDIS_POOL_MAX_IDLE: ${REDIS_POOL_MAX_IDLE:-10}
+      REDIS_POOL_MIN_IDLE: ${REDIS_POOL_MIN_IDLE:-2}
       POSTGRES_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-aegisgate}
       POSTGRES_USER: ${POSTGRES_USER:-aegisgate}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aegisgate_secret}
+      HIKARI_MAXIMUM_POOL_SIZE: ${HIKARI_MAXIMUM_POOL_SIZE:-10}
+      HIKARI_MINIMUM_IDLE: ${HIKARI_MINIMUM_IDLE:-10}
 
       # Upstream Provider Keys
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -123,10 +138,25 @@ services:
       # Master Admin Key (for /v1/admin/** APIs)
       GATEWAY_ADMIN_MASTERKEY: ${GATEWAY_ADMIN_MASTERKEY:-aegisgate_admin_secret_key}
 
+      # HITL AEAD secret (REQUIRED — the app refuses to start without 32+ bytes).
+      # Generate with: openssl rand -base64 32
+      GATEWAY_MCP_HITL_SECRET: ${GATEWAY_MCP_HITL_SECRET:-}
+
+      # Capacity ceilings (defaults serve light/moderate load; raise with the
+      # high-throughput profile — see docs/high-throughput/README.md)
+      AEGIS_SSE_CAPACITY_MAX_CONNECTIONS: ${AEGIS_SSE_CAPACITY_MAX_CONNECTIONS:-10000}
+      GATEWAY_LEDGER_EXECUTOR_CORE_POOL_SIZE: ${GATEWAY_LEDGER_EXECUTOR_CORE_POOL_SIZE:-2}
+      GATEWAY_LEDGER_EXECUTOR_MAX_POOL_SIZE: ${GATEWAY_LEDGER_EXECUTOR_MAX_POOL_SIZE:-4}
+      GATEWAY_LEDGER_EXECUTOR_QUEUE_CAPACITY: ${GATEWAY_LEDGER_EXECUTOR_QUEUE_CAPACITY:-1000}
+      GATEWAY_RATELIMIT_KEY_CACHE_MAXIMUM_SIZE: ${GATEWAY_RATELIMIT_KEY_CACHE_MAXIMUM_SIZE:-1000}
+      GATEWAY_RATELIMIT_WINDOW_MILLIS: ${GATEWAY_RATELIMIT_WINDOW_MILLIS:-60000}
+      TOMCAT_MAX_CONNECTIONS: ${TOMCAT_MAX_CONNECTIONS:-}
+      TOMCAT_ACCEPT_COUNT: ${TOMCAT_ACCEPT_COUNT:-}
+
       # Virtual Bootstrap Key for local testing
       GATEWAY_BOOTSTRAPKEYS_0_OWNERID: ${GATEWAY_BOOTSTRAPKEYS_0_OWNERID:-local}
       GATEWAY_BOOTSTRAPKEYS_0_NAME: ${GATEWAY_BOOTSTRAPKEYS_0_NAME:-local-dev}
-      GATEWAY_BOOTSTRAPKEYS_0_PLAINTEXTKEY: ${GATEWAY_BOOTSTRAPKEYS_0_PLAINTEXTKEY:-gw-localdevmasterkey0123456789abc}
+      GATEWAY_BOOTSTRAPKEYS_0_PLAINTEXTKEY: ${GATEWAY_BOOTSTRAPKEYS_0_PLAINTEXTKEY:-gw-localdevmasterkey0123456789abcde}
       GATEWAY_BOOTSTRAPKEYS_0_RPMLIMIT: ${GATEWAY_BOOTSTRAPKEYS_0_RPMLIMIT:-120}
       GATEWAY_BOOTSTRAPKEYS_0_TPMLIMIT: ${GATEWAY_BOOTSTRAPKEYS_0_TPMLIMIT:-500000}
       GATEWAY_BOOTSTRAPKEYS_0_ALLOWEDMODELS: ${GATEWAY_BOOTSTRAPKEYS_0_ALLOWEDMODELS:-}

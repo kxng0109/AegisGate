@@ -1,0 +1,71 @@
+# ================================================================================
+# AegisGate HIGH-THROUGHPUT profile: proven ceilings for extreme load.
+#
+# Activate with:  java -jar ... --spring.profiles.active=high-throughput
+# or:            SPRING_PROFILES_ACTIVE=high-throughput
+#
+# Philosophy: the default application.yml serves light/moderate load out of the
+# box with zero configuration. THIS profile unlocks the internally-built headroom
+# for 100K+ req/s with 50K concurrent SSE streams on 4c/16GB/1Gbps hardware —
+# provided the external systems (Redis, PostgreSQL, kernel, JVM flags) are tuned
+# per docs/high-throughput/*. The application logs effective ceilings at startup.
+#
+# Every value below overrides the documented default; anything not listed keeps
+# the base default. All values remain individually overridable via environment.
+# ================================================================================
+
+server:
+  tomcat:
+    # 50K SSE holds + short-request headroom (default 8192 rejects the target).
+    max-connections: ${TOMCAT_MAX_CONNECTIONS:60000}
+    # OS accept queue once max-connections is hit (kernel somaxconn must cover it).
+    accept-count: ${TOMCAT_ACCEPT_COUNT:2000}
+    threads:
+      # Carriers stay small; virtual threads scale beyond (never raise to 1000s).
+      max: ${TOMCAT_THREADS_MAX:200}
+      min-spare: ${TOMCAT_THREADS_MIN_SPARE:16}
+    keep-alive-timeout: ${TOMCAT_KEEP_ALIVE_TIMEOUT:30s}
+    max-keep-alive-requests: ${TOMCAT_MAX_KEEP_ALIVE_REQUESTS:10000}
+    connection-timeout: ${TOMCAT_CONNECTION_TIMEOUT:5s}
+
+spring:
+  datasource:
+    hikari:
+      maximum-pool-size: ${HIKARI_MAXIMUM_POOL_SIZE:16}
+      minimum-idle: ${HIKARI_MINIMUM_IDLE:16}
+  data:
+    redis:
+      lettuce:
+        pool:
+          max-active: ${REDIS_POOL_MAX_ACTIVE:12}
+          max-idle: ${REDIS_POOL_MAX_IDLE:6}
+          min-idle: ${REDIS_POOL_MIN_IDLE:4}
+
+gateway:
+  ledger:
+    queue:
+      # Ring capacity in events (~2.6s of buffer at 100K rps vs 0.65s default).
+      capacity: ${GATEWAY_LEDGER_QUEUE_CAPACITY:262144}
+    executor:
+      core-pool-size: ${GATEWAY_LEDGER_EXECUTOR_CORE_POOL_SIZE:8}
+      max-pool-size: ${GATEWAY_LEDGER_EXECUTOR_MAX_POOL_SIZE:16}
+      queue-capacity: ${GATEWAY_LEDGER_EXECUTOR_QUEUE_CAPACITY:10000}
+    batch:
+      max-size: ${GATEWAY_LEDGER_BATCH_MAX_SIZE:10000}
+    replay:
+      interval-ms: ${GATEWAY_LEDGER_REPLAY_INTERVAL_MS:30000}
+  ratelimit:
+    key-cache-maximum-size: ${GATEWAY_RATELIMIT_KEY_CACHE_MAXIMUM_SIZE:100000}
+    key-cache-ttl-seconds: ${GATEWAY_RATELIMIT_KEY_CACHE_TTL_SECONDS:60}
+  embeddings:
+    max-concurrent-sub-requests: ${GATEWAY_EMBEDDINGS_MAX_CONCURRENT_SUB_REQUESTS:8}
+  mcp:
+    catalog-cache-maximum-size: ${GATEWAY_MCP_CATALOG_CACHE_MAXIMUM_SIZE:64}
+
+aegisgate:
+  sse:
+    capacity:
+      max-connections: ${AEGIS_SSE_CAPACITY_MAX_CONNECTIONS:60000}
+    flush:
+      # Slightly looser batching at scale: fewer syscalls per stream.
+      max-lines-per-flush: ${AEGIS_SSE_FLUSH_MAX_LINES_PER_FLUSH:32}

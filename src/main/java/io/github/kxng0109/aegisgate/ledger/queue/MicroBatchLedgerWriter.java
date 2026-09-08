@@ -39,6 +39,9 @@ public class MicroBatchLedgerWriter implements SmartLifecycle {
 
 	private final int maxBatchSize;
 	private final long flushIntervalMs;
+	private final long replayInitialDelayMs;
+	private final long replayIntervalMs;
+	private final int shutdownAwaitSeconds;
 	private final AtomicBoolean running = new AtomicBoolean(false);
 	private @Nullable ScheduledExecutorService scheduler;
 
@@ -51,6 +54,9 @@ public class MicroBatchLedgerWriter implements SmartLifecycle {
 	 * @param meterRegistry   metrics registry
 	 * @param maxBatchSize    maximum rows in one bulk flush (default 5,000)
 	 * @param flushIntervalMs maximum duration before flushing a partial batch (default 50ms)
+	 * @param replayInitialDelayMs initial delay before the first spillway replay pass (default 30,000ms)
+	 * @param replayIntervalMs     interval between spillway replay passes (default 60,000ms)
+	 * @param shutdownAwaitSeconds graceful shutdown drain timeout in seconds (default 5s)
 	 */
 	@Autowired
 	public MicroBatchLedgerWriter(
@@ -59,7 +65,10 @@ public class MicroBatchLedgerWriter implements SmartLifecycle {
 			SpillwayJournalManager spillwayJournal,
 			@Nullable MeterRegistry meterRegistry,
 			@Value("${gateway.ledger.batch.max-size:5000}") int maxBatchSize,
-			@Value("${gateway.ledger.batch.interval-ms:50}") long flushIntervalMs
+			@Value("${gateway.ledger.batch.interval-ms:50}") long flushIntervalMs,
+			@Value("${gateway.ledger.replay.initial-delay-ms:30000}") long replayInitialDelayMs,
+			@Value("${gateway.ledger.replay.interval-ms:60000}") long replayIntervalMs,
+			@Value("${gateway.ledger.shutdown-await-seconds:5}") int shutdownAwaitSeconds
 	) {
 		this.queue = queue;
 		this.repository = repository;
@@ -67,6 +76,9 @@ public class MicroBatchLedgerWriter implements SmartLifecycle {
 		this.meterRegistry = meterRegistry != null ? meterRegistry : new SimpleMeterRegistry();
 		this.maxBatchSize = Math.max(10, maxBatchSize);
 		this.flushIntervalMs = Math.max(10L, flushIntervalMs);
+		this.replayInitialDelayMs = Math.max(1_000L, replayInitialDelayMs);
+		this.replayIntervalMs = Math.max(5_000L, replayIntervalMs);
+		this.shutdownAwaitSeconds = Math.max(1, shutdownAwaitSeconds);
 	}
 
 	@Override
@@ -75,7 +87,8 @@ public class MicroBatchLedgerWriter implements SmartLifecycle {
 			scheduler = Executors.newSingleThreadScheduledExecutor(Thread.ofVirtual().name("ledger-microbatch-", 0)
 			                                                             .factory());
 			scheduler.scheduleWithFixedDelay(this::flushCycle, flushIntervalMs, flushIntervalMs, TimeUnit.MILLISECONDS);
-			scheduler.scheduleWithFixedDelay(this::replayCycle, 30000, 60000, TimeUnit.MILLISECONDS);
+			scheduler.scheduleWithFixedDelay(
+					this::replayCycle, replayInitialDelayMs, replayIntervalMs, TimeUnit.MILLISECONDS);
 			log.info(
 					"MicroBatchLedgerWriter started with maxBatchSize={}, interval={}ms",
 					maxBatchSize,
@@ -89,7 +102,7 @@ public class MicroBatchLedgerWriter implements SmartLifecycle {
 		if (running.compareAndSet(true, false) && scheduler != null) {
 			scheduler.shutdown();
 			try {
-				if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+				if (!scheduler.awaitTermination(shutdownAwaitSeconds, TimeUnit.SECONDS)) {
 					scheduler.shutdownNow();
 				}
 			} catch (InterruptedException ex) {

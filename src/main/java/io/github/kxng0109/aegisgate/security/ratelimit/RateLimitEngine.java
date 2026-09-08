@@ -1,7 +1,7 @@
 package io.github.kxng0109.aegisgate.security.ratelimit;
 
 import io.github.kxng0109.aegisgate.contracts.*;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.connection.PoolException;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -26,11 +26,13 @@ import java.util.List;
  * which performs the EVALSHA call with a transparent NOSCRIPT fallback to EVAL.</p>
  */
 @Service
-@RequiredArgsConstructor
 public class RateLimitEngine {
 
 	/**
 	 * Fixed-window length used by the Lua script, in milliseconds.
+	 *
+	 * <p>Retained as the documented fallback default mirrored in
+	 * {@link RateLimitProperties#DEFAULTS}; the engine honors the bound properties.</p>
 	 */
 	public static final long WINDOW_MILLIS = 60_000L;
 
@@ -44,14 +46,42 @@ public class RateLimitEngine {
 	 */
 	public static final int MIN_ESTIMATED_TOKENS = 1;
 
-	private static final String RPM_KEY_PREFIX = "ratelimit:rpm:";
-	private static final String TPM_KEY_PREFIX = "ratelimit:tpm:";
+	private static final String RATELIMIT_KEY_PREFIX = "ratelimit:";
 	private static final int RESULT_SIZE = 6;
 	private static final long ALLOWED = 1L;
 	private static final long REJECTED_RPM = 1L;
 
 	private final StringRedisTemplate redisTemplate;
 	private final DefaultRedisScript<List> rateLimitScript;
+	private final RateLimitProperties properties;
+
+	/**
+	 * Creates the engine with default ceilings.
+	 *
+	 * @param redisTemplate   Redis template
+	 * @param rateLimitScript atomic fixed-window Lua script
+	 */
+	public RateLimitEngine(StringRedisTemplate redisTemplate, DefaultRedisScript<List> rateLimitScript) {
+		this(redisTemplate, rateLimitScript, RateLimitProperties.DEFAULTS);
+	}
+
+	/**
+	 * Creates the engine with explicit ceilings.
+	 *
+	 * @param redisTemplate   Redis template
+	 * @param rateLimitScript atomic fixed-window Lua script
+	 * @param properties      window and clamp ceilings
+	 */
+	@Autowired
+	public RateLimitEngine(
+			StringRedisTemplate redisTemplate,
+			DefaultRedisScript<List> rateLimitScript,
+			RateLimitProperties properties
+	) {
+		this.redisTemplate = redisTemplate;
+		this.rateLimitScript = rateLimitScript;
+		this.properties = properties;
+	}
 
 	/**
 	 * Parses one element of the Lua result list.
@@ -102,17 +132,24 @@ public class RateLimitEngine {
 	 *                                       (fail-closed)
 	 */
 	public RateLimitDecision checkRateLimit(SHA256Hash keyHash, VirtualApiKey key, int estimatedTokens) {
-		int clampedTokens = Math.clamp(estimatedTokens, MIN_ESTIMATED_TOKENS, MAX_ESTIMATED_TOKENS);
+		int clampedTokens = Math.clamp(
+				estimatedTokens,
+				properties.minEstimatedTokens(),
+				properties.maxEstimatedTokens()
+		);
 
+		// Hash-tagged keys ({hex}) so the RPM/TPM pair shares one Cluster slot; the Lua script
+		// touches both keys atomically and would fail with CROSSSLOT otherwise.
+		String tag = "{" + keyHash.hex() + "}";
 		List<String> keys = List.of(
-				RPM_KEY_PREFIX + keyHash.hex(),
-				TPM_KEY_PREFIX + keyHash.hex()
+				RATELIMIT_KEY_PREFIX + tag + ":rpm",
+				RATELIMIT_KEY_PREFIX + tag + ":tpm"
 		);
 		List<String> args = List.of(
 				String.valueOf(key.rpmLimit()),
 				String.valueOf(clampedTokens),
 				String.valueOf(key.tpmLimit()),
-				String.valueOf(WINDOW_MILLIS)
+				String.valueOf(properties.windowMillis())
 		);
 
 		List<?> result;

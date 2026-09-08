@@ -93,7 +93,7 @@ class PricingSyncServiceTest {
 		                                  .build();
 		service = new PricingSyncService(
 				httpClient, new ObjectMapper(), repository, priceCatalog,
-				server.url("/prices.json").toString()
+				server.url("/prices.json").toString(), 30L
 		);
 	}
 

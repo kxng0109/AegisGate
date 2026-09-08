@@ -27,6 +27,28 @@ class StreamingJsonPdaValidatorTest {
 	}
 
 	@Test
+	@DisplayName("explicit depth honors deeper nesting than the default")
+	void explicitDepthHonorsDeeperNesting() {
+		StringBuilder nested = new StringBuilder("{\"a\":");
+		for (int i = 0; i < 70; i++) {
+			nested.append("{\"a\":");
+		}
+		nested.append("1");
+		for (int i = 0; i < 71; i++) {
+			nested.append("}");
+		}
+		String deep = nested.toString();
+
+		StreamingJsonPdaValidator defaults = new StreamingJsonPdaValidator();
+		assertThat(defaults.ingest(deep)).isFalse();
+		assertThat(defaults.isRejected()).isTrue();
+
+		StreamingJsonPdaValidator raised = new StreamingJsonPdaValidator(128);
+		assertThat(raised.ingest(deep)).isTrue();
+		assertThat(raised.isRejected()).isFalse();
+	}
+
+	@Test
 	@DisplayName("handles escaped quotes and characters inside string values")
 	void handlesEscapedCharactersInStrings() {
 		StreamingJsonPdaValidator validator = new StreamingJsonPdaValidator();

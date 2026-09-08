@@ -3,9 +3,9 @@
 -- Executed via Spring Data Redis DefaultRedisScript (EVALSHA; the NOSCRIPT
 -- fallback to EVAL is handled transparently by Spring, not by this script).
 --
--- KEYS:
---   KEYS[1] = "ratelimit:rpm:{hashHex}"  request counter for the API key
---   KEYS[2] = "ratelimit:tpm:{hashHex}"  token counter for the API key
+-- KEYS (hash-tagged so both share one Cluster slot; single-slot Lua stays atomic):
+--   KEYS[1] = "ratelimit:{hashHex}:rpm"  request counter for the API key
+--   KEYS[2] = "ratelimit:{hashHex}:tpm"  token counter for the API key
 --
 -- ARGV:
 --   ARGV[1] = rpmLimit        integer; requests allowed per window (0 = unlimited)

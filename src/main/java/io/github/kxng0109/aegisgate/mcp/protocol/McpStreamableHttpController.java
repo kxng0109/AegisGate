@@ -197,7 +197,8 @@ public class McpStreamableHttpController {
 		response.setHeader("X-Accel-Buffering", "no");
 		response.setHeader("Cache-Control", "no-cache");
 
-		ResponseBodyEmitter emitter = new ResponseBodyEmitter(Duration.ofMinutes(30).toMillis());
+		ResponseBodyEmitter emitter = new ResponseBodyEmitter(
+				Duration.ofMinutes(Math.max(1, properties.getLegacySseEmitterTimeoutMinutes())).toMillis());
 		String sessionId = UUID.randomUUID().toString().replace("-", "");
 		String endpointUri = "/v1/mcp/message?sessionId=" + sessionId;
 
@@ -374,7 +375,7 @@ public class McpStreamableHttpController {
 
 		ObjectNode serverInfo = result.putObject("serverInfo");
 		serverInfo.put("name", "AegisGate-MCP-Gateway");
-		serverInfo.put("version", "1.5.0");
+		serverInfo.put("version", "1.6.0");
 
 		ObjectNode capabilities = result.putObject("capabilities");
 		capabilities.putObject("tools").put("listChanged", true);

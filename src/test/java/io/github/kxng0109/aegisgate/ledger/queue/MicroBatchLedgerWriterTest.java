@@ -36,7 +36,10 @@ class MicroBatchLedgerWriterTest {
 				spillwayJournal,
 				new SimpleMeterRegistry(),
 				100,
-				50
+				50,
+				30_000L,
+				60_000L,
+				5
 		);
 	}
 
@@ -62,7 +65,7 @@ class MicroBatchLedgerWriterTest {
 
 		// Constructor with null registry
 		MicroBatchLedgerWriter nullRegWriter = new MicroBatchLedgerWriter(
-				queue, repository, spillwayJournal, null, 100, 50
+				queue, repository, spillwayJournal, null, 100, 50, 30_000L, 60_000L, 5
 		);
 		assertThat(nullRegWriter).isNotNull();
 	}

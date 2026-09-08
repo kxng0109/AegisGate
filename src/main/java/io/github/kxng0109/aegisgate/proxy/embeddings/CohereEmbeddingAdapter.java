@@ -3,7 +3,8 @@ package io.github.kxng0109.aegisgate.proxy.embeddings;
 import io.github.kxng0109.aegisgate.contracts.ProviderConfig;
 import io.github.kxng0109.aegisgate.contracts.ProviderType;
 import io.github.kxng0109.aegisgate.proxy.embeddings.dto.EmbeddingRequest;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -20,13 +21,51 @@ import java.util.List;
  * Protocol adapter for Cohere embeddings API ({@code v2/embed} and {@code v1/embed}).
  */
 @Component
-@RequiredArgsConstructor
 public class CohereEmbeddingAdapter implements EmbeddingAdapter {
 
-	private static final Duration TIMEOUT = Duration.ofSeconds(30);
-	private static final int MAX_BATCH_SIZE = 96;
+	/**
+	 * Default upstream call timeout.
+	 *
+	 * <p>Retained as the documented fallback default; the adapter honors the bound timeout.</p>
+	 */
+	public static final Duration TIMEOUT = Duration.ofSeconds(30);
+	/**
+	 * Default provider sub-batch size.
+	 *
+	 * <p>Retained as the documented fallback default; the adapter honors the bound size.</p>
+	 */
+	public static final int MAX_BATCH_SIZE = 96;
 
 	private final ObjectMapper objectMapper;
+	private final Duration timeout;
+	private final int maxBatchSize;
+
+	/**
+	 * Creates the adapter with default timeout and batch size (tests).
+	 *
+	 * @param objectMapper Jackson mapper
+	 */
+	public CohereEmbeddingAdapter(ObjectMapper objectMapper) {
+		this(objectMapper, TIMEOUT.getSeconds(), MAX_BATCH_SIZE);
+	}
+
+	/**
+	 * Creates the adapter with explicit timeout and batch size.
+	 *
+	 * @param objectMapper   Jackson mapper
+	 * @param timeoutSeconds upstream call timeout
+	 * @param maxBatchSize   provider sub-batch size
+	 */
+	@Autowired
+	public CohereEmbeddingAdapter(
+			ObjectMapper objectMapper,
+			@Value("${gateway.embeddings.cohere.timeout-seconds:30}") long timeoutSeconds,
+			@Value("${gateway.embeddings.cohere.max-batch-size:96}") int maxBatchSize
+	) {
+		this.objectMapper = objectMapper;
+		this.timeout = Duration.ofSeconds(Math.max(1L, timeoutSeconds));
+		this.maxBatchSize = Math.max(1, maxBatchSize);
+	}
 
 	@Override
 	public ProviderType getProviderType() {
@@ -35,7 +74,7 @@ public class CohereEmbeddingAdapter implements EmbeddingAdapter {
 
 	@Override
 	public int getMaxBatchSize() {
-		return MAX_BATCH_SIZE;
+		return maxBatchSize;
 	}
 
 	@Override
@@ -68,7 +107,7 @@ public class CohereEmbeddingAdapter implements EmbeddingAdapter {
 		byte[] bodyBytes = objectMapper.writeValueAsBytes(root);
 
 		HttpRequest.Builder builder = HttpRequest.newBuilder(targetUri)
-		                                         .timeout(TIMEOUT)
+		                                         .timeout(timeout)
 		                                         .header("Content-Type", "application/json")
 		                                         .header("X-Client-Name", "AegisGate")
 		                                         .POST(HttpRequest.BodyPublishers.ofByteArray(bodyBytes));

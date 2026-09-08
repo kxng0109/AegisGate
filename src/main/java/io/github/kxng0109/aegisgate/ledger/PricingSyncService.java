@@ -36,13 +36,12 @@ public class PricingSyncService {
 	/**
 	 * Bound for one catalog fetch.
 	 */
-	static final Duration FETCH_TIMEOUT = Duration.ofSeconds(30);
-
 	private final HttpClient httpClient;
 	private final ObjectMapper objectMapper;
 	private final ModelPricingRepository repository;
 	private final ModelPriceCatalog priceCatalog;
 	private final String sourceUrl;
+	private final Duration fetchTimeout;
 
 	/**
 	 * @param httpClient   shared upstream client
@@ -56,13 +55,15 @@ public class PricingSyncService {
 			ObjectMapper objectMapper,
 			ModelPricingRepository repository,
 			ModelPriceCatalog priceCatalog,
-			@Value("${gateway.pricing.source-url:https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json}") String sourceUrl
+			@Value("${gateway.pricing.source-url:https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json}") String sourceUrl,
+			@Value("${gateway.pricing.fetch-timeout-seconds:30}") long fetchTimeoutSeconds
 	) {
 		this.httpClient = httpClient;
 		this.objectMapper = objectMapper;
 		this.repository = repository;
 		this.priceCatalog = priceCatalog;
 		this.sourceUrl = sourceUrl;
+		this.fetchTimeout = Duration.ofSeconds(Math.max(1L, fetchTimeoutSeconds));
 	}
 
 	/**
@@ -131,7 +132,7 @@ public class PricingSyncService {
 
 	private JsonNode fetchCatalog() throws java.io.IOException, InterruptedException {
 		HttpRequest request = HttpRequest.newBuilder(URI.create(sourceUrl))
-		                                 .timeout(FETCH_TIMEOUT)
+		                                 .timeout(fetchTimeout)
 		                                 .GET()
 		                                 .build();
 		HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());

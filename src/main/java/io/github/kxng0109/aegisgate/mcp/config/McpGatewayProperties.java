@@ -4,6 +4,8 @@ import io.github.kxng0109.aegisgate.config.SensitiveString;
 import io.github.kxng0109.aegisgate.mcp.contracts.McpProtocolVersion;
 import io.github.kxng0109.aegisgate.mcp.contracts.McpServerConfig;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.Setter;
@@ -50,6 +52,20 @@ public class McpGatewayProperties {
 	 * In-memory L0 Caffeine cache TTL for aggregated tool catalogs.
 	 */
 	private Duration catalogCacheTtl = Duration.ofMinutes(5);
+
+	/**
+	 * Maximum entries in the in-memory L0 Caffeine catalog cache.
+	 */
+	@Min(1)
+	@Max(10_000)
+	private int catalogCacheMaximumSize = 16;
+
+	/**
+	 * Legacy SSE endpoint emitter lifetime in minutes.
+	 */
+	@Min(1)
+	@Max(1_440)
+	private int legacySseEmitterTimeoutMinutes = 30;
 
 	/**
 	 * Background catalog refresh interval / cron.

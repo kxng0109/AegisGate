@@ -6,6 +6,7 @@ import io.github.kxng0109.aegisgate.security.guardrail.pii.PiiAnonymizer;
 import io.github.kxng0109.aegisgate.security.guardrail.secret.IngressSecretScanner;
 import io.github.kxng0109.aegisgate.security.ratelimit.KeyManagementService;
 import io.github.kxng0109.aegisgate.security.ratelimit.RateLimitEngine;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
@@ -39,12 +40,15 @@ public class SecurityFilterConfig {
 	/**
 	 * Registers the body-caching filter for {@code POST /v1/chat/completions}.
 	 *
+	 * @param maxBodyBytes request body cap in bytes
 	 * @return the filter registration
 	 */
 	@Bean
-	FilterRegistrationBean<RequestBodyCachingFilter> requestBodyCachingFilterRegistration() {
+	FilterRegistrationBean<RequestBodyCachingFilter> requestBodyCachingFilterRegistration(
+			@Value("${gateway.ingress.max-body-bytes:1048576}") int maxBodyBytes
+	) {
 		FilterRegistrationBean<RequestBodyCachingFilter> registration = new FilterRegistrationBean<>(
-				new RequestBodyCachingFilter());
+				new RequestBodyCachingFilter(maxBodyBytes));
 		registration.setOrder(RequestBodyCachingFilter.ORDER);
 		registration.addUrlPatterns(RequestBodyCachingFilter.TARGET_PATH);
 		registration.setName("aegisRequestBodyCachingFilter");

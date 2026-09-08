@@ -3,12 +3,15 @@ package io.github.kxng0109.aegisgate.security.guardrail.streaming;
 /**
  * Incremental Pushdown Automaton (PDA) for validating streaming JSON payloads byte-by-byte.
  *
- * <p>Uses a zero-allocation primitive {@code long[]} stack with depth 64, early aborting syntax errors,
+ * <p>Uses a zero-allocation primitive {@code long[]} stack (default depth 64), early aborting syntax errors,
  * scope mismatches, and malformed structured outputs at token 15 rather than token 500.</p>
  */
 public final class StreamingJsonPdaValidator {
 
-	private static final int MAX_DEPTH = 64;
+	/**
+	 * Default maximum nesting depth.
+	 */
+	public static final int MAX_DEPTH = 64;
 
 	private static final int SCOPE_ROOT = 0;
 	private static final int SCOPE_OBJECT = 1;
@@ -19,19 +22,34 @@ public final class StreamingJsonPdaValidator {
 	private static final int STATE_EXPECT_VALUE = 3;
 	private static final int STATE_EXPECT_COMMA_OR_CLOSE = 4;
 
-	private final long[] stack = new long[MAX_DEPTH];
+	private final long[] stack;
+	private final int maxDepth;
 	private int depth = 0;
+
+	/**
+	 * Creates a validator with the default depth.
+	 */
+	public StreamingJsonPdaValidator() {
+		this(MAX_DEPTH);
+	}
+
+	/**
+	 * Creates a validator with an explicit maximum nesting depth.
+	 *
+	 * @param maxDepth maximum nesting depth (clamped to at least 8)
+	 */
+	public StreamingJsonPdaValidator(int maxDepth) {
+		this.maxDepth = Math.max(8, maxDepth);
+		this.stack = new long[this.maxDepth];
+		// Initialize root frame
+		stack[0] = encodeFrame(SCOPE_ROOT, STATE_EXPECT_VALUE);
+	}
 
 	private boolean inString = false;
 	private boolean escaping = false;
 	private boolean started = false;
 	private boolean finished = false;
 	private boolean rejected = false;
-
-	public StreamingJsonPdaValidator() {
-		// Initialize root frame
-		stack[0] = encodeFrame(SCOPE_ROOT, STATE_EXPECT_VALUE);
-	}
 
 	/**
 	 * Ingests an incremental piece of JSON text emitted by the LLM.
@@ -94,7 +112,7 @@ public final class StreamingJsonPdaValidator {
 		switch (c) {
 			case '{' -> {
 				started = true;
-				if (depth >= MAX_DEPTH - 1) {
+				if (depth >= maxDepth - 1) {
 					return false; // Depth limit exceeded
 				}
 				depth++;
@@ -103,7 +121,7 @@ public final class StreamingJsonPdaValidator {
 			}
 			case '[' -> {
 				started = true;
-				if (depth >= MAX_DEPTH - 1) {
+				if (depth >= maxDepth - 1) {
 					return false;
 				}
 				depth++;

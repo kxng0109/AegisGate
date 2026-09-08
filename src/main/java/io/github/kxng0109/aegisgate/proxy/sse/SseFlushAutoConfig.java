@@ -16,22 +16,24 @@ import org.springframework.context.annotation.Configuration;
  * runs the flushes; both are closed with the context.</p>
  */
 @Configuration
-@EnableConfigurationProperties(SseFlushProperties.class)
+@EnableConfigurationProperties({SseFlushProperties.class, SseCapacityProperties.class})
 public class SseFlushAutoConfig {
 
 	/**
 	 * Creates the adaptive flush strategy.
 	 *
 	 * @param properties    bound {@code aegisgate.sse.flush.*} properties
+	 * @param capacity      bound {@code aegisgate.sse.capacity.*} ceilings
 	 * @param meterRegistry registry the SSE metrics are registered with
 	 * @return the strategy
 	 */
 	@Bean(destroyMethod = "close")
 	public AdaptiveSseFlushStrategy sseFlushStrategy(
 			SseFlushProperties properties,
+			SseCapacityProperties capacity,
 			MeterRegistry meterRegistry
 	) {
-		return new AdaptiveSseFlushStrategy(properties, meterRegistry);
+		return new AdaptiveSseFlushStrategy(properties, capacity, meterRegistry);
 	}
 
 	/**

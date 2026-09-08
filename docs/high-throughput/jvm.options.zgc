@@ -1,0 +1,22 @@
+# ================================================================================
+# AegisGate JVM options — high-throughput (Java 25, Generational ZGC, 8g heap).
+# JAVA_OPTS example: java $(cat docs/high-throughput/jvm.options.zgc) -jar app.jar
+# 8GB-floor variant: -Xms4g -Xmx4g -XX:SoftMaxHeapSize=3500m
+#   -XX:MaxDirectMemorySize=512m, SSE caps at 8KiB, OTel off-box.
+# Shenandoah fallback: replace -XX:+UseZGC with -XX:+UseShenandoahGC.
+# ================================================================================
+-XX:+UseZGC
+-Xms8g
+-Xmx8g
+-XX:+AlwaysPreTouch
+-XX:SoftMaxHeapSize=7g
+-XX:ZAllocationSpikeTolerance=3
+-XX:ParallelGCThreads=4
+-XX:ConcGCThreads=2
+-XX:-ZUncommit
+-XX:+DisableExplicitGC
+-XX:MaxDirectMemorySize=1024m
+-Djdk.virtualThreadScheduler.parallelism=4
+-Djdk.virtualThreadScheduler.maxPoolSize=256
+-Dio.netty.leakDetection.level=simple
+-Xlog:gc*,gc+phases=debug:file=/var/log/aegis/gc-%t.log:time,level,tags:filecount=5,filesize=100M

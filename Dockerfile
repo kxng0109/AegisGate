@@ -48,7 +48,10 @@ HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=3 \
 
 ENTRYPOINT ["java", \
   "-XX:+UseCompactObjectHeaders", \
+  "-XX:+UseZGC", \
   "-XX:+ExitOnOutOfMemoryError", \
   "-XX:MaxRAMPercentage=75.0", \
+  "-XX:MaxDirectMemorySize=512m", \
+  "-Djdk.virtualThreadScheduler.parallelism=4", \
   "-Djava.security.egd=file:/dev/./urandom", \
   "-jar", "/app/aegisgate.jar"]

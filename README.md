@@ -559,7 +559,7 @@ Run the full suite with coverage and the packaging step:
 ./mvnw clean verify
 ```
 
-The suite currently has 1,225 tests (100% passing):
+The suite currently has 1,249 tests (100% passing):
 
 JaCoCo coverage gates (BUNDLE, `target/site/jacoco/jacoco.xml` is single-session honest via
 `<append>false</append>` on `prepare-agent`): INSTRUCTION/BRANCH/LINE/METHOD/CLASS ≥ 95%, COMPLEXITY ≥ 90%.
@@ -654,7 +654,7 @@ JaCoCo coverage gates (BUNDLE, `target/site/jacoco/jacoco.xml` is single-session
 - A context load test that verifies the application starts without a live Redis or PostgreSQL.
 
 JaCoCo enforces a minimum coverage of 95 percent on every counter at the bundle level. The current gate passes at
-**INSTRUCTION 99.22%, BRANCH 96.25%, LINE 98.95%, COMPLEXITY 95.20%, METHOD 100%, and CLASS 100%** (1,225 tests). The
+**INSTRUCTION 98.97%, BRANCH 95.64%, LINE 98.63%, COMPLEXITY 94.46%, METHOD 100%, and CLASS 100%** (1,249 tests). The
 circuit breaker and orchestrator retry and race coordination branches are excluded from the gate because they cannot be
 reached deterministically; the state transitions and failover semantics themselves are fully covered. The Mockito inline
 mock maker is attached as a Java agent through the `argLine` Maven property, so the suite is future proof against the

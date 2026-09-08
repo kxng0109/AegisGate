@@ -2,10 +2,40 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
-to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+
+## [1.6.0] - 2026-09-08
+
+### Added
+
+- **Capacity ceilings are now configuration, defaults unchanged:** every hardcoded
+  limit is a config key with the identical default (zero behavior change).
+  New: `aegisgate.sse.capacity.*` (max-connections/tick/watchdog),
+  `gateway.ledger.executor.*`, `gateway.ledger.replay.*`,
+  `gateway.ledger.shutdown-await-seconds`, `gateway.ledger.query.*`,
+  `gateway.ratelimit.*` (window/clamps/key-cache), `gateway.embeddings.*`
+  (batch/fan-out/Cohere), `gateway.pricing.snapshot-*`,
+  `gateway.proxy.connect-timeout-seconds`, `gateway.ingress.max-body-bytes`,
+  `gateway.mcp.catalog-cache-maximum-size` + `legacy-sse-emitter-timeout-minutes`,
+  PDA validator depth ctor. `CapacityReportRunner` logs effective ceilings at startup.
+- **`application-high-throughput.yml` profile** (`SPRING_PROFILES_ACTIVE=high-throughput`):
+  unlocks 60K connections, bigger pools/batches/caches for 100K rps + 50K streams.
+- **Reference ops artifacts** in `docs/high-throughput/`: `redis.conf`,
+  `postgresql.conf`, sysctl, ZGC flags, replica topology, gate checklist.
+- **Proof harness skeleton** in `loadtest/k6/` (gate profile B + sign-off checklist).
+
+### Changed
+
+- Redis rate-limit keys are hash-tagged (`ratelimit:{hex}:rpm|:tpm`) so the Lua pair
+  shares one Cluster slot (one-time 60s window reset on upgrade).
+- Env-var hooks for all pool/timeout/circuit values; per-provider timeout overrides.
+
+### Fixed
+
+- 24 new tests (1,249 passing); full `verify` green, all JaCoCo gates met.
 
 ## [1.5.0] - 2026-09-08
 

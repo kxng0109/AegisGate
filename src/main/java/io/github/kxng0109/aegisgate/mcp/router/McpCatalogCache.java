@@ -23,7 +23,7 @@ public class McpCatalogCache {
 
 	public McpCatalogCache(McpGatewayProperties properties) {
 		this.cache = Caffeine.newBuilder()
-		                     .maximumSize(16)
+		                     .maximumSize(Math.max(1, properties.getCatalogCacheMaximumSize()))
 		                     .expireAfterWrite(properties.getCatalogCacheTtl())
 		                     .recordStats()
 		                     .build();

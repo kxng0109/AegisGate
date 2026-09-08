@@ -4,6 +4,8 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.github.kxng0109.aegisgate.contracts.ProviderType;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -29,23 +31,34 @@ import java.util.*;
 @Component
 public class ModelPriceCatalog {
 
-	/**
-	 * How long a loaded catalog snapshot is kept before it is reloaded.
-	 */
-	static final Duration SNAPSHOT_TTL = Duration.ofMinutes(15);
-
 	private final ModelPricingRepository repository;
 	private final Cache<String, Map<String, List<ModelPricingEntry>>> snapshotCache;
 
 	/**
+	 * @param repository          the pricing repository
+	 * @param snapshotTtlMinutes  snapshot TTL in minutes
+	 * @param snapshotMaximumSize snapshot cache maximum entries
+	 */
+	@Autowired
+	public ModelPriceCatalog(
+			ModelPricingRepository repository,
+			@Value("${gateway.pricing.snapshot-ttl-minutes:15}") long snapshotTtlMinutes,
+			@Value("${gateway.pricing.snapshot-maximum-size:1}") int snapshotMaximumSize
+	) {
+		this.repository = repository;
+		this.snapshotCache = Caffeine.newBuilder()
+		                             .maximumSize(Math.max(1, snapshotMaximumSize))
+		                             .expireAfterWrite(Duration.ofMinutes(Math.max(1L, snapshotTtlMinutes)))
+		                             .build();
+	}
+
+	/**
+	 * Creates the catalog with default snapshot ceilings (tests).
+	 *
 	 * @param repository the pricing repository
 	 */
 	public ModelPriceCatalog(ModelPricingRepository repository) {
-		this.repository = repository;
-		this.snapshotCache = Caffeine.newBuilder()
-		                             .maximumSize(1)
-		                             .expireAfterWrite(SNAPSHOT_TTL)
-		                             .build();
+		this(repository, 15L, 1);
 	}
 
 	/**

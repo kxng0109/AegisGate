@@ -1,7 +1,8 @@
 package io.github.kxng0109.aegisgate.ledger;
 
 import io.github.kxng0109.aegisgate.admin.dto.*;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -21,15 +22,57 @@ import java.util.UUID;
  * ledger.
  */
 @Service
-@RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class UsageLedgerService {
 
-	private static final Duration MAX_QUERY_WINDOW = Duration.ofDays(90);
+	/**
+	 * Maximum admin query window.
+	 *
+	 * <p>Retained as the documented fallback default; the service honors the bound query caps.</p>
+	 */
+	public static final Duration MAX_QUERY_WINDOW = Duration.ofDays(90);
 	private static final int MAX_PAGE_SIZE = 100;
 	private static final int DEFAULT_PAGE_SIZE = 20;
 
 	private final UsageLedgerRepository repository;
+	private final Duration maxQueryWindow;
+	private final int maxPageSize;
+	private final int defaultPageSize;
+
+	/**
+	 * Creates the service with default query caps (tests).
+	 *
+	 * @param repository ledger repository
+	 */
+	public UsageLedgerService(UsageLedgerRepository repository) {
+		this(
+				repository,
+				MAX_QUERY_WINDOW.toDays(),
+				MAX_PAGE_SIZE,
+				DEFAULT_PAGE_SIZE
+		);
+	}
+
+	/**
+	 * Creates the service with explicit query caps.
+	 *
+	 * @param repository         ledger repository
+	 * @param maxQueryWindowDays maximum admin query window
+	 * @param maxPageSize        maximum admin page size
+	 * @param defaultPageSize    default admin page size
+	 */
+	@Autowired
+	public UsageLedgerService(
+			UsageLedgerRepository repository,
+			@Value("${gateway.ledger.query.max-window-days:90}") long maxQueryWindowDays,
+			@Value("${gateway.ledger.query.max-page-size:100}") int maxPageSize,
+			@Value("${gateway.ledger.query.default-page-size:20}") int defaultPageSize
+	) {
+		this.repository = repository;
+		this.maxQueryWindow = Duration.ofDays(Math.max(1L, maxQueryWindowDays));
+		this.maxPageSize = Math.max(1, maxPageSize);
+		this.defaultPageSize = Math.max(1, Math.min(defaultPageSize, this.maxPageSize));
+	}
 
 	/**
 	 * Computes an aggregated billing summary including global/filtered totals and dimensional breakdowns.
@@ -151,10 +194,10 @@ public class UsageLedgerService {
 				throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Parameter 'from' cannot be after 'to'");
 			}
 			Duration duration = Duration.between(filter.from(), filter.to());
-			if (duration.compareTo(MAX_QUERY_WINDOW) > 0) {
+			if (duration.compareTo(maxQueryWindow) > 0) {
 				throw new ResponseStatusException(
 						HttpStatus.BAD_REQUEST,
-						"Query window exceeds maximum allowed limit of " + MAX_QUERY_WINDOW.toDays() + " days"
+						"Query window exceeds maximum allowed limit of " + maxQueryWindow.toDays() + " days"
 				);
 			}
 		}
@@ -162,10 +205,10 @@ public class UsageLedgerService {
 
 	private Pageable clampPageable(Pageable pageable) {
 		if (pageable.isUnpaged()) {
-			return PageRequest.of(0, DEFAULT_PAGE_SIZE);
+			return PageRequest.of(0, defaultPageSize);
 		}
 		int pageNumber = Math.max(0, pageable.getPageNumber());
-		int pageSize = Math.clamp(pageable.getPageSize(), 1, MAX_PAGE_SIZE);
+		int pageSize = Math.clamp(pageable.getPageSize(), 1, maxPageSize);
 		return PageRequest.of(pageNumber, pageSize, pageable.getSort());
 	}
 

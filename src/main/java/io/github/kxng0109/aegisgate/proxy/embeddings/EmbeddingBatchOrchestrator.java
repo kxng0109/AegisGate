@@ -4,8 +4,8 @@ import io.github.kxng0109.aegisgate.contracts.ProviderConfig;
 import io.github.kxng0109.aegisgate.proxy.embeddings.dto.EmbeddingData;
 import io.github.kxng0109.aegisgate.proxy.embeddings.dto.EmbeddingRequest;
 import io.github.kxng0109.aegisgate.proxy.embeddings.dto.EmbeddingResponse;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -28,12 +28,39 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class EmbeddingBatchOrchestrator {
 
-	private static final int MAX_CONCURRENT_SUB_REQUESTS = 4;
+	/**
+	 * Maximum parallel provider sub-batch dispatches.
+	 *
+	 * <p>Retained as the documented fallback default mirrored in
+	 * {@link EmbeddingProperties#DEFAULTS}; the orchestrator honors the bound properties.</p>
+	 */
+	public static final int MAX_CONCURRENT_SUB_REQUESTS = 4;
 	private final HttpClient httpClient;
+	private final EmbeddingProperties properties;
 	private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+
+	/**
+	 * Creates the orchestrator with default fan-out ceilings (tests).
+	 *
+	 * @param httpClient shared HTTP client
+	 */
+	public EmbeddingBatchOrchestrator(HttpClient httpClient) {
+		this(httpClient, EmbeddingProperties.DEFAULTS);
+	}
+
+	/**
+	 * Creates the orchestrator with explicit fan-out ceilings.
+	 *
+	 * @param httpClient shared HTTP client
+	 * @param properties fan-out ceilings
+	 */
+	@Autowired
+	public EmbeddingBatchOrchestrator(HttpClient httpClient, EmbeddingProperties properties) {
+		this.httpClient = httpClient;
+		this.properties = properties;
+	}
 
 	/**
 	 * Executes an embedding request with transparent batch chunking and reassembly.
@@ -112,7 +139,7 @@ public class EmbeddingBatchOrchestrator {
 
 		EmbeddingData[] assembled = new EmbeddingData[totalInputs];
 		AtomicInteger totalPromptTokens = new AtomicInteger(0);
-		Semaphore semaphore = new Semaphore(MAX_CONCURRENT_SUB_REQUESTS);
+		Semaphore semaphore = new Semaphore(Math.max(1, properties.maxConcurrentSubRequests()));
 
 		List<CompletableFuture<Void>> futures = new ArrayList<>(numChunks);
 
