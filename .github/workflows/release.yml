@@ -35,7 +35,7 @@ jobs:
         run: |
           mkdir -p dist
           cp ./target/*.jar dist/
-          cp ./target/bom.json dist/
+          cp ./target/classes/META-INF/sbom/application.cdx.json dist/bom.json
           cd dist
           sha256sum ./*.jar ./*.json > checksums.sha256
           cd ..
