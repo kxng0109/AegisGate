@@ -25,9 +25,10 @@ class OpenAiPassthroughAdapterTest {
 	private final OpenAiPassthroughAdapter adapter = new OpenAiPassthroughAdapter(objectMapper);
 
 	@Test
-	@DisplayName("injects include_usage while keeping the body intact")
+	@DisplayName("injects include_usage on streaming requests while keeping the body intact")
 	void injectsUsageReporting() {
-		String body = "{\"model\":\"gpt-5.6-luna\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],"
+		String body =
+				"{\"model\":\"gpt-5.6-luna\",\"stream\":true,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],"
 				+ "\"temperature\":0.7}";
 
 		JsonNode result = objectMapper.readTree(adapter.buildRequestBody(body, null));
@@ -39,9 +40,29 @@ class OpenAiPassthroughAdapterTest {
 	}
 
 	@Test
-	@DisplayName("keeps client stream options and forces include_usage")
+	@DisplayName("leaves non-streaming requests untouched (stream_options is stream-only)")
+	void nonStreamingUntouched() {
+		String body = "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}";
+
+		JsonNode result = objectMapper.readTree(adapter.buildRequestBody(body, null));
+
+		assertTrue(result.path("stream_options").isMissingNode());
+	}
+
+	@Test
+	@DisplayName("explicit stream:false leaves the body without stream_options")
+	void explicitStreamFalseUntouched() {
+		String body = "{\"model\":\"m\",\"stream\":false}";
+
+		JsonNode result = objectMapper.readTree(adapter.buildRequestBody(body, null));
+
+		assertTrue(result.path("stream_options").isMissingNode());
+	}
+
+	@Test
+	@DisplayName("keeps client stream options and forces include_usage on streams")
 	void preservesStreamOptions() {
-		String body = "{\"model\":\"m\",\"stream_options\":{\"include_obfuscation\":false}}";
+		String body = "{\"model\":\"m\",\"stream\":true,\"stream_options\":{\"include_obfuscation\":false}}";
 
 		JsonNode result = objectMapper.readTree(adapter.buildRequestBody(body, null));
 
@@ -91,10 +112,10 @@ class OpenAiPassthroughAdapterTest {
 	}
 
 	@Test
-	@DisplayName("a non object stream_options field is replaced")
+	@DisplayName("a non object stream_options field is replaced on streams")
 	void malformedStreamOptionsReplaced() {
 		JsonNode result = objectMapper.readTree(
-				adapter.buildRequestBody("{\"model\":\"m\",\"stream_options\":\"bad\"}", null));
+				adapter.buildRequestBody("{\"model\":\"m\",\"stream\":true,\"stream_options\":\"bad\"}", null));
 		assertTrue(result.path("stream_options").isObject());
 		assertTrue(result.path("stream_options").path("include_usage").asBoolean());
 	}

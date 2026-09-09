@@ -35,7 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- 24 new tests (1,249 passing); full `verify` green, all JaCoCo gates met.
+- 25 new tests (1,250 passing); full `verify` green, all JaCoCo gates met.
 
 ## [1.5.0] - 2026-09-08
 

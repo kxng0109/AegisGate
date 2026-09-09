@@ -92,7 +92,7 @@ class ProviderClientAdapterTest {
 		server.enqueue(sseResponse("data: [DONE]"));
 		ProviderConfig config = providerConfig(server, "sk-test", Duration.ofSeconds(5));
 
-		adapter.sendAsync(config, "{\"model\":\"gpt-x\"}", null).join();
+		adapter.sendAsync(config, "{\"model\":\"gpt-x\",\"stream\":true}", null).join();
 
 		RecordedRequest recorded = server.takeRequest();
 		assertEquals("POST", recorded.getMethod());
@@ -103,7 +103,23 @@ class ProviderClientAdapterTest {
 		assertEquals("gpt-x", body.get("model").asString());
 		assertTrue(
 				body.path("stream_options").path("include_usage").asBoolean(),
-				"the passthrough must always ask the upstream for usage"
+				"streaming requests must ask the upstream for usage"
+		);
+	}
+
+	@Test
+	@DisplayName("leaves non-streaming bodies without stream_options (vLLM rejects them)")
+	void leavesNonStreamingWithoutStreamOptions() throws Exception {
+		server.enqueue(sseResponse("data: [DONE]"));
+		ProviderConfig config = providerConfig(server, "sk-test", Duration.ofSeconds(5));
+
+		adapter.sendAsync(config, "{\"model\":\"gpt-x\"}", null).join();
+
+		RecordedRequest recorded = server.takeRequest();
+		JsonNode body = new ObjectMapper().readTree(recorded.getBody().readUtf8());
+		assertTrue(
+				body.path("stream_options").isMissingNode(),
+				"stream_options is only valid with stream:true and must not be injected otherwise"
 		);
 	}
 

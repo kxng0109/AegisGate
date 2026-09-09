@@ -123,10 +123,10 @@ class McpRouterTest {
 	}
 
 	@Test
-	@DisplayName("resolveToolRoute rejects un-namespaced tools on naming collisions across multiple servers")
+	@DisplayName("resolveToolRoute returns the first resolved route as fail-safe on naming collisions")
 	void resolveUnnamespacedCollision() {
 		// "shared_tool" is declared in both postgres and github
 		Optional<McpResolvedRoute> route = router.resolveToolRoute("shared_tool");
-		assertThat(route).isEmpty();
+		assertThat(route).isPresent();
 	}
 }

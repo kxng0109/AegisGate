@@ -46,9 +46,13 @@ public class OpenAiEmbeddingAdapter implements EmbeddingAdapter {
 			URI targetUri
 	) {
 		ObjectNode root = objectMapper.createObjectNode();
-		ArrayNode inputArray = root.putArray("input");
-		for (String text : textBatch) {
-			inputArray.add(text);
+		if (textBatch.size() == 1 && providerConfig.isEmbeddingSingleAsString()) {
+			root.put("input", textBatch.get(0));
+		} else {
+			ArrayNode inputArray = root.putArray("input");
+			for (String text : textBatch) {
+				inputArray.add(text);
+			}
 		}
 		root.put("model", request.model());
 		if (request.dimensions() != null) {

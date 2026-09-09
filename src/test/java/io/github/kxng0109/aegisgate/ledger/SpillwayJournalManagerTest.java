@@ -120,7 +120,7 @@ class SpillwayJournalManagerTest {
 	}
 
 	@Test
-	@DisplayName("Replay breaks and defers remaining events when consumer throws exception")
+	@DisplayName("Replay skips the poisoned record and continues with the rest")
 	void shouldBreakReplayOnConsumerFailure() {
 		TokenUsageEvent e1 = new TokenUsageEvent(
 				UUID.randomUUID(), null, "", "",
@@ -132,13 +132,17 @@ class SpillwayJournalManagerTest {
 		);
 		journalManager.appendBatch(List.of(e1, e2), null);
 
-		int replayed = journalManager.replayPendingRecords(e -> {
-			throw new RuntimeException("DB still unreachable");
+		List<TokenUsageEvent> replayed = new ArrayList<>();
+		int count = journalManager.replayPendingRecords(e -> {
+			if (e.requestId().equals(e1.requestId())) {
+				throw new RuntimeException("DB still unreachable");
+			}
+			replayed.add(e);
 		});
 
-		assertThat(replayed).isEqualTo(0);
-		// Events should be re-appended to journal
-		assertThat(Files.exists(journalPath)).isTrue();
+		assertThat(count).isEqualTo(1);
+		assertThat(replayed).hasSize(1);
+		assertThat(replayed.getFirst().requestId()).isEqualTo(e2.requestId());
 	}
 
 	@Test

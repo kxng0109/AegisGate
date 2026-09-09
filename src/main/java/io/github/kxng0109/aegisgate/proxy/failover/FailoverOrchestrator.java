@@ -185,7 +185,7 @@ public class FailoverOrchestrator {
 				ctx.tried(name + " (blocked by validation)");
 				continue;
 			}
-			CircuitBreaker breaker = breakerFor(config.name());
+			CircuitBreaker breaker = breakerFor(name);
 			if (!breaker.tryAcquire()) {
 				ctx.tried(name + " (circuit open)");
 				continue;
@@ -257,7 +257,7 @@ public class FailoverOrchestrator {
 				ctx.tried(name + " (blocked by validation)");
 				continue;
 			}
-			CircuitBreaker breaker = breakerFor(config.name());
+			CircuitBreaker breaker = breakerFor(name);
 			if (!breaker.tryAcquire()) {
 				ctx.tried(name + " (circuit open)");
 				continue;
@@ -358,7 +358,14 @@ attempt.response().whenComplete((response, error) -> {
 	}
 
 	private CircuitBreaker breakerFor(String providerName) {
-		return circuitBreakerFactory.get(providerName);
+		try {
+			return circuitBreakerFactory.get(providerName);
+		} catch (RuntimeException ex) {
+			// A provider absent from the breaker registry (e.g. a test double or a
+			// dynamically added entry) must degrade to 503, never a 500 NPE.
+			throw new UpstreamUnavailableException(
+					"breaker unavailable for provider: " + providerName, ex, true, false);
+		}
 	}
 
 	private boolean isUsable(String name, ProviderConfig config) {
@@ -385,6 +392,12 @@ attempt.response().whenComplete((response, error) -> {
 	private AttemptOutcome classify(HttpResponse<Stream<String>> response) {
 		int status = response.statusCode();
 		if (status == 200 && isStreaming(response)) {
+			return AttemptOutcome.SUCCESS;
+		}
+		if (status == 200) {
+			// A non-streaming 200 (LM Studio, vLLM, Ollama, and some OpenAI-compatible
+			// servers answer non-streaming chat requests as application/json) is a usable
+			// completion; the controller reconstitutes it downstream.
 			return AttemptOutcome.SUCCESS;
 		}
 		if (status == 429 || status >= 500) {

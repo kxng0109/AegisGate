@@ -1,5 +1,7 @@
 package io.github.kxng0109.aegisgate.contracts;
 
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
+
 import java.util.Set;
 
 /**
@@ -27,14 +29,30 @@ public record BootstrapKey(
 		Set<String> deniedTools
 ) {
 	/**
-	 * Stores immutable copies of the allow and deny lists so callers cannot mutate the
-	 * key after it is bound.
+	 * Canonical constructor: stores immutable copies of the allow and deny lists so callers
+	 * cannot mutate the key after it is bound. Designated for configuration binding.
 	 */
-	public BootstrapKey {
-		allowedModels = allowedModels == null ? Set.of() : Set.copyOf(allowedModels);
-		allowedProviders = allowedProviders == null ? Set.of() : Set.copyOf(allowedProviders);
-		allowedTools = allowedTools == null ? Set.of() : Set.copyOf(allowedTools);
-		deniedTools = deniedTools == null ? Set.of() : Set.copyOf(deniedTools);
+	@ConstructorBinding
+	public BootstrapKey(
+			String ownerId,
+			String name,
+			String plaintextKey,
+			int rpmLimit,
+			int tpmLimit,
+			Set<String> allowedModels,
+			Set<String> allowedProviders,
+			Set<String> allowedTools,
+			Set<String> deniedTools
+	) {
+		this.ownerId = ownerId;
+		this.name = name;
+		this.plaintextKey = plaintextKey;
+		this.rpmLimit = rpmLimit;
+		this.tpmLimit = tpmLimit;
+		this.allowedModels = allowedModels == null ? Set.of() : Set.copyOf(allowedModels);
+		this.allowedProviders = allowedProviders == null ? Set.of() : Set.copyOf(allowedProviders);
+		this.allowedTools = allowedTools == null ? Set.of() : Set.copyOf(allowedTools);
+		this.deniedTools = deniedTools == null ? Set.of() : Set.copyOf(deniedTools);
 	}
 
 	/**

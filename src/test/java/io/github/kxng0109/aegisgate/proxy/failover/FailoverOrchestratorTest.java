@@ -276,17 +276,17 @@ class FailoverOrchestratorTest {
 	}
 
 	@Test
-	@DisplayName("a 200 without an event stream content type is not treated as success")
+	@DisplayName("a 200 without an event stream content type is accepted as a JSON completion")
 	void nonSse200IsNotSuccess() {
 		FailoverOrchestrator orchestrator = orchestrator(allowAll());
-		serverA.enqueue(new MockResponse().setResponseCode(200).setBody("{\"error\":\"not sse\"}"));
+		serverA.enqueue(new MockResponse().setResponseCode(200)
+		                                  .addHeader("Content-Type", "application/json")
+		                                  .setBody("{\"id\":\"1\",\"object\":\"chat.completion\",\"choices\":[]}"));
 
-		UpstreamUnavailableException failure = assertThrows(
-				UpstreamUnavailableException.class,
-				() -> join(orchestrator.execute(alias("a", "b"), MODELS))
-		);
+		ProviderResponse winner =
+				join(orchestrator.execute(alias("a", "b"), MODELS));
 
-		assertEquals(200, failure.getUpstreamStatus());
+		assertEquals("a", winner.providerName());
 	}
 
 	@Test
@@ -385,20 +385,15 @@ class FailoverOrchestratorTest {
 	}
 
 	@Test
-	@DisplayName("a 200 with a non event stream content type is passed through as non transient")
+	@DisplayName("a 200 with a non event stream content type is accepted as a JSON completion")
 	void noContentType200NotSuccess() {
 		FailoverOrchestrator orchestrator = orchestrator(allowAll());
 		serverA.enqueue(new MockResponse().setResponseCode(200).addHeader("Content-Type", "application/json"));
 
-		UpstreamUnavailableException failure = assertThrows(
-				UpstreamUnavailableException.class,
-				() -> join(orchestrator.execute(alias("a", "b"), MODELS))
-		);
+		ProviderResponse winner =
+				join(orchestrator.execute(alias("a", "b"), MODELS));
 
-		assertEquals(
-				200, failure.getUpstreamStatus(),
-				"a non SSE 200 must surface as is, not fail over"
-		);
+		assertEquals("a", winner.providerName());
 	}
 
 	@Test

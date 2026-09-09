@@ -135,6 +135,16 @@ services:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
 
+      # Local Ollama (host gateway). Containers cannot reach the host's
+      # localhost:11434 directly; set OLLAMA_BASE_URL=http://host.docker.internal:11434
+      # in your local .env (Ollama needs no network-access toggle; it listens on 11434).
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+
+      # SSRF allowlist for local development backends (exact host; see SsrfUpstreamUrlValidator).
+      # Empty by default = every private target fails closed; add host.docker.internal and/or
+      # localhost for local Ollama development.
+      GATEWAY_DEV_ALLOW_PRIVATE_HOSTS: ${GATEWAY_DEV_ALLOW_PRIVATE_HOSTS:-}
+
       # Master Admin Key (for /v1/admin/** APIs)
       GATEWAY_ADMIN_MASTERKEY: ${GATEWAY_ADMIN_MASTERKEY:-aegisgate_admin_secret_key}
 

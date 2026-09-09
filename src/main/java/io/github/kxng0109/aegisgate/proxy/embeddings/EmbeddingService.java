@@ -91,14 +91,25 @@ public class EmbeddingService {
 	public EmbeddingResponse processEmbedding(EmbeddingRequest request, @Nullable String ownerId) {
 		validateRequest(request);
 
-		ProviderConfig providerConfig = resolveProvider(request.model());
+		ResolvedEmbeddingTarget target = resolveTarget(request.model());
+		ProviderConfig providerConfig = target.config();
+		// The effective upstream model (alias override if present, else the requested
+		// name) is used end-to-end: wire payload, cost attribution, ledger event, and
+		// response all name what was actually computed.
+		EmbeddingRequest effectiveRequest = new EmbeddingRequest(
+				request.input(),
+				target.effectiveModel(),
+				request.dimensions(),
+				request.encodingFormat(),
+				request.user()
+		);
 		EmbeddingAdapter adapter = adapterResolver.resolve(providerConfig.type());
 		URI targetUri = resolveTargetUri(providerConfig);
 
 		Instant start = Instant.now();
 		EmbeddingResponse response;
 		try {
-			response = batchOrchestrator.execute(request, adapter, providerConfig, targetUri);
+			response = batchOrchestrator.execute(effectiveRequest, adapter, providerConfig, targetUri);
 		} catch (IOException | InterruptedException ex) {
 			if (ex instanceof InterruptedException) {
 				Thread.currentThread().interrupt();
@@ -113,14 +124,15 @@ public class EmbeddingService {
 
 		long durationMs = Duration.between(start, Instant.now()).toMillis();
 		int promptTokens = response.usage() != null ? response.usage().promptTokens() : 0;
-		long costUsdMicros = costCalculator.calculate(providerConfig.type(), request.model(), promptTokens, 0);
+		long costUsdMicros = costCalculator.calculate(
+				providerConfig.type(), target.effectiveModel(), promptTokens, 0);
 
 		UUID requestId = UUID.randomUUID();
 		TokenUsageEvent event = new TokenUsageEvent(
 				requestId,
 				ownerId == null || ownerId.isBlank() ? "unknown" : ownerId,
 				providerConfig.name(),
-				request.model(),
+				target.effectiveModel(),
 				promptTokens,
 				0,
 				promptTokens,
@@ -149,26 +161,38 @@ public class EmbeddingService {
 		}
 	}
 
-	private ProviderConfig resolveProvider(String model) {
+	/**
+	 * Resolved routing target: the provider config plus the effective upstream model id (the chain's
+	 * {@code model-override} when present, else the requested name).
+	 */
+	private record ResolvedEmbeddingTarget(ProviderConfig config, String effectiveModel) {
+	}
+
+	private ResolvedEmbeddingTarget resolveTarget(String model) {
 		ModelAlias alias = gatewayProperties.getAliases().get(model);
 		if (alias != null && !alias.chain().isEmpty()) {
 			ProviderRef primaryRef = alias.chain().getFirst();
 			ProviderConfig config = gatewayProperties.getProviders().get(primaryRef.providerName());
 			if (config != null) {
-				return config;
+				String effectiveModel = primaryRef.modelOverride() != null
+						&& !primaryRef.modelOverride().isBlank()
+						? primaryRef.modelOverride()
+						: model;
+				return new ResolvedEmbeddingTarget(config, effectiveModel);
 			}
 		}
 
 		// Direct lookup by provider key if model contains provider prefix or matches configured provider
 		for (ProviderConfig config : gatewayProperties.getProviders().values()) {
 			if (model.toLowerCase().contains(config.type().name().toLowerCase())) {
-				return config;
+				return new ResolvedEmbeddingTarget(config, model);
 			}
 		}
 
 		// Fallback to first available provider if configured
 		if (!gatewayProperties.getProviders().isEmpty()) {
-			return gatewayProperties.getProviders().values().iterator().next();
+			return new ResolvedEmbeddingTarget(
+					gatewayProperties.getProviders().values().iterator().next(), model);
 		}
 
 		throw new ResponseStatusException(

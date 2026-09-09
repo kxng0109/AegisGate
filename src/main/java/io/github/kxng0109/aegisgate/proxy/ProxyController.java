@@ -57,6 +57,7 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
 import java.io.IOException;
@@ -415,7 +416,6 @@ public class ProxyController {
 		UUID requestId = UUID.randomUUID();
 
 		HttpHeaders headers = new HttpHeaders();
-		headers.setContentType(MediaType.TEXT_EVENT_STREAM);
 		headers.setCacheControl("no-cache");
 		headers.set("X-Accel-Buffering", "no");
 
@@ -429,6 +429,22 @@ public class ProxyController {
 			zdrEnforcer.applyHeaders(headers);
 		}
 
+		String upstreamContentType = providerResponse.response().headers() == null ? ""
+				: providerResponse.response().headers().firstValue("Content-Type").orElse("");
+		// Absent headers (or an unrecognized type) keep the historical SSE path; only a
+		// positively non-streaming content type diverts to the JSON completion relay.
+		boolean upstreamStreaming = upstreamContentType.isBlank()
+				|| upstreamContentType.toLowerCase(Locale.ROOT).contains("text/event-stream")
+				|| upstreamContentType.toLowerCase(Locale.ROOT).contains("application/x-ndjson");
+		if (!upstreamStreaming) {
+			headers.setContentType(MediaType.APPLICATION_JSON);
+			return ResponseEntity.ok().headers(headers).body(out -> relayJson(
+					providerResponse, requestId, ownerId, providerType,
+					providerResponse.providerName(), model, chatRequest, request, out
+			));
+		}
+
+		headers.setContentType(MediaType.TEXT_EVENT_STREAM);
 		return ResponseEntity.ok().headers(headers).body(out -> relaySse(
 				providerResponse, adapter.newNormalizer(clientWantsUsage, model), out,
 				requestId, ownerId, providerType, providerResponse.providerName(), model,
@@ -690,6 +706,40 @@ public class ProxyController {
 		}
 	}
 
+	private void relayJson(
+			ProviderResponse providerResponse,
+			UUID requestId,
+			@Nullable String ownerId,
+			ProviderType providerType,
+			String providerName,
+			String requestedModel,
+			@Nullable OpenAiChatRequest chatRequest,
+			HttpServletRequest servletRequest,
+			OutputStream out
+	) throws IOException {
+		StringBuilder payload = new StringBuilder();
+		try (var lines = providerResponse.response().body()) {
+			for (String line : (Iterable<String>) lines::iterator) {
+				payload.append(line).append('\n');
+			}
+		}
+		String json = payload.toString().trim();
+		JsonNode root;
+		try {
+			root = objectMapper.readTree(json);
+		} catch (JacksonException ex) {
+			log.warn("Upstream returned non-JSON 200 body from provider {}: {}", providerName, ex.getMessage());
+			relayRawLine(out, json);
+			return;
+		}
+		JsonNode normalized = normalizeCompletion(root, requestedModel, providerName);
+		recordUsageAndCache(
+				normalized, root, chatRequest, providerType, providerName, requestedModel,
+				ownerId, requestId, servletRequest
+		);
+		relayRawLine(out, objectMapper.writeValueAsString(normalized));
+	}
+
 	private void relayRaw(ProviderResponse providerResponse, OutputStream out) {
 		try (var lines = providerResponse.response().body()) {
 			for (String line : (Iterable<String>) lines::iterator) {
@@ -701,6 +751,100 @@ public class ProxyController {
 			// The downstream client went away; the upstream stream is closed by
 			// the try with resources, so nothing leaks and nothing is recorded.
 			log.debug("Client disconnected while relaying the upstream error body");
+		}
+	}
+
+	private void relayRawLine(OutputStream out, String body) throws IOException {
+		out.write(body.getBytes(StandardCharsets.UTF_8));
+		out.flush();
+	}
+
+	private JsonNode normalizeCompletion(JsonNode root, String requestedModel, String providerName) {
+		ObjectNode normalized = objectMapper.createObjectNode();
+		String id = root.path("id").isString() ? root.path("id").asString() : "chatcmpl-" + UUID.randomUUID();
+		long created = root.path("created").isNumber() ? root.path("created").asLong() : Instant.now().getEpochSecond();
+		normalized.put("id", id);
+		normalized.put("object", "chat.completion");
+		normalized.put("created", created);
+		normalized.put("model", requestedModel);
+		ArrayNode choices = normalized.putArray("choices");
+		JsonNode upstreamChoices = root.path("choices");
+		if (upstreamChoices.isArray() && upstreamChoices.size() > 0) {
+			int index = 0;
+			for (JsonNode choice : upstreamChoices) {
+				String content = choice.path("message").path("content").isString()
+						? choice.path("message").path("content").asString()
+						: choice.path("text").isString() ? choice.path("text").asString() : "";
+				String finish = choice.path("finish_reason").isString()
+						? choice.path("finish_reason").asString() : "stop";
+				ObjectNode out = choices.addObject();
+				out.put("index", choice.path("index").isNumber() ? choice.path("index").asInt() : index);
+				ObjectNode msg = out.putObject("message");
+				msg.put("role", "assistant");
+				msg.put("content", content);
+				out.put("finish_reason", finish);
+				index++;
+			}
+		} else {
+			ObjectNode out = choices.addObject();
+			out.put("index", 0);
+			ObjectNode msg = out.putObject("message");
+			msg.put("role", "assistant");
+			msg.put("content", root.path("content").isString() ? root.path("content").asString() : "");
+			out.put("finish_reason", "stop");
+		}
+		JsonNode usage = root.path("usage");
+		if (usage.isObject()) {
+			normalized.set("usage", usage);
+		}
+		return normalized;
+	}
+
+	private void recordUsageAndCache(
+			JsonNode normalized,
+			JsonNode upstreamRoot,
+			@Nullable OpenAiChatRequest chatRequest,
+			ProviderType providerType,
+			String providerName,
+			String requestedModel,
+			@Nullable String ownerId,
+			UUID requestId,
+			HttpServletRequest servletRequest
+	) {
+		try {
+			String normalizedJson = objectMapper.writeValueAsString(normalized);
+			JsonNode usage = normalized.path("usage");
+			long promptTokens = usage.path("prompt_tokens").isNumber() ? usage.path("prompt_tokens").asLong() : 0L;
+			long completionTokens = usage.path("completion_tokens").isNumber()
+					? usage.path("completion_tokens").asLong() : 0L;
+			long costUsdMicros = costCalculator.calculate(
+					providerType, requestedModel, promptTokens, completionTokens);
+			eventPublisher.publishEvent(new TokenUsageEvent(
+					requestId, ownerId, providerName, requestedModel,
+					promptTokens, completionTokens,
+					promptTokens + completionTokens,
+					0L, costUsdMicros, Instant.now(),
+					promptTokens, 0L, 0L, 0L,
+					costUsdMicros, costUsdMicros, null
+			));
+			if (cacheService != null && chatRequest != null) {
+				try {
+					int pt = (int) Math.min(Integer.MAX_VALUE, promptTokens);
+					int ct = (int) Math.min(Integer.MAX_VALUE, completionTokens);
+					cacheService.storeResponse(
+							chatRequest,
+							servletRequest,
+							ownerId,
+							normalizedJson,
+							pt,
+							ct
+					);
+				} catch (RuntimeException ex) {
+					log.debug("Cache store skipped for non-streaming completion: {}", ex.getMessage());
+				}
+			}
+		} catch (JacksonException ex) {
+			log.debug("Usage recording skipped for non-streaming completion: {}", ex.getMessage());
 		}
 	}
 

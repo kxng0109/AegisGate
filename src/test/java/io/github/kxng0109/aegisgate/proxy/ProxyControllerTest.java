@@ -28,6 +28,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.io.ByteArrayOutputStream;
@@ -1634,6 +1635,140 @@ class ProxyControllerTest {
 	}
 
 	@SuppressWarnings("unchecked")
+	@Test
+	@DisplayName("non-streaming 200 JSON completion is normalized and served as JSON")
+	void jsonRelayNormalizesFullCompletion() throws Exception {
+		String upstream = "{\"id\":\"chatcmpl-abc\",\"object\":\"chat.completion\",\"created\":1700000000,"
+				+ "\"model\":\"gpt-5.6-luna\",\"choices\":[{\"index\":2,\"message\":{\"role\":\"assistant\","
+				+ "\"content\":\"hi\"},\"finish_reason\":\"stop\"}],"
+				+ "\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":7,\"total_tokens\":12}}";
+		ProviderResponse response = providerResponse("openai", 200, jsonHeaders(), Stream.of(upstream));
+		when(orchestrator.execute(any(), anyString()))
+				.thenReturn(CompletableFuture.completedFuture(response));
+
+		ResponseEntity<StreamingResponseBody> entity = controller.proxyChatCompletions(PATH_BODY, request());
+
+		assertEquals(200, entity.getStatusCode().value());
+		assertTrue(entity.getHeaders().getContentType().toString().contains("application/json"));
+		JsonNode normalized = new ObjectMapper().readTree(body(entity));
+		assertEquals("chatcmpl-abc", normalized.path("id").asString());
+		assertEquals("chat.completion", normalized.path("object").asString());
+		assertEquals(1700000000L, normalized.path("created").asLong());
+		assertEquals("gpt-5.6-luna", normalized.path("model").asString());
+		assertEquals("hi", normalized.path("choices").get(0).path("message").path("content").asString());
+		assertEquals("stop", normalized.path("choices").get(0).path("finish_reason").asString());
+		assertEquals(2, normalized.path("choices").get(0).path("index").asInt());
+		assertEquals(5, normalized.path("usage").path("prompt_tokens").asInt());
+	}
+
+	@Test
+	@DisplayName("non-streaming empty JSON object falls back to generated id and empty choice")
+	void jsonRelayAppliesFallbacks() throws Exception {
+		ProviderResponse response = providerResponse("openai", 200, jsonHeaders(), Stream.of("{}"));
+		when(orchestrator.execute(any(), anyString()))
+				.thenReturn(CompletableFuture.completedFuture(response));
+
+		ResponseEntity<StreamingResponseBody> entity = controller.proxyChatCompletions(PATH_BODY, request());
+
+		assertEquals(200, entity.getStatusCode().value());
+		JsonNode normalized = new ObjectMapper().readTree(body(entity));
+		assertTrue(normalized.path("id").asString().startsWith("chatcmpl-"));
+		assertEquals("stop", normalized.path("choices").get(0).path("finish_reason").asString());
+		assertEquals("", normalized.path("choices").get(0).path("message").path("content").asString());
+		assertTrue(normalized.path("usage").isMissingNode());
+	}
+
+	@Test
+	@DisplayName("non-streaming non-JSON body is relayed raw without failing")
+	void jsonRelayRelaysNonJsonRaw() throws Exception {
+		ProviderResponse response = providerResponse("openai", 200, jsonHeaders(), Stream.of("not-json{{{"));
+		when(orchestrator.execute(any(), anyString()))
+				.thenReturn(CompletableFuture.completedFuture(response));
+
+		ResponseEntity<StreamingResponseBody> entity = controller.proxyChatCompletions(PATH_BODY, request());
+
+		assertEquals(200, entity.getStatusCode().value());
+		assertTrue(body(entity).contains("not-json{{{"));
+	}
+
+	@Test
+	@DisplayName("non-streaming text choices and missing fields fall back gracefully")
+	void jsonRelayHandlesTextAndMissingFields() throws Exception {
+		String upstream = "{\"choices\":[{\"text\":\"yo\"}]}";
+		ProviderResponse response = providerResponse("openai", 200, jsonHeaders(), Stream.of(upstream));
+		when(orchestrator.execute(any(), anyString()))
+				.thenReturn(CompletableFuture.completedFuture(response));
+
+		ResponseEntity<StreamingResponseBody> entity = controller.proxyChatCompletions(PATH_BODY, request());
+
+		assertEquals(200, entity.getStatusCode().value());
+		JsonNode normalized = new ObjectMapper().readTree(body(entity));
+		assertEquals("yo", normalized.path("choices").get(0).path("message").path("content").asString());
+		assertEquals("stop", normalized.path("choices").get(0).path("finish_reason").asString());
+		assertEquals(0, normalized.path("choices").get(0).path("index").asInt());
+	}
+
+	@Test
+	@DisplayName("non-streaming completion is stored in cache when a cache service is present")
+	void jsonRelayStoresInCache() throws Exception {
+		AegisCacheService cache = mock(AegisCacheService.class);
+		ProtocolAdapterResolver cachingResolver = new ProtocolAdapterResolver(
+				new OpenAiPassthroughAdapter(objectMapper),
+				new AnthropicAdapter(objectMapper),
+				new GeminiAdapter(objectMapper),
+				new DeepSeekAdapter(objectMapper),
+				new OllamaAdapter(objectMapper)
+		);
+		ProxyController cachingController = new ProxyController(
+				orchestrator, gatewayProperties, objectMapper, cachingResolver,
+				costCalculator, eventPublisher, flushStrategy, lineGuardFactory, cache, null
+		);
+		String upstream = "{\"choices\":[{\"message\":{\"content\":\"hi\"}}],"
+				+ "\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":7,\"total_tokens\":12}}";
+		ProviderResponse response = providerResponse("openai", 200, jsonHeaders(), Stream.of(upstream));
+		when(orchestrator.execute(any(), anyString()))
+				.thenReturn(CompletableFuture.completedFuture(response));
+
+		ResponseEntity<StreamingResponseBody> entity =
+				cachingController.proxyChatCompletions(PATH_BODY, request());
+
+		assertEquals(200, entity.getStatusCode().value());
+		// Materialize the streaming body: relay + usage recording + cache store
+		// execute lazily inside writeTo, not when the 200 status is built.
+		body(entity);
+		verify(eventPublisher).publishEvent(any(TokenUsageEvent.class));
+		verify(cache).storeResponse(any(), any(), any(), anyString(), eq(5), eq(7));
+	}
+
+	@Test
+	@DisplayName("non-streaming cache store failure degrades to a served response")
+	void jsonRelayCacheFailureDegrades() throws Exception {
+		AegisCacheService cache = mock(AegisCacheService.class);
+		doThrow(new RuntimeException("redis down")).when(cache)
+		                                           .storeResponse(any(), any(), any(), anyString(), anyInt(), anyInt());
+		ProtocolAdapterResolver cachingResolver = new ProtocolAdapterResolver(
+				new OpenAiPassthroughAdapter(objectMapper),
+				new AnthropicAdapter(objectMapper),
+				new GeminiAdapter(objectMapper),
+				new DeepSeekAdapter(objectMapper),
+				new OllamaAdapter(objectMapper)
+		);
+		ProxyController cachingController = new ProxyController(
+				orchestrator, gatewayProperties, objectMapper, cachingResolver,
+				costCalculator, eventPublisher, flushStrategy, lineGuardFactory, cache, null
+		);
+		String upstream = "{\"choices\":[{\"message\":{\"content\":\"hi\"}}]}";
+		ProviderResponse response = providerResponse("openai", 200, jsonHeaders(), Stream.of(upstream));
+		when(orchestrator.execute(any(), anyString()))
+				.thenReturn(CompletableFuture.completedFuture(response));
+
+		ResponseEntity<StreamingResponseBody> entity =
+				cachingController.proxyChatCompletions(PATH_BODY, request());
+
+		assertEquals(200, entity.getStatusCode().value());
+		assertTrue(body(entity).contains("hi"));
+	}
+
 	private static ProviderResponse providerResponse(
 			String provider,
 			int status,

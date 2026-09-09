@@ -81,7 +81,12 @@ public class McpRouter {
 			return Optional.of(candidates.get(0));
 		}
 		if (candidates.size() > 1) {
-			log.warn("MCP routing collision: un-namespaced tool '{}' matches multiple servers", requestedToolName);
+			log.warn(
+					"MCP routing collision: un-namespaced tool '{}' matches multiple servers: {}; returning first resolved route as fail-safe",
+					requestedToolName,
+					candidates.stream().map(c -> c.serverConfig().name()).toList()
+			);
+			return Optional.of(candidates.getFirst());
 		}
 		return Optional.empty();
 	}

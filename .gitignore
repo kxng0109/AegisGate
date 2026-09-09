@@ -37,3 +37,6 @@ build/
 verify.*
 /logs/
 /node_modules/
+
+# Local compose secrets (never commit; see .env.docker.example)
+.env

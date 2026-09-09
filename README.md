@@ -8,7 +8,8 @@ resilient multi provider failover with distributed circuit breakers, real-time s
 scanning, ephemeral PII vault with Nigerian regulatory compliance, prompt injection defense, streaming JSON PDA
 validator, and mid-stream kill switch), and geo-sovereignty compliance with Merkle audit receipts. Phase 4 added
 universal protocol normalization (OpenAI, Anthropic Claude, Google Gemini, Google Cloud Vertex AI, DeepSeek V3/R1/V4,
-Cohere, Ollama), streaming extended reasoning extraction (`<think>` tags and native thinking deltas), a 50,000 RPS
+Cohere, native `ollama`), streaming extended reasoning extraction (`<think>` tags and native thinking deltas), a 50,000
+RPS
 lock-free Disruptor RingBuffer queue, a dual-trigger micro-batch PostgreSQL writer, a resilient append-only Spillway WAL
 disk journal, and a FinOps FOCUS 1.4 prompt caching cost engine. Phase 6 added the Enterprise Model Context Protocol
 (MCP) Security & Tool Governance Gateway: a unified `POST /v1/mcp` Streamable HTTP endpoint (plus a legacy
@@ -559,7 +560,7 @@ Run the full suite with coverage and the packaging step:
 ./mvnw clean verify
 ```
 
-The suite currently has 1,249 tests (100% passing):
+The suite currently has 1,269 tests (100% passing):
 
 JaCoCo coverage gates (BUNDLE, `target/site/jacoco/jacoco.xml` is single-session honest via
 `<append>false</append>` on `prepare-agent`): INSTRUCTION/BRANCH/LINE/METHOD/CLASS ≥ 95%, COMPLEXITY ≥ 90%.
@@ -654,7 +655,7 @@ JaCoCo coverage gates (BUNDLE, `target/site/jacoco/jacoco.xml` is single-session
 - A context load test that verifies the application starts without a live Redis or PostgreSQL.
 
 JaCoCo enforces a minimum coverage of 95 percent on every counter at the bundle level. The current gate passes at
-**INSTRUCTION 98.97%, BRANCH 95.64%, LINE 98.63%, COMPLEXITY 94.46%, METHOD 100%, and CLASS 100%** (1,249 tests). The
+**INSTRUCTION 98.97%, BRANCH 95.64%, LINE 98.63%, COMPLEXITY 94.46%, METHOD 100%, and CLASS 100%** (1,250 tests). The
 circuit breaker and orchestrator retry and race coordination branches are excluded from the gate because they cannot be
 reached deterministically; the state transitions and failover semantics themselves are fully covered. The Mockito inline
 mock maker is attached as a Java agent through the `argLine` Maven property, so the suite is future proof against the

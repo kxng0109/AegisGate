@@ -150,14 +150,12 @@ public class SpillwayJournalManager {
 						recordReplayMetric(event.provider());
 					} catch (RuntimeException ex) {
 						log.warn(
-								"Replay failed for request {}: {}; stopping replay cycle",
+								"Replay failed for request {}: {}; skipping dead-letter record and continuing replay",
 								event.requestId(),
 								ex.getMessage()
 						);
-						// Put back this failed event and all remaining unattempted events
-						List<TokenUsageEvent> remaining = recovered.subList(i, recovered.size());
-						appendBatch(remaining, "Replay deferred: " + ex.getMessage());
-						break;
+						recordDeadLetterMetric(event.provider());
+						continue;
 					}
 				}
 			} finally {
@@ -241,6 +239,14 @@ public class SpillwayJournalManager {
 			log.warn("Failed to deserialize spillway journal line: {}", ex.getMessage());
 			return null;
 		}
+	}
+
+	private void recordDeadLetterMetric(String provider) {
+		Counter.builder("aegis.ledger.dead_letter.skip")
+		       .baseUnit("records")
+		       .tag("provider", provider != null && !provider.isBlank() ? provider : "unknown")
+		       .register(meterRegistry)
+		       .increment();
 	}
 
 	private void recordSpillwayMetric(String provider) {

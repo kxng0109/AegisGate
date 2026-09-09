@@ -77,6 +77,13 @@ public final class RedisCircuitBreakerFactory implements CircuitBreakerFactory {
 	 */
 	@Override
 	public CircuitBreaker get(String providerName) {
+		CircuitBreaker breaker = breakers.get(providerName);
+		if (breaker != null) {
+			return breaker;
+		}
+		if (!gatewayProperties.getProviders().containsKey(providerName)) {
+			throw new IllegalArgumentException("Unknown provider for circuit breaker: " + providerName);
+		}
 		return breakers.computeIfAbsent(providerName, this::createBreaker);
 	}
 

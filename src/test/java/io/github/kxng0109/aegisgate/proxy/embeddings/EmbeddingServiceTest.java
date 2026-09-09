@@ -9,6 +9,7 @@ import io.github.kxng0109.aegisgate.proxy.embeddings.dto.EmbeddingRequest;
 import io.github.kxng0109.aegisgate.proxy.embeddings.dto.EmbeddingResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -71,6 +72,41 @@ class EmbeddingServiceTest {
 		assertThat(response).isEqualTo(mockResponse);
 		verify(eventPublisher).publishEvent(any(TokenUsageEvent.class));
 		verify(costCalculator).calculate(ProviderType.OPENAI, "text-embedding-3-small", 10, 0);
+	}
+
+	@Test
+	@DisplayName("processEmbedding applies alias model-override end to end")
+	void processEmbeddingAppliesModelOverride() throws Exception {
+		ProviderConfig provider = new ProviderConfig(
+				"ollama-local", ProviderType.OLLAMA, URI.create("http://localhost:11434"),
+				null, Duration.ofSeconds(5), Duration.ofSeconds(60)
+		);
+		gatewayProperties.setProviders(Map.of("ollama-local", provider));
+
+		ModelAlias alias = new ModelAlias(
+				List.of(new ProviderRef("ollama-local", "nomic-embed-text:latest")),
+				FailoverStrategy.SEQUENTIAL
+		);
+		gatewayProperties.setAliases(Map.of("local-embed", alias));
+
+		EmbeddingAdapter adapter = mock(EmbeddingAdapter.class);
+		when(adapterResolver.resolve(ProviderType.OLLAMA)).thenReturn(adapter);
+
+		EmbeddingRequest request = new EmbeddingRequest(List.of("hello"), "local-embed", null, null, null);
+		EmbeddingResponse mockResponse = EmbeddingResponse.of(
+				"nomic-embed-text:latest",
+				List.of(EmbeddingData.of(0, new float[]{0.1f})),
+				10
+		);
+
+		ArgumentCaptor<EmbeddingRequest> requestCaptor = ArgumentCaptor.forClass(EmbeddingRequest.class);
+		when(batchOrchestrator.execute(requestCaptor.capture(), eq(adapter), eq(provider), any(URI.class)))
+				.thenReturn(mockResponse);
+
+		service.processEmbedding(request, "tenant-1");
+
+		assertThat(requestCaptor.getValue().model()).isEqualTo("nomic-embed-text:latest");
+		verify(costCalculator).calculate(ProviderType.OLLAMA, "nomic-embed-text:latest", 10, 0);
 	}
 
 	@Test

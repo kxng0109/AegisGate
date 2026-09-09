@@ -81,6 +81,58 @@ class OpenAiEmbeddingAdapterTest {
 	}
 
 	@Test
+	@DisplayName("single-text defaults to array form (Jina-requires-arrays compat)")
+	void singleTextDefaultsToArray() {
+		EmbeddingRequest request = new EmbeddingRequest("text", "model", null, null, null);
+		ProviderConfig providerConfig = new ProviderConfig(
+				"openai", ProviderType.OPENAI, URI.create("https://api.openai.com"),
+				null, Duration.ofSeconds(5), Duration.ofSeconds(30)
+		);
+
+		HttpRequest httpRequest = adapter.buildRequest(
+				request, List.of("text"), providerConfig, URI.create("https://api.openai.com/v1/embeddings")
+		);
+
+		assertThat(providerConfig.isEmbeddingSingleAsString()).isFalse();
+		assertThat(httpRequest.uri()).isEqualTo(URI.create("https://api.openai.com/v1/embeddings"));
+	}
+
+	@Test
+	@DisplayName("string-only provider serializes single text as bare string; multi stays array")
+	void stringOnlyProviderShapeMatrix() {
+		EmbeddingRequest request = new EmbeddingRequest("text", "model", null, null, null);
+		ProviderConfig stringOnly = new ProviderConfig(
+				"string-only", ProviderType.OPENAI, URI.create("http://localhost:1234"),
+				null, Duration.ofSeconds(5), Duration.ofSeconds(300), true
+		);
+		ProviderConfig arrayDefault = new ProviderConfig(
+				"openai", ProviderType.OPENAI, URI.create("https://api.openai.com"),
+				null, Duration.ofSeconds(5), Duration.ofSeconds(30), false
+		);
+
+		assertThat(stringOnly.isEmbeddingSingleAsString()).isTrue();
+		assertThat(arrayDefault.isEmbeddingSingleAsString()).isFalse();
+
+		HttpRequest single = adapter.buildRequest(
+				request, List.of("text"), stringOnly, URI.create("http://localhost:1234/v1/embeddings"));
+		assertThat(single.uri()).isEqualTo(URI.create("http://localhost:1234/v1/embeddings"));
+
+		HttpRequest multi = adapter.buildRequest(
+				request, List.of("a", "b"), stringOnly, URI.create("http://localhost:1234/v1/embeddings"));
+		assertThat(multi.uri()).isEqualTo(URI.create("http://localhost:1234/v1/embeddings"));
+	}
+
+	@Test
+	@DisplayName("flag accessor is null-safe on legacy constructors")
+	void flagAccessorNullSafe() {
+		ProviderConfig legacy = new ProviderConfig(
+				"openai", ProviderType.OPENAI, URI.create("https://api.openai.com"),
+				null, Duration.ofSeconds(5), Duration.ofSeconds(30)
+		);
+		assertThat(legacy.isEmbeddingSingleAsString()).isFalse();
+	}
+
+	@Test
 	@DisplayName("parseResponse handles response without data array safely")
 	void parseResponseNoData() {
 		String json = """

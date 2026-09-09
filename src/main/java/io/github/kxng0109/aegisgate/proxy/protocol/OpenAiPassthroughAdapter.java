@@ -54,8 +54,14 @@ public final class OpenAiPassthroughAdapter implements ProtocolAdapter {
 		if (modelOverride != null) {
 			rewritten.put("model", modelOverride);
 		}
-		ObjectNode streamOptions = streamOptions(rewritten);
-		streamOptions.put("include_usage", true);
+		// stream_options is only valid when the effective upstream request streams
+		// (OpenAI spec: "Only set this when you set stream: true"; vLLM rejects
+		// stream_options with stream:false/absent as a 400). Inject include_usage
+		// solely on the streaming path so usage-billing stays intact there while
+		// non-streaming requests forward untouched for relayJson.
+		if (isStreamingRequest(rewritten)) {
+			streamOptions(rewritten).put("include_usage", true);
+		}
 		return objectMapper.writeValueAsString(rewritten);
 	}
 
@@ -73,6 +79,11 @@ public final class OpenAiPassthroughAdapter implements ProtocolAdapter {
 	@Override
 	public SseNormalizer newNormalizer(boolean includeUsageInResponse, String fallbackModel) {
 		return new OpenAiSseNormalizer(objectMapper, fallbackModel, includeUsageInResponse);
+	}
+
+	private boolean isStreamingRequest(ObjectNode request) {
+		JsonNode stream = request.get("stream");
+		return stream != null && stream.isBoolean() && stream.booleanValue();
 	}
 
 	private ObjectNode streamOptions(ObjectNode request) {
