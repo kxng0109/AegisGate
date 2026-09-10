@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   1536M→2G. Proof: flood/burst/spike green (spike @150rps: 63,599 reqs,
   0 failed, RSS 1.047GiB), full flood green at Xmx192m, 3 clean boots, full
   `verify` 1,246 green. Ollama confirmed iGPU-served (100% GPU).
+- **Overload hunt (`32-overload-ramp.js`):** 176,867 cache-hit reqs dispatched,
+  85.5% served, 14.5% client-timeouts; 5.1M generator-side drops (single-box k6
+  saturates first at vus_max 10,000). App never OOM'd/restarted, peak RSS
+  1.616GiB/2G. Weak-spot order: generator VU exhaustion, then gateway queueing
+  latency — memory is not the ceiling.
 
 ## [1.7.0] - 2026-09-10
 

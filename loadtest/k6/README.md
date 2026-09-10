@@ -102,6 +102,14 @@ flood green at Xmx192m (6x below operating point) — kill not reached, margin
 proven; cold-start 00-smoke showed 60% k6 timeouts with clean app logs
 (latency death precedes OOM death — warm up before measuring).
 
+Overload hunt (`32-overload-ramp.js`, cache-hit path, unlimited key): 176,867
+reqs dispatched (~635/s achieved), 85.5% served, 14.5% hit the 30s client
+timeout; 5.1M iterations dropped at the GENERATOR (vus_max 10,000 — single-box
+k6 saturates first). App never OOM'd, never restarted, UP after, peak RSS
+1.616GiB/2G. Weak-spot order: (1) k6 generator VU exhaustion, (2) gateway
+queueing latency (not memory). 10K+ meaningful rps needs distributed
+generation (gate-profile-b) + server thread/queue tuning.
+
 ## Local rate ceilings
 
 The shared dev box serves `qwen2.5:0.5b` + `nomic-embed-text:latest` from Ollama at 100% GPU (iGPU).
