@@ -21,6 +21,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   saturates first at vus_max 10,000). App never OOM'd/restarted, peak RSS
   1.616GiB/2G. Weak-spot order: generator VU exhaustion, then gateway queueing
   latency — memory is not the ceiling.
+- **Full-stack observability:** `redis_exporter` v1.89.0 + `postgres_exporter`
+  v0.20.1 (least-privilege `pg_monitor` user, redacted config, no published
+  ports); `pg_stat_statements` + `track_io_timing` (restart-applied, data
+  preserved). Dashboard 23→51 panels across 12 rows (rate limiting, ledger,
+  JVM deep, Redis, Postgres, client connections) with instant stats,
+  ghost-free fallbacks, fixed colors/legends/thresholds. Alerts 7→20
+  (promtool unit-tested, isolated test path). New meters: ratelimit
+  decisions, ledger flush/batch/queue depth, virtual-thread gauges;
+  `mbeanregistry`, histogram percentiles, `micrometer-java21`. k6 witness
+  scenarios: overload ramp, concurrency knees, 60s chat+embed proof.
 
 ## [1.7.0] - 2026-09-10
 

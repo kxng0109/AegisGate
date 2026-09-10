@@ -17,6 +17,22 @@ scrape_configs:
           application: "AegisGate"
           environment: "production"
 
+  - job_name: "redis"
+    scrape_interval: 15s
+    static_configs:
+      - targets: [ "redis-exporter:9121" ]
+        labels:
+          application: "AegisGate"
+          component: "redis"
+
+  - job_name: "postgres"
+    scrape_interval: 15s
+    static_configs:
+      - targets: [ "postgres-exporter:9187" ]
+        labels:
+          application: "AegisGate"
+          component: "postgres"
+
   - job_name: "prometheus"
     scrape_interval: 15s
     static_configs:

@@ -250,6 +250,18 @@ management:
     health:
       probes:
         enabled: true
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+        jvm.gc.pause: true
+        hikaricp.connections.acquire: true
+    tags:
+      application: AegisGate
+server:
+  tomcat:
+    mbeanregistry:
+      enabled: true
 
 # ==============================================================================
 # SpringDoc OpenAPI 3.1 & Interactive Swagger UI Configuration

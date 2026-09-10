@@ -61,6 +61,13 @@
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
+        <!-- Dashboard build: virtual-thread gauges (jvm.threads.virtual.*).
+             Explicit 1.17.1: verified resolvable; BOM coverage not assumed. -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-java21</artifactId>
+            <version>1.17.1</version>
+        </dependency>
 
         <!-- Phase 4: async usage and cost ledger. JPA persists the ledger and
              the pricing table to PostgreSQL, Flyway owns the schema, and

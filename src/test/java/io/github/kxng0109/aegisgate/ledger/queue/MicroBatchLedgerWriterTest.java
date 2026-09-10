@@ -156,4 +156,24 @@ class MicroBatchLedgerWriterTest {
 				100, 50, 150, 200, 1500, Instant.now()
 		);
 	}
+
+	@Test
+	@DisplayName("Flush cycle records flush latency, batch size, and queue depth")
+	void shouldRecordFlushMetrics() {
+		SimpleMeterRegistry registry = new SimpleMeterRegistry();
+		MicroBatchLedgerWriter metered = new MicroBatchLedgerWriter(
+				queue, repository, spillwayJournal, registry, 100, 50, 30_000L, 60_000L, 5);
+		queue.offer(createEvent("tenant-m"));
+		queue.offer(createEvent("tenant-m"));
+		queue.offer(createEvent("tenant-m"));
+
+		assertThat(registry.get("aegis.ledger.queue.depth").gauge().value()).isEqualTo(3.0);
+
+		int flushed = metered.flushCycle();
+
+		assertThat(flushed).isEqualTo(3);
+		assertThat(registry.get("aegis.ledger.flush.seconds").timer().count()).isEqualTo(1);
+		assertThat(registry.get("aegis.ledger.batch.size").summary().max()).isEqualTo(3.0);
+		assertThat(registry.get("aegis.ledger.queue.depth").gauge().value()).isEqualTo(0.0);
+	}
 }

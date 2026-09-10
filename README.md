@@ -356,8 +356,14 @@ docker compose --profile all up -d --build
 Copy `.env.docker.example` to `.env` to configure ports, provider API keys, and Grafana credentials:
 
 - **AegisGate Gateway**: `http://localhost:8080` (Actuator & Health: `http://localhost:8080/actuator/health`)
-- **Grafana Dashboard**: `http://localhost:3000` (Pre-configured `AegisGate — Production Operations` dashboard)
-- **Prometheus TSDB**: `http://localhost:9090` (Scraping `/actuator/prometheus` with pre-loaded alert rules)
+- **Grafana Dashboard**: `http://localhost:3000` (Pre-configured `AegisGate — Production Operations` dashboard, 51 panels across 12 rows: request path, rate limiting, ledger, JVM, pools, Redis, Postgres, client connections)
+- **Prometheus TSDB**: `http://localhost:9090` (Scraping the app plus `redis-exporter:9121` and `postgres-exporter:9187`, with 20 pre-loaded alert rules)
+
+One extra setup line is required for the Postgres exporter (least-privilege `pg_monitor` user; fail-fast if unset):
+
+```bash
+POSTGRES_EXPORTER_PASSWORD=<a real value in your .env>
+```
 
 ### Running manually
 

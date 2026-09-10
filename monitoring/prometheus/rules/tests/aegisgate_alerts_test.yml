@@ -1,0 +1,103 @@
+# promtool unit tests for aegisgate_alerts.yml.
+# Run: docker run --rm -v <repo>/monitoring/prometheus/rules:/rules prom/prometheus:v3.2.1 \
+#        promtool test rules /rules/tests/aegisgate_alerts_test.yml
+rule_files:
+  - ../aegisgate_alerts.yml
+
+evaluation_interval: 1m
+
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'aegis_ratelimit_evaluations_total{decision="allowed"}'
+        values: 100+100x29
+      - series: 'aegis_ratelimit_evaluations_total{decision="denied"}'
+        values: 0+2x29
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: RateLimitDenySpike
+        exp_alerts: [ ]
+
+  - interval: 1m
+    input_series:
+      - series: 'aegis_ratelimit_evaluations_total{decision="allowed"}'
+        values: 100+0x29
+      - series: 'aegis_ratelimit_evaluations_total{decision="denied"}'
+        values: 0+60x29
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: RateLimitDenySpike
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: security-ops
+            exp_annotations:
+              summary: "Rate-limit deny rate above 5%"
+              description: "Clients are being throttled at 100%. Verify legitimate burst vs abuse."
+
+  - interval: 1m
+    input_series:
+      - series: 'pg_stat_database_deadlocks{datname="aegisgate"}'
+        values: 0+0x29
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: PostgresDeadlocks
+        exp_alerts: [ ]
+
+  - interval: 1m
+    input_series:
+      - series: 'pg_stat_database_deadlocks{datname="aegisgate"}'
+        values: 0+0x9 0+0x9 1+0x9
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: PostgresDeadlocks
+        exp_alerts:
+          - exp_labels:
+              datname: aegisgate
+              severity: critical
+              team: data-infra
+            exp_annotations:
+              summary: "Postgres deadlocks detected"
+              description: "Deadlocks in the last hour on aegisgate. Inspect concurrent ledger writes."
+
+  - interval: 1m
+    input_series:
+      - series: 'hikaricp_connections_active{pool="HikariPool-1"}'
+        values: 9+0x29
+      - series: 'hikaricp_connections_max{pool="HikariPool-1"}'
+        values: 10+0x29
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: HikariPoolNearExhaustion
+        exp_alerts:
+          - exp_labels:
+              pool: HikariPool-1
+              severity: critical
+              team: data-infra
+            exp_annotations:
+              summary: "HikariCP database pool utilization > 85%"
+              description: "Database connection pool is nearly saturated on ."
+
+  - interval: 1m
+    input_series:
+      - series: 'redis_evicted_keys_total'
+        values: 0+0x29
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: RedisEvictionsActive
+        exp_alerts: [ ]
+
+  - interval: 1m
+    input_series:
+      - series: 'redis_evicted_keys_total'
+        values: 0+0x9 5+0x19
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: RedisEvictionsActive
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              team: data-infra
+            exp_annotations:
+              summary: "Redis is evicting keys"
+              description: "Evictions on a noeviction policy mean writes are failing. Add memory or reduce key churn."

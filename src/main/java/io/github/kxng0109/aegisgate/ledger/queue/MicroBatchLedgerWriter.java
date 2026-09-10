@@ -5,7 +5,10 @@ import io.github.kxng0109.aegisgate.ledger.TokenUsageEvent;
 import io.github.kxng0109.aegisgate.ledger.UsageLedgerEntry;
 import io.github.kxng0109.aegisgate.ledger.UsageLedgerRepository;
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.DistributionSummary;
+import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.Nullable;
@@ -74,6 +77,9 @@ public class MicroBatchLedgerWriter implements SmartLifecycle {
 		this.repository = repository;
 		this.spillwayJournal = spillwayJournal;
 		this.meterRegistry = meterRegistry != null ? meterRegistry : new SimpleMeterRegistry();
+		Gauge.builder("aegis.ledger.queue.depth", queue, DisruptorUsageLedgerQueue::size)
+		     .description("Unflushed usage events waiting in the ring buffer")
+		     .register(this.meterRegistry);
 		this.maxBatchSize = Math.max(10, maxBatchSize);
 		this.flushIntervalMs = Math.max(10L, flushIntervalMs);
 		this.replayInitialDelayMs = Math.max(1_000L, replayInitialDelayMs);
@@ -156,7 +162,16 @@ public class MicroBatchLedgerWriter implements SmartLifecycle {
 		}
 
 		try {
+			long flushStartNanos = System.nanoTime();
 			repository.saveAll(entries);
+			Timer.builder("aegis.ledger.flush.seconds")
+			     .description("PostgreSQL bulk-flush latency")
+			     .register(meterRegistry)
+			     .record(System.nanoTime() - flushStartNanos, TimeUnit.NANOSECONDS);
+			DistributionSummary.builder("aegis.ledger.batch.size")
+			                   .description("Rows per bulk flush")
+			                   .register(meterRegistry)
+			                   .record(drained);
 			recordBatchMetrics(batch);
 			return drained;
 		} catch (Exception ex) {

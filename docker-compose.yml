@@ -48,12 +48,24 @@ services:
     image: postgres:16-alpine
     container_name: aegisgate-postgres
     restart: unless-stopped
+    # pg_stat_statements needs shared_preload_libraries (restart to apply);
+    # track_io_timing reloads live but rides along. Scrape via postgres-exporter.
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_preload_libraries=pg_stat_statements"
+      - "-c"
+      - "track_io_timing=on"
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-aegisgate}
       POSTGRES_USER: ${POSTGRES_USER:-aegisgate}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aegisgate_secret}
+      # Passthrough ONLY so one-off admin exec can reference the exporter
+      # credentials without values ever leaving the container. Ignored by PG.
+      POSTGRES_EXPORTER_USER: ${POSTGRES_EXPORTER_USER:-aegisgate_exporter}
+      POSTGRES_EXPORTER_PASSWORD: ${POSTGRES_EXPORTER_PASSWORD:?set POSTGRES_EXPORTER_PASSWORD in .env}
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-aegisgate} -d $${POSTGRES_DB:-aegisgate}" ]
       interval: 5s
@@ -210,6 +222,85 @@ services:
         max-file: "3"
     security_opt:
       - no-new-privileges:true
+    networks:
+      - aegisgate-network
+
+  # ---------------------------------------------------------------------------
+  # Redis Exporter - Redis internals for Prometheus (passwordless local Redis,
+  # no secrets in this file; RediSearch module + per-index metrics included,
+  # config values redacted from metrics)
+  # ---------------------------------------------------------------------------
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.89.0-alpine
+    container_name: aegisgate-redis-exporter
+    restart: unless-stopped
+    command:
+      - "--redis.addr=redis://redis:6379"
+      - "--include-modules-metrics"
+      - "--include-search-indexes-metrics"
+      - "--redact-config-metrics"
+    depends_on:
+      redis:
+        condition: service_healthy
+    profiles:
+      - monitoring
+      - all
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
+        reservations:
+          memory: 64M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - aegisgate-network
+
+  # ---------------------------------------------------------------------------
+  # Postgres Exporter - Postgres internals for Prometheus. Auth via
+  # POSTGRES_EXPORTER_USER/PASSWORD (least-privilege pg_monitor member, see
+  # README; values live ONLY in .env, referenced here by name).
+  # ---------------------------------------------------------------------------
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.20.1
+    container_name: aegisgate-postgres-exporter
+    restart: unless-stopped
+    command:
+      - "--collector.stat_statements"
+      - "--collector.stat_activity_autovacuum"
+      - "--collector.long_running_transactions"
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_EXPORTER_USER:-aegisgate_exporter}:${POSTGRES_EXPORTER_PASSWORD:?set POSTGRES_EXPORTER_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-aegisgate}?sslmode=disable"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles:
+      - monitoring
+      - all
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
+        reservations:
+          memory: 64M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - aegisgate-network
 

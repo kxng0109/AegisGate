@@ -1,6 +1,10 @@
 package io.github.kxng0109.aegisgate.security.ratelimit;
 
 import io.github.kxng0109.aegisgate.contracts.*;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.jspecify.annotations.Nullable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.connection.PoolException;
@@ -54,6 +58,7 @@ public class RateLimitEngine {
 	private final StringRedisTemplate redisTemplate;
 	private final DefaultRedisScript<List> rateLimitScript;
 	private final RateLimitProperties properties;
+	private final MeterRegistry meterRegistry;
 
 	/**
 	 * Creates the engine with default ceilings.
@@ -62,7 +67,7 @@ public class RateLimitEngine {
 	 * @param rateLimitScript atomic fixed-window Lua script
 	 */
 	public RateLimitEngine(StringRedisTemplate redisTemplate, DefaultRedisScript<List> rateLimitScript) {
-		this(redisTemplate, rateLimitScript, RateLimitProperties.DEFAULTS);
+		this(redisTemplate, rateLimitScript, RateLimitProperties.DEFAULTS, null);
 	}
 
 	/**
@@ -71,16 +76,19 @@ public class RateLimitEngine {
 	 * @param redisTemplate   Redis template
 	 * @param rateLimitScript atomic fixed-window Lua script
 	 * @param properties      window and clamp ceilings
+	 * @param meterRegistry   metrics registry (optional; isolated fallback when null)
 	 */
 	@Autowired
 	public RateLimitEngine(
 			StringRedisTemplate redisTemplate,
 			DefaultRedisScript<List> rateLimitScript,
-			RateLimitProperties properties
+			RateLimitProperties properties,
+			@Nullable MeterRegistry meterRegistry
 	) {
 		this.redisTemplate = redisTemplate;
 		this.rateLimitScript = rateLimitScript;
 		this.properties = properties;
+		this.meterRegistry = meterRegistry != null ? meterRegistry : new SimpleMeterRegistry();
 	}
 
 	/**
@@ -182,6 +190,7 @@ public class RateLimitEngine {
 					toInt(tpmRemaining),
 					now.plusSeconds(tpmResetSeconds)
 			);
+			recordDecision(true);
 			return new RateLimitDecision.Allowed(state);
 		}
 
@@ -191,6 +200,17 @@ public class RateLimitEngine {
 		long retryAfterSeconds = rejected == REJECTED_RPM
 				? Math.max(1, rpmResetSeconds)
 				: Math.max(1, tpmResetSeconds);
+		recordDecision(false);
 		return new RateLimitDecision.Rejected(reason, retryAfterSeconds);
+	}
+
+	private void recordDecision(boolean allowed) {
+		try {
+			Counter.builder("aegis.ratelimit.evaluations")
+			       .tag("decision", allowed ? "allowed" : "denied")
+			       .register(meterRegistry)
+			       .increment();
+		} catch (Exception ignored) {
+		}
 	}
 }

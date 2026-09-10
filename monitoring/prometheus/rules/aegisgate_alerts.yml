@@ -88,3 +88,143 @@ groups:
         annotations:
           summary: "Usage ledger records spilling to dead-letter log"
           description: "Database writes for token accounting failed and are writing to dead-letter file."
+
+      # -----------------------------------------------------------------------
+      # 7. Redis Exporter & Memory Pressure
+      # -----------------------------------------------------------------------
+      - alert: RedisExporterDown
+        expr: up{job="redis"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: data-infra
+        annotations:
+          summary: "Redis exporter scrape failing"
+          description: "Prometheus cannot scrape redis-exporter:9121. Redis internals are blind."
+
+      - alert: RedisMemoryPressure
+        # 85% of the 512M container cap (no maxmemory set, so ratio metrics are absent).
+        expr: redis_memory_used_bytes > 436207616
+        for: 2m
+        labels:
+          severity: warning
+          team: data-infra
+        annotations:
+          summary: "Redis memory above 85% of container cap"
+          description: "Redis holds {{ $value | humanize1024 }}B. Evictions under noeviction fail writes."
+
+      - alert: RedisMainThreadSaturation
+        expr: sum(rate(redis_cpu_user_main_thread_seconds_total[2m])) + sum(rate(redis_cpu_sys_main_thread_seconds_total[2m])) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          team: data-infra
+        annotations:
+          summary: "Redis main thread above 90% of one CPU"
+          description: "Single-threaded command execution is the bottleneck; per-request Lua/KNN volume is too high."
+
+      - alert: RedisEvictionsActive
+        expr: increase(redis_evicted_keys_total[1h]) > 0
+        for: 5m
+        labels:
+          severity: critical
+          team: data-infra
+        annotations:
+          summary: "Redis is evicting keys"
+          description: "Evictions on a noeviction policy mean writes are failing. Add memory or reduce key churn."
+
+      # -----------------------------------------------------------------------
+      # 8. Postgres Exporter, Connections, Deadlocks, Vacuum, Hit Ratio
+      # -----------------------------------------------------------------------
+      - alert: PostgresExporterDown
+        expr: up{job="postgres"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: data-infra
+        annotations:
+          summary: "Postgres exporter scrape failing"
+          description: "Prometheus cannot scrape postgres-exporter:9187. Postgres internals are blind."
+
+      - alert: PostgresConnectionsHigh
+        expr: sum(pg_stat_database_numbackends) / pg_settings_max_connections > 0.8
+        for: 2m
+        labels:
+          severity: warning
+          team: data-infra
+        annotations:
+          summary: "Postgres connections above 80% of max"
+          description: "Connection pressure vs Hikari pool (10). Scale pool or investigate idle-in-transaction."
+
+      - alert: PostgresDeadlocks
+        expr: increase(pg_stat_database_deadlocks[1h]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          team: data-infra
+        annotations:
+          summary: "Postgres deadlocks detected"
+          description: "Deadlocks in the last hour on {{ $labels.datname }}. Inspect concurrent ledger writes."
+
+      - alert: PostgresBufferHitLow
+        expr: sum(pg_stat_database_blks_hit) / (sum(pg_stat_database_blks_hit) + sum(pg_stat_database_blks_read)) < 0.99
+        for: 15m
+        labels:
+          severity: warning
+          team: data-infra
+        annotations:
+          summary: "Postgres buffer hit ratio below 99%"
+          description: "Working set no longer fits shared buffers; disk reads are climbing."
+
+      - alert: PostgresVacuumStale
+        expr: (time() - pg_stat_user_tables_last_autovacuum > 86400) and (pg_stat_user_tables_last_autovacuum > 0)
+        for: 1h
+        labels:
+          severity: warning
+          team: data-infra
+        annotations:
+          summary: "Table {{ $labels.relname }} not autovacuumed in 24h"
+          description: "Dead-tuple bloat is growing; check autovacuum workers on a write-heavy ledger."
+
+      # -----------------------------------------------------------------------
+      # 9. JVM GC Pause, Error Logs, Rate-Limit Denies, Ledger Backlog
+      # -----------------------------------------------------------------------
+      - alert: GcPauseHigh
+        expr: histogram_quantile(0.99, sum by(le)(rate(jvm_gc_pause_seconds_bucket[5m]))) > 0.2
+        for: 2m
+        labels:
+          severity: warning
+          team: platform-core
+        annotations:
+          summary: "JVM GC p99 pause above 200ms"
+          description: "ZGC pause tail is growing; correlate with heap % and allocation rate."
+
+      - alert: LogbackErrors
+        expr: sum(rate(logback_events_total{level="error"}[5m])) > 0
+        for: 1m
+        labels:
+          severity: warning
+          team: platform-core
+        annotations:
+          summary: "Application ERROR logs observed"
+          description: "Error-level log events at {{ $value | humanize }}/s. Triage via logs before it cascades."
+
+      - alert: RateLimitDenySpike
+        expr: (sum(rate(aegis_ratelimit_evaluations_total{decision="denied"}[5m])) / sum(rate(aegis_ratelimit_evaluations_total[5m]))) * 100 > 5
+        for: 2m
+        labels:
+          severity: warning
+          team: security-ops
+        annotations:
+          summary: "Rate-limit deny rate above 5%"
+          description: "Clients are being throttled at {{ $value }}%. Verify legitimate burst vs abuse."
+
+      - alert: LedgerQueueGrowing
+        expr: aegis_ledger_queue_depth > 50000
+        for: 2m
+        labels:
+          severity: critical
+          team: billing-ops
+        annotations:
+          summary: "Ledger ring buffer above 50K pending"
+          description: "Micro-batch writer is behind; spillway journal growth and insert latency likely."

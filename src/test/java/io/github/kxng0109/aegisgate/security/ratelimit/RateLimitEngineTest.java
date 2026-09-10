@@ -4,6 +4,7 @@ import io.github.kxng0109.aegisgate.contracts.RateLimitDecision;
 import io.github.kxng0109.aegisgate.contracts.RejectionReason;
 import io.github.kxng0109.aegisgate.contracts.SHA256Hash;
 import io.github.kxng0109.aegisgate.contracts.VirtualApiKey;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.core.io.ClassPathResource;
@@ -64,6 +65,20 @@ class RateLimitEngineTest {
 		assertEquals(90, allowed.state().tpmRemaining());
 		assertResetNear(allowed.state().rpmResetAt(), before, after, 60L);
 		assertResetNear(allowed.state().tpmResetAt(), before, after, 60L);
+	}
+
+	@Test
+	void decisionCounterRecordsAllowedAndDenied() {
+		SimpleMeterRegistry registry = new SimpleMeterRegistry();
+		RateLimitEngine metered = new RateLimitEngine(redisTemplate, script, RateLimitProperties.DEFAULTS, registry);
+
+		stubResult(List.of(1L, 9L, 60L, 90L, 60L, 0L));
+		metered.checkRateLimit(HASH, key(10, 100), 10);
+		stubResult(List.of(0L, 0L, 60L, 0L, 60L, 1L));
+		metered.checkRateLimit(HASH, key(10, 100), 10);
+
+		assertEquals(1.0, registry.get("aegis.ratelimit.evaluations").tag("decision", "allowed").counter().count());
+		assertEquals(1.0, registry.get("aegis.ratelimit.evaluations").tag("decision", "denied").counter().count());
 	}
 
 	@Test
