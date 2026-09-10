@@ -354,6 +354,13 @@ public class ProxyController {
 			return errorResponse(HttpStatus.NOT_FOUND, "unknown model: " + model);
 		}
 
+		final String idempotencyKey;
+		try {
+			idempotencyKey = IdempotencyKeys.validateOrNull(request.getHeader(IdempotencyKeys.HEADER));
+		} catch (IllegalArgumentException malformed) {
+			return errorResponse(HttpStatus.BAD_REQUEST, "invalid Idempotency-Key");
+		}
+
 		@Nullable String ownerId = (String) request.getAttribute(KeyAuthFilter.OWNER_ID_ATTRIBUTE);
 		OpenAiChatRequest chatRequest = parseChatRequest(trimmed);
 
@@ -413,7 +420,11 @@ public class ProxyController {
 		ProviderType providerType = config == null ? ProviderType.OPENAI : config.type();
 		ProtocolAdapter adapter = adapterResolver.resolve(providerType);
 		boolean clientWantsUsage = requestsUsage(trimmed);
-		UUID requestId = UUID.randomUUID();
+		UUID requestId = IdempotencyKeys.resolveRequestId(
+				idempotencyKey,
+				ownerId == null ? "" : ownerId,
+				request.getRequestURI(),
+				IdempotencyKeys.sha256Hex(trimmed.getBytes(StandardCharsets.UTF_8)));
 
 		HttpHeaders headers = new HttpHeaders();
 		headers.setCacheControl("no-cache");

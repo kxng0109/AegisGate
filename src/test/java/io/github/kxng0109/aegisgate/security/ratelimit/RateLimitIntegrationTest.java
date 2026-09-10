@@ -4,6 +4,7 @@ import com.redis.testcontainers.RedisContainer;
 import io.github.kxng0109.aegisgate.contracts.BootstrapKey;
 import io.github.kxng0109.aegisgate.contracts.GatewayProperties;
 import io.github.kxng0109.aegisgate.contracts.SHA256Hash;
+import io.github.kxng0109.aegisgate.contracts.VirtualApiKey;
 import io.github.kxng0109.aegisgate.proxy.failover.FailoverOrchestrator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -29,8 +30,15 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -201,6 +209,45 @@ class RateLimitIntegrationTest {
 
 		HttpResponse<String> after = post(key, body("gpt-4o", 100));
 		assertThat(after.statusCode()).isIn(502, 504);
+	}
+
+	@Test
+	@DisplayName("concurrent boots converge on one deterministic bootstrap record")
+	void concurrentBootsConvergeOnSingleRecord() throws Exception {
+		GatewayProperties properties = new GatewayProperties();
+		properties.setBootstrapKeys(List.of(new BootstrapKey(
+				"race-owner", "race-key", "gw-rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr", 7, 700, Set.of(), Set.of())));
+		int booters = 8;
+		ExecutorService pool = Executors.newFixedThreadPool(booters);
+		CountDownLatch ready = new CountDownLatch(booters);
+		CountDownLatch go = new CountDownLatch(1);
+		List<Future<?>> futures = new ArrayList<>();
+		for (int i = 0; i < booters; i++) {
+			futures.add(pool.submit(() -> {
+				ready.countDown();
+				try {
+					go.await(10, TimeUnit.SECONDS);
+				} catch (InterruptedException e) {
+					Thread.currentThread().interrupt();
+					throw new IllegalStateException(e);
+				}
+				keyManagementService.seedBootstrapKeys(properties);
+				return null;
+			}));
+		}
+		assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+		go.countDown();
+		for (Future<?> future : futures) {
+			future.get(30, TimeUnit.SECONDS);
+		}
+		pool.shutdown();
+
+		Optional<VirtualApiKey> resolved = keyManagementService.findByHash(
+				SHA256Hash.fromRawKey("gw-rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"));
+		assertThat(resolved).isPresent();
+		assertThat(resolved.get().rpmLimit()).isEqualTo(7);
+		assertThat(resolved.get().tpmLimit()).isEqualTo(700);
+		assertThat(resolved.get().ownerId()).isEqualTo("race-owner");
 	}
 
 	// ---------------------------------------------------------------------

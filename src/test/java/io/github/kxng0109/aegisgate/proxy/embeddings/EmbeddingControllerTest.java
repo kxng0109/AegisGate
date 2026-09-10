@@ -9,10 +9,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.*;
 
 @DisplayName("EmbeddingController")
@@ -33,12 +35,27 @@ class EmbeddingControllerTest {
 				"text-embedding-3-small", List.of(EmbeddingData.of(0, new float[]{0.1f})), 5
 		);
 
-		when(embeddingService.processEmbedding(request, "tenant-alpha")).thenReturn(expected);
+		when(embeddingService.processEmbedding(request, "tenant-alpha", null)).thenReturn(expected);
 
 		ResponseEntity<EmbeddingResponse> response = controller.createEmbeddings(request, httpRequest);
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(response.getBody()).isEqualTo(expected);
-		verify(embeddingService).processEmbedding(request, "tenant-alpha");
+		verify(embeddingService).processEmbedding(request, "tenant-alpha", null);
+	}
+
+	@Test
+	@DisplayName("a malformed Idempotency-Key is rejected with 400 before delegating")
+	void malformedIdempotencyKeyRejected() {
+		HttpServletRequest httpRequest = mock(HttpServletRequest.class);
+		when(httpRequest.getAttribute(KeyAuthFilter.OWNER_ID_ATTRIBUTE)).thenReturn("tenant-alpha");
+		when(httpRequest.getHeader("Idempotency-Key")).thenReturn("y".repeat(300));
+
+		EmbeddingRequest request = new EmbeddingRequest("input text", "text-embedding-3-small", null, null, null);
+
+		assertThatThrownBy(() -> controller.createEmbeddings(request, httpRequest))
+				.isInstanceOf(ResponseStatusException.class)
+				.hasMessageContaining("400");
+		verify(embeddingService, never()).processEmbedding(any(), any(), any());
 	}
 }

@@ -8,6 +8,7 @@ import io.github.kxng0109.aegisgate.contracts.SHA256Hash;
 import io.github.kxng0109.aegisgate.contracts.VirtualApiKey;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 
 import java.security.SecureRandom;
@@ -41,6 +42,22 @@ public class KeyManagementService {
 			"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_".toCharArray();
 
 	private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+
+	/**
+	 * Atomically claims a bootstrap-key slot: stores the full metadata hash plus the index entry only when the
+	 * digest key does not exist yet, and reports whether this caller won the claim. The check and the write execute
+	 * inside one Lua script, so any number of instances booting concurrently converge on a single deterministic
+	 * record instead of last-writer-wins field flapping.
+	 *
+	 * <p>ARGV layout is self-sizing on purpose: field/value pairs first (always an even count), the digest hex last.
+	 * No positional constants may be introduced without updating the pairing below.</p>
+	 */
+	private static final DefaultRedisScript<Long> SEED_IF_ABSENT_SCRIPT = new DefaultRedisScript<>(
+			"if redis.call('EXISTS', KEYS[1]) == 1 then return 0 end "
+					+ "redis.call('HSET', KEYS[1], unpack(ARGV, 1, #ARGV - 1)) "
+					+ "redis.call('SADD', KEYS[2], ARGV[#ARGV]) "
+					+ "return 1",
+			Long.class);
 
 	private final StringRedisTemplate redisTemplate;
 
@@ -380,6 +397,9 @@ public class KeyManagementService {
 	 * {@code plaintextKey} are skipped, and a key whose hash is already present is never overwritten. Never logs
 	 * plaintexts.
 	 *
+	 * <p>Race-safe across any number of concurrently booting instances: each key is claimed by the atomic
+	 * {@code SEED_IF_ABSENT_SCRIPT}, so simultaneous boots converge instead of overwriting each other's fields.</p>
+	 *
 	 * <p>Fail-closed: a Redis failure propagates to the caller; {@link BootstrapKeySeeder}
 	 * catches it and defers seeding to its scheduled retry.</p>
 	 *
@@ -390,21 +410,68 @@ public class KeyManagementService {
 			if (bootstrapKey.plaintextKey() == null || bootstrapKey.plaintextKey().isBlank()) {
 				continue;
 			}
-			SHA256Hash hash = SHA256Hash.fromRawKey(bootstrapKey.plaintextKey());
-			if (findByHash(hash).isEmpty()) {
-				storeKey(
-						bootstrapKey.plaintextKey(),
-						bootstrapKey.ownerId(),
-						bootstrapKey.name(),
-						bootstrapKey.rpmLimit(),
-						bootstrapKey.tpmLimit(),
-						bootstrapKey.allowedModels(),
-						bootstrapKey.allowedProviders(),
-						bootstrapKey.allowedTools(),
-						bootstrapKey.deniedTools()
-				);
-			}
+			trySeedKey(
+					bootstrapKey.plaintextKey(),
+					bootstrapKey.ownerId(),
+					bootstrapKey.name(),
+					bootstrapKey.rpmLimit(),
+					bootstrapKey.tpmLimit(),
+					bootstrapKey.allowedModels(),
+					bootstrapKey.allowedProviders(),
+					bootstrapKey.allowedTools(),
+					bootstrapKey.deniedTools()
+			);
 		}
+	}
+
+	/**
+	 * Attempts to claim one bootstrap-key slot atomically, storing metadata plus index entry only on success.
+	 *
+	 * @return {@code true} when this caller won the claim (losers change nothing)
+	 */
+	private boolean trySeedKey(
+			String plaintextKey,
+			String ownerId,
+			String name,
+			int rpmLimit,
+			int tpmLimit,
+			Set<String> allowedModels,
+			Set<String> allowedProviders,
+			Set<String> allowedTools,
+			Set<String> deniedTools
+	) {
+		SHA256Hash hash = SHA256Hash.fromRawKey(plaintextKey);
+		List<Object> args = new ArrayList<>();
+		args.add("ownerId");
+		args.add(ownerId);
+		args.add("name");
+		args.add(name);
+		args.add("rpmLimit");
+		args.add(Integer.toString(rpmLimit));
+		args.add("tpmLimit");
+		args.add(Integer.toString(tpmLimit));
+		args.add("enabled");
+		args.add("true");
+		args.add("allowedModels");
+		args.add(toCsv(allowedModels));
+		args.add("allowedProviders");
+		args.add(toCsv(allowedProviders));
+		args.add("allowedTools");
+		args.add(toCsv(allowedTools));
+		args.add("deniedTools");
+		args.add(toCsv(deniedTools));
+		args.add("createdAt");
+		args.add(Instant.now().toString());
+		args.add("keyPrefix");
+		args.add(prefixOf(plaintextKey));
+		args.add(hash.hex());
+		Long claimed = redisTemplate.execute(
+				SEED_IF_ABSENT_SCRIPT, List.of(redisKey(hash), INDEX_KEY), args.toArray());
+		if (Long.valueOf(1L).equals(claimed)) {
+			cache.invalidate(hash);
+			return true;
+		}
+		return false;
 	}
 
 	private SHA256Hash storeKey(

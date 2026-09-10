@@ -47,3 +47,17 @@ SSE caps at 8KiB, OTel off-box, ZGC headroom violated → cap concurrency, do no
   `aegis:cache:vec:` / `mcp:hitl:` / `circuit:`.
 - All cache/vector/HITL keys carry TTL (volatile-evictable); `apikey:*` and
   `admin:keys` carry none (protected under `volatile-lru`).
+
+## SSE reconnect + retry contract (client-facing)
+
+- Streams are TCP-pinned: a dying pod/instance breaks the stream visibly. There
+  is no server-side replay buffer — clients MUST reconnect with backoff and
+  refetch (no `Last-Event-ID` resume).
+- Send `Idempotency-Key` (1–255 printable ASCII) per logical operation and reuse
+  it on every retry. The gateway derives a deterministic usage-ledger id from
+  tenant + route + key + body fingerprint, so a retried request cannot create a
+  second ledger row on any instance (effectively-once; true exactly-once is not
+  claimed). Malformed keys are rejected with HTTP 400; absent keys keep the
+  previous random-id behavior.
+- Budget/rate counters still charge per attempt (atomic per call); the ledger
+  row is what deduplicates. Keep client timeouts above p99 so retries stay rare.

@@ -380,6 +380,58 @@ class ProxyControllerTest {
 	}
 
 	@Test
+	@DisplayName("a malformed Idempotency-Key is rejected with 400")
+	void malformedIdempotencyKeyRejected() throws Exception {
+		MockHttpServletRequest badRequest = request();
+		badRequest.addHeader("Idempotency-Key", "k".repeat(256));
+
+		ResponseEntity<StreamingResponseBody> response = controller.proxyChatCompletions(PATH_BODY, badRequest);
+
+		assertEquals(400, response.getStatusCode().value());
+		assertTrue(body(response).contains("invalid Idempotency-Key"));
+		verify(orchestrator, never()).execute(any(), anyString());
+	}
+
+	@Test
+	@DisplayName("the same Idempotency-Key yields the same ledger request id on retry")
+	void sameIdempotencyKeyYieldsSameRequestId() throws Exception {
+		ProviderResponse firstUpstream = providerResponse(
+				"openai", 200, sseHeaders(),
+				Stream.of(
+						"data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-5.6-luna\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"},\"finish_reason\":null}]}",
+						"data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-5.6-luna\",\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}",
+						"data: [DONE]"
+				)
+		);
+		ProviderResponse secondUpstream = providerResponse(
+				"openai", 200, sseHeaders(),
+				Stream.of(
+						"data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-5.6-luna\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"},\"finish_reason\":null}]}",
+						"data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-5.6-luna\",\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}",
+						"data: [DONE]"
+				)
+		);
+		when(orchestrator.execute(any(), anyString()))
+				.thenReturn(CompletableFuture.completedFuture(firstUpstream))
+				.thenReturn(CompletableFuture.completedFuture(secondUpstream));
+		when(costCalculator.calculate(ProviderType.OPENAI, "gpt-5.6-luna", 10, 5)).thenReturn(4200L);
+
+		MockHttpServletRequest first = request();
+		first.addHeader("Idempotency-Key", "retry-op-1");
+		MockHttpServletRequest second = request();
+		second.addHeader("Idempotency-Key", "retry-op-1");
+		ResponseEntity<StreamingResponseBody> firstEntity = controller.proxyChatCompletions(USAGE_BODY, first);
+		ResponseEntity<StreamingResponseBody> secondEntity = controller.proxyChatCompletions(USAGE_BODY, second);
+		// Streaming bodies publish usage lazily on consumption.
+		body(firstEntity);
+		body(secondEntity);
+
+		ArgumentCaptor<TokenUsageEvent> captor = ArgumentCaptor.forClass(TokenUsageEvent.class);
+		verify(eventPublisher, times(2)).publishEvent(captor.capture());
+		assertEquals(captor.getAllValues().get(0).requestId(), captor.getAllValues().get(1).requestId());
+	}
+
+	@Test
 	@DisplayName("a body without a model is rejected with 400")
 	void missingModelRejected() {
 		ResponseEntity<StreamingResponseBody> response = controller.proxyChatCompletions(

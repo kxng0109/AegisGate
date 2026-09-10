@@ -36,6 +36,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fewer syscalls); `keep_alive: 30m` on every Ollama embed request (kills
   seconds-scale cold loads); single JSON parse per SSE chunk and per auth
   check (was 2–3×). Full `verify` 1,249 green.
+- **Multi-instance correctness (Phase 0):** atomic Lua bootstrap-key seeding
+  (concurrent boots converge, 8-booter proof); gateway-terminated
+  `Idempotency-Key` with deterministic v5 ledger ids (retries cannot duplicate
+  rows; malformed keys 400); explicit Postgres `max_connections=200` with
+  documented 5-instance pool math; SSE reconnect/backoff contract. Full
+  `verify` 1,260 green.
 
 ## [1.7.0] - 2026-09-10
 

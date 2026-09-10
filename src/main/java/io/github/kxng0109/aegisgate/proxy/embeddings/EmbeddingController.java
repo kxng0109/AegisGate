@@ -1,6 +1,7 @@
 package io.github.kxng0109.aegisgate.proxy.embeddings;
 
 import io.github.kxng0109.aegisgate.config.OpenApiConfig;
+import io.github.kxng0109.aegisgate.proxy.IdempotencyKeys;
 import io.github.kxng0109.aegisgate.proxy.embeddings.dto.EmbeddingRequest;
 import io.github.kxng0109.aegisgate.proxy.embeddings.dto.EmbeddingResponse;
 import io.github.kxng0109.aegisgate.security.filter.KeyAuthFilter;
@@ -16,11 +17,13 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.jspecify.annotations.Nullable;
 import org.springframework.http.MediaType;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 /**
  * REST controller exposing the OpenAI-compatible {@code /v1/embeddings} endpoint.
@@ -110,7 +113,13 @@ public class EmbeddingController {
 			HttpServletRequest httpServletRequest
 	) {
 		@Nullable String ownerId = (String) httpServletRequest.getAttribute(KeyAuthFilter.OWNER_ID_ATTRIBUTE);
-		EmbeddingResponse response = embeddingService.processEmbedding(request, ownerId);
+		final String idempotencyKey;
+		try {
+			idempotencyKey = IdempotencyKeys.validateOrNull(httpServletRequest.getHeader(IdempotencyKeys.HEADER));
+		} catch (IllegalArgumentException malformed) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid Idempotency-Key");
+		}
+		EmbeddingResponse response = embeddingService.processEmbedding(request, ownerId, idempotencyKey);
 		return ResponseEntity.ok(response);
 	}
 }

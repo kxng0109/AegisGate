@@ -6,6 +6,7 @@ import io.github.kxng0109.aegisgate.contracts.ProviderConfig;
 import io.github.kxng0109.aegisgate.contracts.ProviderRef;
 import io.github.kxng0109.aegisgate.ledger.CostCalculator;
 import io.github.kxng0109.aegisgate.ledger.TokenUsageEvent;
+import io.github.kxng0109.aegisgate.proxy.IdempotencyKeys;
 import io.github.kxng0109.aegisgate.proxy.embeddings.dto.EmbeddingRequest;
 import io.github.kxng0109.aegisgate.proxy.embeddings.dto.EmbeddingResponse;
 import lombok.extern.slf4j.Slf4j;
@@ -18,6 +19,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -89,6 +91,32 @@ public class EmbeddingService {
 	 * @return OpenAI-compliant embedding response
 	 */
 	public EmbeddingResponse processEmbedding(EmbeddingRequest request, @Nullable String ownerId) {
+		return processEmbedding(request, ownerId, null);
+	}
+
+	/**
+	 * Canonical bytes for idempotency fingerprinting: model plus the input's stable string form. Logically
+	 * identical requests produce identical bytes; anything else (including key reorderings) intentionally yields a
+	 * distinct operation rather than risking a wrongly shared id.
+	 */
+	static byte[] canonicalEmbeddingBytes(EmbeddingRequest request) {
+		String model = request.model() == null ? "" : request.model();
+		return (model + "\n" + request.input()).getBytes(StandardCharsets.UTF_8);
+	}
+
+	/**
+	 * Processes an embedding request with an optional client-minted idempotency key. A valid key derives a
+	 * deterministic usage-ledger id (same key plus byte-identical canonical input yields the same id on every
+	 * instance), so a retried request cannot produce a duplicate ledger row; a {@code null} key preserves the
+	 * previous random-id behavior (internal callers such as cache probes).
+	 *
+	 * @param request        client embedding request
+	 * @param ownerId        authenticated tenant/owner identifier
+	 * @param idempotencyKey validated client key, or {@code null}
+	 * @return OpenAI-compliant embedding response
+	 */
+	public EmbeddingResponse processEmbedding(
+			EmbeddingRequest request, @Nullable String ownerId, @Nullable String idempotencyKey) {
 		validateRequest(request);
 
 		ResolvedEmbeddingTarget target = resolveTarget(request.model());
@@ -127,7 +155,11 @@ public class EmbeddingService {
 		long costUsdMicros = costCalculator.calculate(
 				providerConfig.type(), target.effectiveModel(), promptTokens, 0);
 
-		UUID requestId = UUID.randomUUID();
+		UUID requestId = IdempotencyKeys.resolveRequestId(
+				idempotencyKey,
+				ownerId == null || ownerId.isBlank() ? "" : ownerId,
+				"/v1/embeddings",
+				IdempotencyKeys.sha256Hex(canonicalEmbeddingBytes(request)));
 		TokenUsageEvent event = new TokenUsageEvent(
 				requestId,
 				ownerId == null || ownerId.isBlank() ? "unknown" : ownerId,

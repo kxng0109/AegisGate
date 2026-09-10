@@ -56,6 +56,11 @@ services:
       - "shared_preload_libraries=pg_stat_statements"
       - "-c"
       - "track_io_timing=on"
+      # Explicit connection ceiling with documented headroom math (5 app instances):
+      # 5 x Hikari max 10 = 50 app + ~5 exporter/flyway/admin + margin << 200.
+      # Raise per-instance pools or instance count only after re-running this sum.
+      - "-c"
+      - "max_connections=200"
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     environment:

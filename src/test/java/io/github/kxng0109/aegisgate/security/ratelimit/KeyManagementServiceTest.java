@@ -291,13 +291,8 @@ class KeyManagementServiceTest {
 				"owner-b", "key-b", "gw-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", 2, 2, Set.of(), Set.of());
 		String freshKey = redisKey(hashOf(fresh.plaintextKey()));
 		String existingKey = redisKey(hashOf(existing.plaintextKey()));
-		// First read of the fresh key is a miss; once seeded the key exists (as in real Redis).
-		when(redisTemplate.hasKey(freshKey)).thenReturn(Boolean.FALSE, Boolean.TRUE);
-		when(redisTemplate.hasKey(existingKey)).thenReturn(Boolean.TRUE);
-		when(hashOps.entries(freshKey))
-				.thenReturn(fields("owner-a", "key-a", "1", "1", "true", "", "", CREATED_AT, "gw-"));
-		when(hashOps.entries(existingKey))
-				.thenReturn(fields("owner-b", "key-b", "2", "2", "true", "", "", CREATED_AT, "gw-"));
+		// Atomic claim: fresh wins once, every other attempt loses (as in real Redis).
+		when(redisTemplate.execute(any(), anyList(), any(Object[].class))).thenReturn(1L, 0L, 0L, 0L);
 
 		GatewayProperties properties = new GatewayProperties();
 		properties.setBootstrapKeys(List.of(fresh, existing));
@@ -305,8 +300,11 @@ class KeyManagementServiceTest {
 		service.seedBootstrapKeys(properties);
 		service.seedBootstrapKeys(properties);
 
-		verify(hashOps, times(1)).putAll(anyString(), anyMap());
-		verify(hashOps).putAll(eq(freshKey), anyMap());
+		ArgumentCaptor<List> keysCaptor = ArgumentCaptor.forClass(List.class);
+		verify(redisTemplate, times(4)).execute(any(), keysCaptor.capture(), any(Object[].class));
+		List<List> claimed = keysCaptor.getAllValues();
+		assertTrue(claimed.stream().anyMatch(keys -> keys.contains(freshKey)));
+		assertTrue(claimed.stream().anyMatch(keys -> keys.contains(existingKey)));
 	}
 
 	@Test
@@ -330,10 +328,8 @@ class KeyManagementServiceTest {
 		BootstrapKey existing = new BootstrapKey(
 				"owner-b", "key-b", "gw-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", 2, 2, Set.of(), Set.of());
 		String existingKey = redisKey(hashOf(existing.plaintextKey()));
-		stubPresent(
-				hashOf(existing.plaintextKey()),
-				fields("owner-b", "key-b", "2", "2", "true", "", "", CREATED_AT, "gw-")
-		);
+		// Losing the atomic claim leaves the stored record untouched (single Lua round trip).
+		when(redisTemplate.execute(any(), anyList(), any(Object[].class))).thenReturn(0L);
 
 		GatewayProperties properties = new GatewayProperties();
 		properties.setBootstrapKeys(List.of(existing));
@@ -341,8 +337,9 @@ class KeyManagementServiceTest {
 		service.seedBootstrapKeys(properties);
 		service.seedBootstrapKeys(properties);
 
-		verify(hashOps, never()).putAll(anyString(), anyMap());
-		verify(redisTemplate, times(1)).hasKey(existingKey);
+		ArgumentCaptor<List> keysCaptor = ArgumentCaptor.forClass(List.class);
+		verify(redisTemplate, times(2)).execute(any(), keysCaptor.capture(), any(Object[].class));
+		assertTrue(keysCaptor.getAllValues().stream().allMatch(keys -> keys.contains(existingKey)));
 	}
 
 	@Test
@@ -361,7 +358,7 @@ class KeyManagementServiceTest {
 		KeyManagementService service = newService();
 		BootstrapKey key = new BootstrapKey(
 				"owner", "name", "gw-cccccccccccccccccccccccccccccccc", 1, 1, Set.of(), Set.of());
-		when(redisTemplate.hasKey(redisKey(hashOf(key.plaintextKey()))))
+		when(redisTemplate.execute(any(), anyList(), any(Object[].class)))
 				.thenThrow(new RedisConnectionFailureException("redis down"));
 
 		GatewayProperties properties = new GatewayProperties();
@@ -375,31 +372,34 @@ class KeyManagementServiceTest {
 		KeyManagementService service = newService();
 		String noDash = "noprefixkeyabcdefghijklmnopqrstuvwxyz";
 		BootstrapKey key = new BootstrapKey("owner", "name", noDash, 10, 100, Set.of(), Set.of());
-		when(redisTemplate.hasKey(redisKey(hashOf(noDash)))).thenReturn(Boolean.FALSE);
+		when(redisTemplate.execute(any(), anyList(), any(Object[].class))).thenReturn(1L);
 
 		GatewayProperties properties = new GatewayProperties();
 		properties.setBootstrapKeys(List.of(key));
 		service.seedBootstrapKeys(properties);
 
-		ArgumentCaptor<Map> captor = ArgumentCaptor.forClass(Map.class);
-		verify(hashOps).putAll(eq(redisKey(hashOf(noDash))), captor.capture());
-		assertEquals(noDash, captor.getValue().get("keyPrefix"));
+		ArgumentCaptor<Object[]> captor = ArgumentCaptor.forClass(Object[].class);
+		verify(redisTemplate).execute(any(), anyList(), captor.capture());
+		Object[] args = captor.getValue();
+		assertEquals("keyPrefix", args[args.length - 3]);
+		assertEquals(noDash, args[args.length - 2]);
 	}
 
 	@Test
 	void seedBootstrapKeyWithNullAllowListsStoresEmptyCsv() {
 		KeyManagementService service = newService();
 		BootstrapKey key = new BootstrapKey("owner", "name", FIXED_PLAINTEXT, 10, 100, null, null);
-		when(redisTemplate.hasKey(redisKey(hashOf(FIXED_PLAINTEXT)))).thenReturn(Boolean.FALSE);
+		when(redisTemplate.execute(any(), anyList(), any(Object[].class))).thenReturn(1L);
 
 		GatewayProperties properties = new GatewayProperties();
 		properties.setBootstrapKeys(List.of(key));
 		service.seedBootstrapKeys(properties);
 
-		ArgumentCaptor<Map> captor = ArgumentCaptor.forClass(Map.class);
-		verify(hashOps).putAll(eq(redisKey(hashOf(FIXED_PLAINTEXT))), captor.capture());
-		assertEquals("", captor.getValue().get("allowedModels"));
-		assertEquals("", captor.getValue().get("allowedProviders"));
+		ArgumentCaptor<Object[]> captor = ArgumentCaptor.forClass(Object[].class);
+		verify(redisTemplate).execute(any(), anyList(), captor.capture());
+		Object[] args = captor.getValue();
+		assertEquals("", args[11]);
+		assertEquals("", args[13]);
 	}
 
 	@Test
