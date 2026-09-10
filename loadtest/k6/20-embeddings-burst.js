@@ -8,7 +8,7 @@
  *       API_KEY (falls back to the 120 RPM dev key),
  *       EMBEDDINGS_MODEL (default local-embed on the local Ollama stack),
  *       BURST_RATE (default 20 for local nomic-embed-text; raise for a
- *       provider-keyed run — local CPU saturates ~20 rps)
+  *       provider-keyed run — local iGPU saturates ~20 rps)
  */
 import http from 'k6/http';
 import {check} from 'k6';
@@ -16,7 +16,7 @@ import {check} from 'k6';
 const BASE = __ENV.BASE_URL || 'http://localhost:8080';
 const KEY = __ENV.LOAD_KEY || __ENV.API_KEY || 'gw-localdevmasterkey0123456789abcde';
 const MODEL = __ENV.EMBEDDINGS_MODEL || 'text-embedding-3-small';
-// Local Ollama nomic-embed-text is CPU-bound: 100 concurrent saturates it
+// Local Ollama nomic-embed-text is iGPU-bound (100% GPU per ollama ps): 100 concurrent saturates it
 // (4.7s median, 6.8K dropped). Default to a sustainable rate on the local
 // stack; raise via BURST_RATE for a provider-keyed run.
 const BURST_RATE = Number(__ENV.BURST_RATE || 20);

@@ -200,9 +200,9 @@ services:
       resources:
         limits:
           cpus: "2.0"
-          memory: 1536M
+          memory: 2G
         reservations:
-          memory: 512M
+          memory: 768M
     logging:
       driver: json-file
       options:

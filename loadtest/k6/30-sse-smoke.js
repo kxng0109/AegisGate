@@ -6,7 +6,7 @@
  * Env:  BASE_URL, LOAD_KEY (default compose load-test key, 60000 RPM),
  *       API_KEY (falls back to the 120 RPM dev key), MODEL (default local-llama
  *       on the local Ollama stack), SSE_VUS (default 10 for local qwen2.5:0.5b;
- *       raise for a provider-keyed run — local CPU saturates ~10 concurrent)
+  *       raise for a provider-keyed run — local iGPU saturates ~10 concurrent)
  */
 import http from 'k6/http';
 import {check} from 'k6';

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- **JVM/container memory bundle:** `SoftMaxHeapSize=768m`, `MaxDirectMemorySize`
+  512m→64m, `ZUncommitDelay=60`, pinned `-Xmx1152m`; app container limit
+  1536M→2G. Proof: flood/burst/spike green (spike @150rps: 63,599 reqs,
+  0 failed, RSS 1.047GiB), full flood green at Xmx192m, 3 clean boots, full
+  `verify` 1,246 green. Ollama confirmed iGPU-served (100% GPU).
+
 ## [1.7.0] - 2026-09-10
 
 ### Added

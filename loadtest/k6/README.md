@@ -92,9 +92,19 @@ Chaos trims: Redis stop → chat 503 (fail-closed), embed 400 (validation),
 recovery clean; Postgres stop → both 400, ledger dead-letter journal replayed
 19,336 writes lost during the outage on restart.
 
+## Memory-proof runs (2026-09-10, SoftMaxHeapSize=768m, Xmx1152m, Direct 64m, limit 2G)
+
+`30-sse-smoke`: 114,816 checks, 0 failed. Flood @50rps: 21,600 reqs, 0 failed,
+0 dropped (RSS 1008MiB under load). Burst: p95 32.21ms (baseline 33.8ms — no
+regression, sawtooth A/B skipped). Spike @150rps: 63,599 reqs, 0 failed,
+0 dropped, p95 5.34ms (cache-warm), no restarts, RSS 1.047GiB. OOM-line: full
+flood green at Xmx192m (6x below operating point) — kill not reached, margin
+proven; cold-start 00-smoke showed 60% k6 timeouts with clean app logs
+(latency death precedes OOM death — warm up before measuring).
+
 ## Local rate ceilings
 
-The shared dev box runs a single CPU `qwen2.5:0.5b` + `nomic-embed-text:latest`.
+The shared dev box serves `qwen2.5:0.5b` + `nomic-embed-text:latest` from Ollama at 100% GPU (iGPU).
 Saturating the scenario targets (500 rps chat, 100 rps embeddings, 50 SSE VUs)
 yields 60s timeouts and tens of thousands of dropped iterations — capacity, not
 defect. Each scenario now defaults to a sustainable local rate and accepts an

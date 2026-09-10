@@ -17,7 +17,7 @@ const BASE = __ENV.BASE_URL || 'http://localhost:8080';
 // 120 RPM dev key if unset (then the flood asserts the 429+Retry-After
 // rate-integrity shape instead of throughput).
 const KEY = __ENV.LOAD_KEY || __ENV.API_KEY || 'gw-localdevmasterkey0123456789abcde';
-// Local Ollama is CPU-bound: 500 concurrent requests saturate qwen2.5:0.5b
+// Local Ollama is iGPU-bound (100% GPU per ollama ps): 500 concurrent requests saturate qwen2.5:0.5b
 // (60s timeouts, 100K+ dropped iterations). Default to a sustainable rate on
 // the local stack; raise via FLOOD_RATE for a provider-keyed run.
 const PRIME_RATE = Number(__ENV.PRIME_RATE || 10);
