@@ -11,6 +11,7 @@ import tools.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.net.http.HttpClient;
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.Executors;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -205,5 +206,28 @@ class PricingSyncServiceTest {
 				eq(BigDecimal.ZERO), eq(BigDecimal.ZERO),
 				eq(0L), eq(0L), anyString()
 		);
+	}
+
+	@Test
+	@DisplayName("P5: a sync never touches seeded rows that are absent from the payload")
+	void syncLeavesSeededRowsInPlace() {
+		server.enqueue(new MockResponse().setResponseCode(200).setBody("""
+				{"gpt-5.6-sol":{"input_cost_per_token":4e-06,"output_cost_per_token":2e-05,
+				"litellm_provider":"openai","mode":"chat"}}"""));
+
+		service.refresh();
+
+		verify(repository).upsert(
+				eq("gpt-5.6-sol"), eq("openai"), eq("chat"),
+				any(), any(), any(), any(), any(), any(), anyString()
+		);
+		for (String seeded : List.of("local-llama", "qwen2.5:0.5b", "nomic-embed-text:latest")) {
+			verify(repository, never()).upsert(
+					eq(seeded), anyString(), anyString(),
+					any(), any(), any(), any(), any(), any(), anyString()
+			);
+		}
+		verify(priceCatalog).invalidate();
+		verifyNoMoreInteractions(repository, priceCatalog);
 	}
 }

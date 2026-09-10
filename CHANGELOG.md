@@ -54,7 +54,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Semantic cache 401s: the embedding model no longer bypasses provider aliases.
 - Ledger `provider` null for Ollama embeddings: the ollama provider now declares
   its `name`, so usage rows persist instead of violating NOT NULL.
-- 32 new tests (1,282 passing); full `verify` green, all JaCoCo gates met.
+- Local Ollama pricing rows (V5: `local-llama`, `qwen2.5:0.5b`, `nomic-embed-text:latest` at $0.00,
+  sync-safe) + 6 new tests (1,246 passing); full `verify` green, all JaCoCo gates met.
 
 ## [1.5.0] - 2026-09-08
 
