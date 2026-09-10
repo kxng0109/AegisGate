@@ -220,7 +220,10 @@ aegisgate:
       # whichever comes first. Batching keeps the flush syscall rate flat at
       # 1000+ req/min while bounding downstream latency.
       max-lines-per-flush: ${AEGIS_SSE_FLUSH_MAX_LINES_PER_FLUSH:16}
-      max-interval-ms: ${AEGIS_SSE_FLUSH_MAX_INTERVAL_MS:100}
+      # Tight interval for interactive TTFT (worst-case added latency 20ms).
+      # The high-throughput profile deliberately keeps the looser 100ms record
+      # default to favor fewer syscalls per stream at scale.
+      max-interval-ms: ${AEGIS_SSE_FLUSH_MAX_INTERVAL_MS:20}
       # A flush slower than this counts as downstream backpressure; the stream is
       # aborted so the upstream exchange is cancelled instead of piling memory.
       flush-backpressure-threshold-ms: ${AEGIS_SSE_FLUSH_BACKPRESSURE_THRESHOLD_MS:500}

@@ -528,6 +528,12 @@ public class ProxyController {
 					List<String> normalized = normalizer.normalizeLine(line);
 					for (String toWrite : normalized) {
 						String delta = extractDelta(toWrite);
+						// Tracks whether toWrite was rewritten below: a successful rewrite sets
+						// the delta content verbatim, so re-parsing the rewritten line (a second
+						// full JSON parse per chunk) is skipped in favor of the known content.
+						// Reference comparison is exact here: replaceDeltaContent returns the
+						// identical String reference only when it made no change.
+						boolean deltaRebased = false;
 						if (delta != null && !delta.isEmpty()) {
 							if (shingleTracker != null && shingleTracker.ingestChunk(delta)) {
 								MidStreamKillSwitch.terminate(out, lines, "system_prompt_exfiltration");
@@ -540,12 +546,23 @@ public class ProxyController {
 							if (deAnonymizer != null) {
 								String deAnonymized = deAnonymizer.processChunk(delta);
 								if (!deAnonymized.equals(delta)) {
-									toWrite = replaceDeltaContent(toWrite, deAnonymized);
+									String rewritten = replaceDeltaContent(toWrite, deAnonymized);
+									if (rewritten != toWrite) {
+										toWrite = rewritten;
+										delta = deAnonymized;
+										deltaRebased = true;
+									}
 								}
 							}
 						}
 
-						extractDeltaContent(toWrite, accumulatedContent);
+						if (deltaRebased) {
+							if (delta != null) {
+								accumulatedContent.append(delta);
+							}
+						} else {
+							extractDeltaContent(toWrite, accumulatedContent);
+						}
 						byte[] bytes = toWrite.getBytes(StandardCharsets.UTF_8);
 						out.write(bytes);
 						out.write('\n');

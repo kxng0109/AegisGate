@@ -53,6 +53,9 @@ public class OllamaEmbeddingAdapter implements EmbeddingAdapter {
 			inputArray.add(text);
 		}
 		root.put("truncate", true);
+		// Keep the model resident: without keep_alive Ollama unloads after 5m idle
+		// and the next embedding pays a seconds-scale cold load (p99 killer).
+		root.put("keep_alive", "30m");
 
 		if (request.dimensions() != null) {
 			root.put("dimensions", request.dimensions());

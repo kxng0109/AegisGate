@@ -31,6 +31,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   decisions, ledger flush/batch/queue depth, virtual-thread gauges;
   `mbeanregistry`, histogram percentiles, `micrometer-java21`. k6 witness
   scenarios: overload ramp, concurrency knees, 60s chat+embed proof.
+- **Latency trims (no behavior change):** SSE flush `max-interval-ms` 100→20ms
+  (worst-case added TTFT now 20ms; high-throughput profile keeps 100ms for
+  fewer syscalls); `keep_alive: 30m` on every Ollama embed request (kills
+  seconds-scale cold loads); single JSON parse per SSE chunk and per auth
+  check (was 2–3×). Full `verify` 1,249 green.
 
 ## [1.7.0] - 2026-09-10
 

@@ -413,7 +413,7 @@ All configuration lives in `src/main/resources/application.yml`. The most import
 - `gateway.database-migrate-enabled` and `gateway.database-migrate-interval` control the non fatal migration retry.
 - `gateway.bootstrap-keys-seed-interval` controls how often key seeding is retried if Redis was unavailable at startup.
 - `aegisgate.sse.flush.*` controls the adaptive downstream SSE flush strategy: `max-lines-per-flush` (default 16),
-  `max-interval-ms` (default 100ms), `flush-backpressure-threshold-ms` (default 500ms), `max-buffer-bytes` (default
+  `max-interval-ms` (default 20ms), `flush-backpressure-threshold-ms` (default 500ms), `max-buffer-bytes` (default
   64KB), `max-flushes-per-second` (default 1000), `enabled` (default true), and `reload-interval` (default 30s).
 - `aegisgate.sse.line-guard.*` controls the upstream SSE line guard: `global-default-bytes` (default 16KB),
   `safety-margin-percent` (default 10%), `action` (`REJECT_LINE_AND_CLOSE` or `REJECT_LINE_CONTINUE`), `per-provider`

@@ -8,11 +8,15 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
 
+import java.io.ByteArrayOutputStream;
 import java.net.URI;
 import java.net.http.HttpRequest;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Flow;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -61,6 +65,53 @@ class OllamaEmbeddingAdapterTest {
 				noDimReq, List.of("text1"), authConfig, URI.create("http://localhost:11434/api/embed")
 		);
 		assertThat(authHttpReq.headers().firstValue("Authorization")).contains("Bearer key-123");
+	}
+
+	@Test
+	@DisplayName("buildRequest pins model residency with keep_alive")
+	void buildRequestIncludesKeepAlive() {
+		EmbeddingRequest request = new EmbeddingRequest(List.of("text1"), "nomic-embed-text", null, null, null);
+		ProviderConfig providerConfig = new ProviderConfig(
+				"ollama", ProviderType.OLLAMA, URI.create("http://localhost:11434"),
+				null, Duration.ofSeconds(5), Duration.ofSeconds(60)
+		);
+
+		HttpRequest httpRequest = adapter.buildRequest(
+				request, List.of("text1"), providerConfig, URI.create("http://localhost:11434/api/embed")
+		);
+
+		var subscriber = new Flow.Subscriber<ByteBuffer>() {
+			private final ByteArrayOutputStream out = new ByteArrayOutputStream();
+			private final CompletableFuture<String> done = new CompletableFuture<>();
+
+			@Override
+			public void onSubscribe(Flow.Subscription subscription) {
+				subscription.request(Long.MAX_VALUE);
+			}
+
+			@Override
+			public void onNext(ByteBuffer item) {
+				byte[] chunk = new byte[item.remaining()];
+				item.get(chunk);
+				out.writeBytes(chunk);
+			}
+
+			@Override
+			public void onError(Throwable throwable) {
+				done.completeExceptionally(throwable);
+			}
+
+			@Override
+			public void onComplete() {
+				done.complete(out.toString(StandardCharsets.UTF_8));
+			}
+
+			String body() {
+				return done.join();
+			}
+		};
+		httpRequest.bodyPublisher().orElseThrow().subscribe(subscriber);
+		assertThat(subscriber.body()).contains("\"keep_alive\"");
 	}
 
 	@Test

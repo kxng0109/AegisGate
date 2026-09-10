@@ -45,7 +45,7 @@ class SseFlushAutoConfigTest {
 
 		assertNotNull(properties);
 		assertEquals(16, properties.maxLinesPerFlush());
-		assertEquals(100, properties.maxIntervalMs());
+		assertEquals(20, properties.maxIntervalMs());
 		assertEquals(500, properties.flushBackpressureThresholdMs());
 		assertEquals(65_536, properties.maxBufferBytes());
 		assertEquals(1_000, properties.maxFlushesPerSecond());

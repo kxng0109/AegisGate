@@ -241,7 +241,9 @@ public class KeyAuthFilter extends OncePerRequestFilter {
 		}
 
 		byte[] bodyBytes = readBodyContent(request);
-		String model = extractModel(bodyBytes);
+		// Single parse shared by model + token extraction below (was two full parses).
+		JsonNode bodyTree = parseBodyTree(bodyBytes);
+		String model = extractModel(bodyTree);
 		if (!key.allowedModels().isEmpty()
 				&& (model == null || !key.allowedModels().contains(model))) {
 			writeJsonError(
@@ -250,7 +252,7 @@ public class KeyAuthFilter extends OncePerRequestFilter {
 			);
 			return;
 		}
-		int estimatedTokens = extractEstimatedTokens(bodyBytes);
+		int estimatedTokens = extractEstimatedTokens(bodyTree);
 
 		RateLimitDecision decision;
 		try {
@@ -306,59 +308,62 @@ public class KeyAuthFilter extends OncePerRequestFilter {
 	}
 
 	/**
-	 * Extracts the {@code model} field from the buffered body. Returns {@code null} on any parse failure or when the
-	 * field is absent.
+	 * Parses the buffered body once; shared by {@link #extractModel} and
+	 * {@link #extractEstimatedTokens} so each request pays exactly one parse.
 	 *
 	 * @param bodyBytes the buffered request body
-	 * @return the model id, or {@code null}
+	 * @return the JSON object root, or {@code null} on any parse failure
 	 */
-	private @Nullable String extractModel(byte[] bodyBytes) {
+	private @Nullable JsonNode parseBodyTree(byte[] bodyBytes) {
 		if (bodyBytes.length == 0) {
 			return null;
 		}
 		try {
 			JsonNode root = objectMapper.readTree(bodyBytes);
-			if (root == null || !root.isObject()) {
-				return null;
-			}
-			JsonNode modelNode = root.get("model");
-			return modelNode != null && modelNode.isString() ? modelNode.asString() : null;
+			return root != null && root.isObject() ? root : null;
 		} catch (JacksonException ignored) {
 			return null;
 		}
 	}
 
 	/**
+	 * Extracts the {@code model} field from an already-parsed body. Returns {@code null} when the
+	 * tree is absent or the field is missing.
+	 *
+	 * @param root the parsed body, possibly {@code null}
+	 * @return the model id, or {@code null}
+	 */
+	private @Nullable String extractModel(@Nullable JsonNode root) {
+		if (root == null) {
+			return null;
+		}
+		JsonNode modelNode = root.get("model");
+		return modelNode != null && modelNode.isString() ? modelNode.asString() : null;
+	}
+
+	/**
 	 * Extracts the pre-flight token estimate from {@code max_tokens} or {@code max_completion_tokens} (first present
 	 * wins), clamped into {@code [1, MAX_ESTIMATED_TOKENS]}.
 	 *
-	 * @param bodyBytes the buffered request body
+	 * @param root the parsed body, possibly {@code null}
 	 * @return the estimate, defaulting to {@link #DEFAULT_ESTIMATED_TOKENS}
 	 */
-	private int extractEstimatedTokens(byte[] bodyBytes) {
-		if (bodyBytes.length == 0) {
+	private int extractEstimatedTokens(@Nullable JsonNode root) {
+		if (root == null) {
 			return DEFAULT_ESTIMATED_TOKENS;
 		}
-		try {
-			JsonNode root = objectMapper.readTree(bodyBytes);
-			if (root == null || !root.isObject()) {
-				return DEFAULT_ESTIMATED_TOKENS;
-			}
-			JsonNode tokenNode = root.get("max_tokens");
-			if (tokenNode == null || tokenNode.isNull()) {
-				tokenNode = root.get("max_completion_tokens");
-			}
-			if (tokenNode == null || tokenNode.isNull() || !tokenNode.isNumber()) {
-				return DEFAULT_ESTIMATED_TOKENS;
-			}
-			long value = tokenNode.asLong();
-			if (value <= 0) {
-				return DEFAULT_ESTIMATED_TOKENS;
-			}
-			return (int) Math.min(MAX_ESTIMATED_TOKENS, value);
-		} catch (JacksonException ignored) {
+		JsonNode tokenNode = root.get("max_tokens");
+		if (tokenNode == null || tokenNode.isNull()) {
+			tokenNode = root.get("max_completion_tokens");
+		}
+		if (tokenNode == null || tokenNode.isNull() || !tokenNode.isNumber()) {
 			return DEFAULT_ESTIMATED_TOKENS;
 		}
+		long value = tokenNode.asLong();
+		if (value <= 0) {
+			return DEFAULT_ESTIMATED_TOKENS;
+		}
+		return (int) Math.min(MAX_ESTIMATED_TOKENS, value);
 	}
 
 	/**
