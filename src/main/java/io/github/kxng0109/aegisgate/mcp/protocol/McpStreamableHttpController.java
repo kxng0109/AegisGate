@@ -375,7 +375,7 @@ public class McpStreamableHttpController {
 
 		ObjectNode serverInfo = result.putObject("serverInfo");
 		serverInfo.put("name", "AegisGate-MCP-Gateway");
-		serverInfo.put("version", "1.6.0");
+		serverInfo.put("version", "1.7.0");
 
 		ObjectNode capabilities = result.putObject("capabilities");
 		capabilities.putObject("tools").put("listChanged", true);

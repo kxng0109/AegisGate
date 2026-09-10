@@ -294,7 +294,7 @@ class McpStreamableHttpControllerTest {
 		assertThat(initResp.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(initResp.getBody())
 				.contains("AegisGate-MCP-Gateway")
-				.contains("1.6.0")
+				.contains("1.7.0")
 				.contains("2026-07-28")
 				.contains("tools");
 

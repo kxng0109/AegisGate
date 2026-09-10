@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.7.0] - 2026-09-10
+
+### Added
+
+- **Local Ollama pricing rows (V5):** `local-llama`, `qwen2.5:0.5b`, and `nomic-embed-text:latest` seeded at
+  $0.00, so the LiteLLM WARN-and-zero fallback no longer fires for local traffic. Sync-safe: the refresh path
+  only upserts, so seeded rows survive pricing syncs; case-sensitive exact matching is locked by tests.
+- **6 new pricing proof tests (P1–P7)** through the real catalog and calculator: alias, wire id, and embedding id
+  resolve to zero cost; unseeded and mis-cased ids still fall through to zero cost.
+
+### Fixed
+
+- Suite count corrected to 1,246 passing (stale 1,282 baseline retired); full `verify` green, all JaCoCo gates met.
+
 ## [1.6.0] - 2026-09-10
 
 ### Added
