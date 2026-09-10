@@ -560,7 +560,7 @@ Run the full suite with coverage and the packaging step:
 ./mvnw clean verify
 ```
 
-The suite currently has 1,269 tests (100% passing):
+The suite currently has 1,282 tests (100% passing):
 
 JaCoCo coverage gates (BUNDLE, `target/site/jacoco/jacoco.xml` is single-session honest via
 `<append>false</append>` on `prepare-agent`): INSTRUCTION/BRANCH/LINE/METHOD/CLASS ≥ 95%, COMPLEXITY ≥ 90%.

@@ -223,4 +223,115 @@ class RedisSemanticVectorCacheTest {
 		when(vectorClient.searchKnn(anyString(), anyString(), any(), eq(1))).thenReturn(List.of(mismatch));
 		assertThat(cache.findSemanticMatch(enableKey)).isNull();
 	}
+
+	@Test
+	@DisplayName("upstream embedding failure fails soft: lookup returns null and store is skipped")
+	void upstreamEmbeddingFailureFailsSoft() {
+		CompoundCacheKey key = new CompoundCacheKey(
+				"tenant1", CacheScope.TENANT, "gpt-4o", "exactHash", "", "", "How to reset password"
+		);
+
+		// The real 401/502 shape: processEmbedding throws (no key, provider down).
+		// Semantic caching must degrade to a MISS, never propagate the failure.
+		when(embeddingService.processEmbedding(any(), eq("tenant1")))
+				.thenThrow(new RuntimeException("Upstream embedding provider returned HTTP 401"));
+
+		assertThat(cache.findSemanticMatch(key)).isNull();
+		verify(vectorClient, never()).searchKnn(anyString(), anyString(), any(), anyInt());
+
+		// storeSemanticEntry must also short-circuit instead of throwing.
+		cache.storeSemanticEntry(key, "{\"content\":\"Click reset\"}", 10, 20, 30, Duration.ofHours(1));
+		verify(vectorClient, never()).saveVectorDocument(anyString(), anyMap(), any());
+	}
+
+	@Test
+	@DisplayName("initializeIndex uses the live probe dimension when embedding succeeds")
+	void initializeIndexUsesProbeDimension() {
+		// 768-dim probe vector (nomic-embed-text shape) — index must be created at 768.
+		EmbeddingResponse probe = new EmbeddingResponse(
+				"list", List.of(EmbeddingData.of(0, new float[768])), "local-embed", null
+		);
+		when(embeddingService.processEmbedding(any(), eq("system"))).thenReturn(probe);
+
+		cache.initializeIndex();
+
+		verify(vectorClient).createIndexIfNotExists(
+				eq(RedisSemanticVectorCache.INDEX_NAME),
+				eq(RedisSemanticVectorCache.PREFIX),
+				eq(768)
+		);
+	}
+
+	@Test
+	@DisplayName("initializeIndex falls back to the verified map when the probe yields nothing")
+	void initializeIndexFallsBackToMap() {
+		// Probe returns no vector (provider down at boot) -> map resolves nomic-embed-text = 768.
+		properties.getSemantic().setEmbeddingModel("nomic-embed-text");
+		EmbeddingResponse empty = new EmbeddingResponse("list", List.of(), "local-embed", null);
+		when(embeddingService.processEmbedding(any(), eq("system"))).thenReturn(empty);
+
+		cache.initializeIndex();
+
+		verify(vectorClient).createIndexIfNotExists(
+				eq(RedisSemanticVectorCache.INDEX_NAME),
+				eq(RedisSemanticVectorCache.PREFIX),
+				eq(768)
+		);
+	}
+
+	@Test
+	@DisplayName("initializeIndex falls back to the safe default when probe and map both fail")
+	void initializeIndexFallsBackToDefault() {
+		// Unknown model -> map UNKNOWN -> 1536 safe default.
+		properties.getSemantic().setEmbeddingModel("totally-unknown-model");
+		when(embeddingService.processEmbedding(any(), eq("system")))
+				.thenThrow(new RuntimeException("Upstream embedding provider returned HTTP 401"));
+
+		cache.initializeIndex();
+
+		verify(vectorClient).createIndexIfNotExists(
+				eq(RedisSemanticVectorCache.INDEX_NAME),
+				eq(RedisSemanticVectorCache.PREFIX),
+				eq(1536)
+		);
+	}
+
+	@Test
+	@DisplayName("initializeIndex drops and recreates a stale index whose dimension no longer matches")
+	void initializeIndexRecreatesStaleIndex() {
+		// Existing index is at 1536 (OpenAI default); the probe yields 768 (nomic).
+		EmbeddingResponse probe = new EmbeddingResponse(
+				"list", List.of(EmbeddingData.of(0, new float[768])), "local-embed", null
+		);
+		when(embeddingService.processEmbedding(any(), eq("system"))).thenReturn(probe);
+		when(vectorClient.vectorDimensionOf(RedisSemanticVectorCache.INDEX_NAME)).thenReturn(1536);
+
+		cache.initializeIndex();
+
+		verify(vectorClient).dropIndex(eq(RedisSemanticVectorCache.INDEX_NAME), eq(true));
+		verify(vectorClient).createIndexIfNotExists(
+				eq(RedisSemanticVectorCache.INDEX_NAME),
+				eq(RedisSemanticVectorCache.PREFIX),
+				eq(768)
+		);
+	}
+
+	@Test
+	@DisplayName("initializeIndex leaves a matching index alone (no drop, no recreate)")
+	void initializeIndexKeepsMatchingIndex() {
+		EmbeddingResponse probe = new EmbeddingResponse(
+				"list", List.of(EmbeddingData.of(0, new float[768])), "local-embed", null
+		);
+		when(embeddingService.processEmbedding(any(), eq("system"))).thenReturn(probe);
+		when(vectorClient.vectorDimensionOf(RedisSemanticVectorCache.INDEX_NAME)).thenReturn(768);
+
+		cache.initializeIndex();
+
+		verify(vectorClient, never()).dropIndex(anyString(), anyBoolean());
+		verify(vectorClient).createIndexIfNotExists(
+				eq(RedisSemanticVectorCache.INDEX_NAME),
+				eq(RedisSemanticVectorCache.PREFIX),
+				eq(768)
+		);
+	}
 }

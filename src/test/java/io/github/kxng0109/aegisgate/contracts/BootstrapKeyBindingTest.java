@@ -46,4 +46,54 @@ class BootstrapKeyBindingTest {
 		assertThat(key.allowedTools()).isEmpty();
 		assertThat(key.deniedTools()).isEmpty();
 	}
+
+	@Test
+	@DisplayName("load-test key binds with the high RPM ceiling")
+	void loadTestKeyBinds() {
+		StandardEnvironment environment = new StandardEnvironment();
+		environment.getPropertySources().addFirst(new MockPropertySource("test")
+				                                          .withProperty("gateway.bootstrap-keys[0].ownerid", "local")
+				                                          .withProperty("gateway.bootstrap-keys[0].name", "local-dev")
+				                                          .withProperty(
+						                                          "gateway.bootstrap-keys[0].plaintextkey",
+						                                          "gw-localdevmasterkey0123456789abcde"
+				                                          )
+				                                          .withProperty("gateway.bootstrap-keys[0].rpmlimit", "120")
+				                                          .withProperty("gateway.bootstrap-keys[0].tpmlimit", "500000")
+				                                          .withProperty("gateway.bootstrap-keys[0].allowedmodels", "")
+				                                          .withProperty(
+						                                          "gateway.bootstrap-keys[0].allowedproviders",
+						                                          ""
+				                                          )
+				                                          .withProperty("gateway.bootstrap-keys[1].ownerid", "load")
+				                                          .withProperty("gateway.bootstrap-keys[1].name", "load-test")
+				                                          .withProperty(
+						                                          "gateway.bootstrap-keys[1].plaintextkey",
+						                                          "gw-0123456789abcdef0123456789abcdef"
+				                                          )
+				                                          .withProperty("gateway.bootstrap-keys[1].rpmlimit", "60000")
+				                                          .withProperty(
+						                                          "gateway.bootstrap-keys[1].tpmlimit",
+						                                          "10000000"
+				                                          )
+				                                          .withProperty("gateway.bootstrap-keys[1].allowedmodels", "")
+				                                          .withProperty(
+						                                          "gateway.bootstrap-keys[1].allowedproviders",
+						                                          ""
+				                                          ));
+
+		List<BootstrapKey> keys = Binder.get(environment)
+		                                .bind("gateway.bootstrap-keys", Bindable.listOf(BootstrapKey.class))
+		                                .orElseThrow(() -> new AssertionError("bootstrap keys did not bind"));
+
+		assertThat(keys).hasSize(2);
+		BootstrapKey load = keys.get(1);
+		assertThat(load.ownerId()).isEqualTo("load");
+		assertThat(load.name()).isEqualTo("load-test");
+		assertThat(load.plaintextKey()).isEqualTo("gw-0123456789abcdef0123456789abcdef");
+		assertThat(load.rpmLimit()).isEqualTo(60000);
+		assertThat(load.tpmLimit()).isEqualTo(10000000);
+		assertThat(load.allowedTools()).isEmpty();
+		assertThat(load.deniedTools()).isEmpty();
+	}
 }

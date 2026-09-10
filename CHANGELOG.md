@@ -7,10 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [1.6.0] - 2026-09-08
+## [1.6.0] - 2026-09-10
 
 ### Added
 
+- **Semantic (L2) cache embedding model is now configuration:**
+  `gateway.cache.semantic.embedding-model`
+  (`GATEWAY_CACHE_SEMANTIC_EMBEDDING_MODEL`, default `local-embed`) resolves
+  through provider aliases like any other request, so semantic caching works out
+  of the box on the local Ollama stack; OpenAI users set it explicitly.
+- **Dynamic vector dimension resolution:** the RediSearch index is created at the
+  dimension probed live from the configured embedding model, falling back to a
+  verified `EmbeddingDimensionMap` (OpenAI/Ollama/Cohere/Voyage/Google/Mistral/
+  Jina/BAAI/Snowflake) and then 1536. A stale index whose dimension no longer
+  matches is dropped and recreated at startup.
+- **Load-test bootstrap key** (`GATEWAY_BOOTSTRAPKEYS_1_*`, 60000 RPM) kept
+  separate from the 120 RPM dev key; k6 scenarios point at it via `LOAD_KEY`.
+- **Local k6 proof suite** in `loadtest/k6/`: smoke, flood, embeddings burst,
+  SSE smoke, and xk6-sse TTFT — all green against local Ollama (flood p95 8.9ms, embeddings p95 33.8ms, TTFT p95 9ms),
+  plus chaos trims,
+  local rate ceilings, and a verified run log.
 - **Capacity ceilings are now configuration, defaults unchanged:** every hardcoded
   limit is a config key with the identical default (zero behavior change).
   New: `aegisgate.sse.capacity.*` (max-connections/tick/watchdog),
@@ -35,7 +51,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- 25 new tests (1,250 passing); full `verify` green, all JaCoCo gates met.
+- Semantic cache 401s: the embedding model no longer bypasses provider aliases.
+- Ledger `provider` null for Ollama embeddings: the ollama provider now declares
+  its `name`, so usage rows persist instead of violating NOT NULL.
+- 32 new tests (1,282 passing); full `verify` green, all JaCoCo gates met.
 
 ## [1.5.0] - 2026-09-08
 

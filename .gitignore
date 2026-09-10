@@ -40,3 +40,6 @@ verify.*
 
 # Local compose secrets (never commit; see .env.docker.example)
 .env
+
+# Locally built k6 SSE binary (49 MB; rebuild via go install + xk6, see loadtest/k6/31-sse-hold-xk6.js header)
+k6-sse.exe

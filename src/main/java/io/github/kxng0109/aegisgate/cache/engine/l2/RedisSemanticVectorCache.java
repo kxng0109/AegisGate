@@ -32,7 +32,11 @@ public class RedisSemanticVectorCache {
 
 	public static final String INDEX_NAME = "aegis:cache:idx";
 	public static final String PREFIX = "aegis:cache:doc:";
-	private static final int DEFAULT_VECTOR_DIMENSIONS = 1536;
+	/**
+	 * Safe default dimension when neither the live probe nor the verified map can resolve one (OpenAI's
+	 * {@code text-embedding-3-small}).
+	 */
+	private static final int FALLBACK_DIMENSIONS = 1536;
 
 	private final RediSearchVectorClient vectorClient;
 	private final EmbeddingService embeddingService;
@@ -40,14 +44,88 @@ public class RedisSemanticVectorCache {
 	private final AegisCacheProperties properties;
 
 	/**
-	 * Initializes the RediSearch index on startup.
+	 * Initializes the RediSearch index on startup at the dimension resolved for the
+	 * configured semantic embedding model (live probe, then verified map, then safe default).
 	 */
 	public void initializeIndex() {
 		try {
-			vectorClient.createIndexIfNotExists(INDEX_NAME, PREFIX, DEFAULT_VECTOR_DIMENSIONS);
+			int dimensions = resolveDimensions();
+			int existing = vectorClient.vectorDimensionOf(INDEX_NAME);
+			if (existing > 0 && existing != dimensions) {
+				log.warn(
+						"RediSearch index '{}' is at dimension {} but the configured embedding model "
+								+ "produces {}; dropping and recreating the index",
+						INDEX_NAME, existing, dimensions
+				);
+				vectorClient.dropIndex(INDEX_NAME, true);
+			}
+			boolean created = vectorClient.createIndexIfNotExists(INDEX_NAME, PREFIX, dimensions);
+			log.info(
+					"RediSearch vector index '{}' {} at dimension {}",
+					INDEX_NAME,
+					created ? "initialized" : "already present",
+					dimensions
+			);
 		} catch (Exception ex) {
 			log.warn("Non-fatal RediSearch index initialization warning: {}", ex.getMessage());
 		}
+	}
+
+	/**
+	 * Resolves the vector dimension for the configured semantic embedding model.
+	 *
+	 * <p>Order of authority:</p>
+	 * <ol>
+	 *   <li><b>Live probe</b> — generate one embedding through the resolved provider and
+	 *       read the vector length. Authoritative: works for any model, including ones
+	 *       whose dimension is not in the static map.</li>
+	 *   <li><b>Verified map</b> — if the probe yields no vector (provider unreachable at
+	 *       boot, or the model is unverifiable), consult {@link EmbeddingDimensionMap}.</li>
+	 *   <li><b>Safe default</b> — 1536, preserving prior behavior for unknown models.</li>
+	 * </ol>
+	 */
+	private int resolveDimensions() {
+		float[] probed = probeDimension();
+		if (probed != null && probed.length > 0) {
+			return probed.length;
+		}
+		String model = properties.getSemantic().getEmbeddingModel();
+		int mapped = EmbeddingDimensionMap.dimensionOf(model);
+		if (mapped != EmbeddingDimensionMap.UNKNOWN) {
+			log.info("Using verified dimension {} for embedding model '{}' (probe unavailable)", mapped, model);
+			return mapped;
+		}
+		log.warn("Dimension unresolved for embedding model '{}'; defaulting to {}", model, FALLBACK_DIMENSIONS);
+		return FALLBACK_DIMENSIONS;
+	}
+
+	/**
+	 * Generates a single embedding for the configured model to discover its dimension.
+	 *
+	 * <p>This publishes one honest {@code TokenUsageEvent} at boot (the ledger write
+	 * succeeds once provider {@code name} is configured). It is not a test probe: failures are swallowed and reported
+	 * only as a log line.</p>
+	 *
+	 * @return the probe vector, or {@code null} if generation failed or returned nothing
+	 */
+	private float[] probeDimension() {
+		try {
+			String model = properties.getSemantic().getEmbeddingModel();
+			EmbeddingRequest request = new EmbeddingRequest(
+					List.of("aegisgate-dimension-probe"),
+					model,
+					null,
+					null,
+					null
+			);
+			EmbeddingResponse response = embeddingService.processEmbedding(request, "system");
+			if (response != null && response.data() != null && !response.data().isEmpty()) {
+				return extractFloatVector(response.data().getFirst().embedding());
+			}
+		} catch (Exception ex) {
+			log.debug("Dimension probe failed (falling back to map): {}", ex.getMessage());
+		}
+		return null;
 	}
 
 	/**

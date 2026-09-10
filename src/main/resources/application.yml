@@ -65,6 +65,7 @@ gateway:
       connect-timeout: ${ANTHROPIC_CONNECT_TIMEOUT:5s}
       request-timeout: ${ANTHROPIC_REQUEST_TIMEOUT:60s}
     ollama:
+      name: ollama
       type: OLLAMA
       base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
       api-key: ""
@@ -157,6 +158,14 @@ gateway:
     cohere:
       timeout-seconds: ${GATEWAY_EMBEDDINGS_COHERE_TIMEOUT_SECONDS:30}
       max-batch-size: ${GATEWAY_EMBEDDINGS_COHERE_MAX_BATCH_SIZE:96}
+  cache:
+    semantic:
+      # Model alias used to generate embeddings for semantic (L2) cache lookups.
+      # Resolved through gateway.providers/aliases like any other request, so the
+      # default points at the local Ollama embedding alias and works out of the
+      # box on the local stack; OpenAI users set the env var explicitly.
+      # Override: GATEWAY_CACHE_SEMANTIC_EMBEDDING_MODEL=text-embedding-3-small
+      embedding-model: ${GATEWAY_CACHE_SEMANTIC_EMBEDDING_MODEL:local-embed}
   pricing:
     source-url: ${GATEWAY_PRICING_URL:https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json}
     refresh-cron: ${GATEWAY_PRICING_REFRESH_CRON:0 0 3 * * *}

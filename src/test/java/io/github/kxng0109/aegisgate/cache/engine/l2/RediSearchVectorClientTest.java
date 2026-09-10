@@ -23,6 +23,7 @@ class RediSearchVectorClientTest {
 	private final RedisConnection connection = mock(RedisConnection.class);
 	private final RedisHashCommands hashCommands = mock(RedisHashCommands.class);
 	private final RedisKeyCommands keyCommands = mock(RedisKeyCommands.class);
+	private final RediSearchVectorClient client = new RediSearchVectorClient(factory);
 
 	@BeforeEach
 	void setUp() {
@@ -173,5 +174,73 @@ class RediSearchVectorClientTest {
 		List<VectorSearchResult> results = client.searchKnn("idx", "@tag:{1}", new float[]{0.1f}, 1);
 		assertThat(results).hasSize(1);
 		assertThat(results.getFirst().distance()).isEqualTo(1.0);
+	}
+
+	@Test
+	@DisplayName("vectorDimensionOf reads the VECTOR field dim from FT.INFO")
+	void vectorDimensionOfReadsDim() {
+		List<Object> attributes = List.of(
+				"identifier".getBytes(StandardCharsets.UTF_8),
+				"owner_id".getBytes(StandardCharsets.UTF_8),
+				"attribute".getBytes(StandardCharsets.UTF_8),
+				"owner_id".getBytes(StandardCharsets.UTF_8),
+				"type".getBytes(StandardCharsets.UTF_8),
+				"TAG".getBytes(StandardCharsets.UTF_8),
+				"SEPARATOR".getBytes(StandardCharsets.UTF_8),
+				",".getBytes(StandardCharsets.UTF_8),
+				"identifier".getBytes(StandardCharsets.UTF_8),
+				"embedding".getBytes(StandardCharsets.UTF_8),
+				"attribute".getBytes(StandardCharsets.UTF_8),
+				"embedding".getBytes(StandardCharsets.UTF_8),
+				"type".getBytes(StandardCharsets.UTF_8),
+				"VECTOR".getBytes(StandardCharsets.UTF_8),
+				"algorithm".getBytes(StandardCharsets.UTF_8),
+				"HNSW".getBytes(StandardCharsets.UTF_8),
+				"data_type".getBytes(StandardCharsets.UTF_8),
+				"FLOAT32".getBytes(StandardCharsets.UTF_8),
+				"dim".getBytes(StandardCharsets.UTF_8),
+				768L,
+				"distance_metric".getBytes(StandardCharsets.UTF_8),
+				"COSINE".getBytes(StandardCharsets.UTF_8)
+		);
+		List<Object> info = List.of(
+				"aegis:cache:idx".getBytes(StandardCharsets.UTF_8),
+				"index_name".getBytes(StandardCharsets.UTF_8),
+				"index_options".getBytes(StandardCharsets.UTF_8),
+				"".getBytes(StandardCharsets.UTF_8),
+				"index_definition".getBytes(StandardCharsets.UTF_8),
+				"key_type".getBytes(StandardCharsets.UTF_8),
+				"HASH".getBytes(StandardCharsets.UTF_8),
+				"prefixes".getBytes(StandardCharsets.UTF_8),
+				List.of("aegis:cache:doc:".getBytes(StandardCharsets.UTF_8)),
+				"default_score".getBytes(StandardCharsets.UTF_8),
+				1L,
+				"attributes".getBytes(StandardCharsets.UTF_8),
+				attributes
+		);
+		when(connection.execute(eq("FT.INFO"), any(byte[].class))).thenReturn(info);
+
+		assertThat(client.vectorDimensionOf("aegis:cache:idx")).isEqualTo(768);
+	}
+
+	@Test
+	@DisplayName("vectorDimensionOf returns -1 when the index does not exist or has no vector field")
+	void vectorDimensionOfHandlesAbsence() {
+		// Non-list FT.INFO response (e.g. Redis returned null)
+		when(connection.execute(eq("FT.INFO"), any(byte[].class))).thenReturn(null);
+		assertThat(client.vectorDimensionOf("missing-idx")).isEqualTo(-1);
+
+		// FT.INFO with no "attributes" key
+		List<Object> info = List.of(
+				"idx".getBytes(StandardCharsets.UTF_8),
+				"index_name".getBytes(StandardCharsets.UTF_8)
+		);
+		when(connection.execute(eq("FT.INFO"), any(byte[].class))).thenReturn(info);
+		assertThat(client.vectorDimensionOf("idx")).isEqualTo(-1);
+
+		// Exception path
+		when(connection.execute(eq("FT.INFO"), any(byte[].class)))
+				.thenThrow(new RuntimeException("Redis unavailable"));
+		assertThat(client.vectorDimensionOf("idx")).isEqualTo(-1);
 	}
 }

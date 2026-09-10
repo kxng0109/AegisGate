@@ -187,6 +187,63 @@ public class RediSearchVectorClient {
 		}
 	}
 
+	/**
+	 * Returns the dimension declared by an existing vector index, or {@code -1} when the index does not exist or has no
+	 * vector field. Read from the {@code FT.INFO} attributes list.
+	 *
+	 * @param indexName index identifier
+	 * @return the index dimension, or {@code -1} if unknown
+	 */
+	public int vectorDimensionOf(String indexName) {
+		try (RedisConnection connection = redisConnectionFactory.getConnection()) {
+			Object info = connection.execute("FT.INFO", indexName.getBytes(StandardCharsets.UTF_8));
+			return parseVectorDimension(info);
+		} catch (Exception ex) {
+			log.debug("Could not read vector dimension for '{}': {}", indexName, ex.getMessage());
+			return -1;
+		}
+	}
+
+	@SuppressWarnings("unchecked")
+	private static int parseVectorDimension(Object info) {
+		if (!(info instanceof List<?> list) || list.isEmpty()) {
+			return -1;
+		}
+		// FT.INFO returns a flat list: [index_name, name, index_options, "", index_definition,
+		// key_type, HASH, prefixes, [...], default_score, 1, attributes,
+		// [identifier, owner_id, attribute, owner_id, type, TAG, ...,
+		//  identifier, embedding, attribute, embedding, type, VECTOR, algorithm, HNSW,
+		//  data_type, FLOAT32, dim, 1536, distance_metric, COSINE, ...]]
+		int attributesIdx = -1;
+		for (int i = 0; i < list.size(); i++) {
+			if ("attributes".equals(toUtf8String(list.get(i)))) {
+				attributesIdx = i + 1;
+				break;
+			}
+		}
+		if (attributesIdx < 0 || attributesIdx >= list.size()) {
+			return -1;
+		}
+		Object attrsObj = list.get(attributesIdx);
+		if (!(attrsObj instanceof List<?> attrList)) {
+			return -1;
+		}
+		for (int j = 0; j < attrList.size(); j++) {
+			String attrName = toUtf8String(attrList.get(j));
+			if ("embedding".equals(attrName) && j + 5 < attrList.size()
+					&& "VECTOR".equals(toUtf8String(attrList.get(j + 4)))) {
+				for (int k = j + 5; k < attrList.size(); k++) {
+					String token = toUtf8String(attrList.get(k));
+					if ("dim".equals(token) && k + 1 < attrList.size()) {
+						Object dimObj = attrList.get(k + 1);
+						return (dimObj instanceof Number num) ? num.intValue() : -1;
+					}
+				}
+			}
+		}
+		return -1;
+	}
+
 	@SuppressWarnings("unchecked")
 	private List<VectorSearchResult> parseSearchResults(Object rawResult) {
 		if (!(rawResult instanceof List<?> list) || list.isEmpty()) {
@@ -235,7 +292,7 @@ public class RediSearchVectorClient {
 		return results;
 	}
 
-	private String toUtf8String(Object obj) {
+	private static String toUtf8String(Object obj) {
 		if (obj == null) {
 			return "";
 		}
