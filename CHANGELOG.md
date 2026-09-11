@@ -42,6 +42,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rows; malformed keys 400); explicit Postgres `max_connections=200` with
   documented 5-instance pool math; SSE reconnect/backoff contract. Full
   `verify` 1,260 green.
+- **Shared dead-letter staging (V6):** `usage_ledger_staging` table drained by
+  any instance via `SKIP LOCKED` claims (disjoint batches, per-row
+  transactions, exponential backoff, poison parking, retention purge); listener
+  failures stage first and fall back to the per-pod file only on total PG
+  outage. Redis memory alert corrected to the real 256MB-cap ratio. Full
+  `verify` 1,274 green.
 
 ## [1.7.0] - 2026-09-10
 

@@ -4,9 +4,11 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import lombok.extern.slf4j.Slf4j;
+import org.jspecify.annotations.Nullable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.event.EventListener;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 
@@ -33,6 +35,8 @@ public class UsageLedgerListener {
 	private final String deadLetterPath;
 	private final MeterRegistry meterRegistry;
 
+	private volatile @Nullable LedgerStagingRepository stagingRepository;
+
 	/**
 	 * @param repository     the ledger repository
 	 * @param deadLetterPath where failed records are appended, one per line
@@ -57,6 +61,17 @@ public class UsageLedgerListener {
 	 */
 	public UsageLedgerListener(UsageLedgerRepository repository, String deadLetterPath) {
 		this(repository, deadLetterPath, new SimpleMeterRegistry());
+	}
+
+	/**
+	 * Wires the shared staging table when present. Optional on purpose: unit-constructed listeners and
+	 * environments without the staging schema keep the file-only path with zero behavior change.
+	 *
+	 * @param stagingRepository the shared staging repository, if available
+	 */
+	@Autowired(required = false)
+	public void setStagingRepository(LedgerStagingRepository stagingRepository) {
+		this.stagingRepository = stagingRepository;
 	}
 
 	/**
@@ -146,6 +161,9 @@ public class UsageLedgerListener {
 	}
 
 	private void appendToDeadLetter(TokenUsageEvent event, RuntimeException cause) {
+		if (stageForSharedReplay(event)) {
+			return;
+		}
 		try {
 			Path path = Path.of(deadLetterPath);
 			if (path.getParent() != null) {
@@ -173,5 +191,29 @@ public class UsageLedgerListener {
 
 	private static int safeInt(long value) {
 		return value > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) value;
+	}
+
+	/**
+	 * Parks one failed event in the shared staging table for replay by any instance. Strict routing, exactly one
+	 * authority per record: a duplicate (already staged elsewhere) is benign success; any other staging failure
+	 * falls through to the per-pod file below. A {@code null} staging repository (unit tests, schema-less
+	 * environments) also falls through, preserving the historical file-only behavior bit-for-bit.
+	 *
+	 * @return {@code true} when the file path must be skipped
+	 */
+	private boolean stageForSharedReplay(TokenUsageEvent event) {
+		LedgerStagingRepository staging = this.stagingRepository;
+		if (staging == null) {
+			return false;
+		}
+		try {
+			staging.saveAndFlush(LedgerStagingEntry.pendingFrom(event));
+			return true;
+		} catch (DataIntegrityViolationException duplicate) {
+			return true;
+		} catch (RuntimeException ex) {
+			log.debug("Staging unavailable, falling back to dead-letter file: {}", ex.getMessage());
+			return false;
+		}
 	}
 }

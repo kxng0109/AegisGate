@@ -15,6 +15,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
@@ -354,5 +355,15 @@ class EmbeddingServiceTest {
 			EmbeddingResponse response = service.processEmbedding(request, "tenant-1");
 			assertThat(response).isEqualTo(mockResponse);
 		}
+	}
+
+	@Test
+	@DisplayName("canonical embedding bytes tolerate a null model")
+	void canonicalBytesHandlesNullModel() {
+		EmbeddingRequest request = new EmbeddingRequest(List.of("x"), null, null, null, null);
+
+		String canonical = new String(EmbeddingService.canonicalEmbeddingBytes(request), StandardCharsets.UTF_8);
+
+		assertThat(canonical).isEqualTo("\n[x]");
 	}
 }

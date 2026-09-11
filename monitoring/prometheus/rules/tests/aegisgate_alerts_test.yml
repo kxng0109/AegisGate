@@ -101,3 +101,31 @@ tests:
             exp_annotations:
               summary: "Redis is evicting keys"
               description: "Evictions on a noeviction policy mean writes are failing. Add memory or reduce key churn."
+
+  - interval: 1m
+    input_series:
+      - series: 'redis_memory_used_bytes'
+        values: 100000000+0x29
+      - series: 'redis_memory_max_bytes'
+        values: 268435456+0x29
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: RedisMemoryPressure
+        exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      - series: 'redis_memory_used_bytes'
+        values: 100000000+5000000x29
+      - series: 'redis_memory_max_bytes'
+        values: 268435456+0x29
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: RedisMemoryPressure
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: data-infra
+            exp_annotations:
+              summary: "Redis memory above 80% of maxmemory"
+              description: "Redis holds pressure against its maxmemory cap. Evictions under noeviction fail writes."

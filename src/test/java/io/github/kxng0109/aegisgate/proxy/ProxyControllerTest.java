@@ -432,6 +432,33 @@ class ProxyControllerTest {
 	}
 
 	@Test
+	@DisplayName("idempotency derivation tolerates a missing owner attribute")
+	void idempotencyWithoutOwnerAttribute() throws Exception {
+		ProviderResponse firstUpstream = providerResponse(
+				"openai", 200, sseHeaders(),
+				Stream.of(
+						"data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-5.6-luna\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"},\"finish_reason\":null}]}",
+						"data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-5.6-luna\",\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}",
+						"data: [DONE]"
+				)
+		);
+		when(orchestrator.execute(any(), anyString()))
+				.thenReturn(CompletableFuture.completedFuture(firstUpstream));
+		when(costCalculator.calculate(ProviderType.OPENAI, "gpt-5.6-luna", 10, 5)).thenReturn(4200L);
+
+		MockHttpServletRequest anonymous = new MockHttpServletRequest();
+		anonymous.addHeader("Idempotency-Key", "anon-op-9");
+		ResponseEntity<StreamingResponseBody> entity = controller.proxyChatCompletions(USAGE_BODY, anonymous);
+		body(entity);
+
+		ArgumentCaptor<TokenUsageEvent> captor = ArgumentCaptor.forClass(TokenUsageEvent.class);
+		verify(eventPublisher).publishEvent(captor.capture());
+		assertEquals(
+				IdempotencyKeys.resolveRequestId("anon-op-9", "", "", IdempotencyKeys.sha256Hex(USAGE_BODY.trim().getBytes(StandardCharsets.UTF_8))),
+				captor.getValue().requestId());
+	}
+
+	@Test
 	@DisplayName("a body without a model is rejected with 400")
 	void missingModelRejected() {
 		ResponseEntity<StreamingResponseBody> response = controller.proxyChatCompletions(

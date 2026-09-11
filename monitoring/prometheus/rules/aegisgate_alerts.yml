@@ -103,15 +103,16 @@ groups:
           description: "Prometheus cannot scrape redis-exporter:9121. Redis internals are blind."
 
       - alert: RedisMemoryPressure
-        # 85% of the 512M container cap (no maxmemory set, so ratio metrics are absent).
-        expr: redis_memory_used_bytes > 436207616
-        for: 2m
+        # Ratio against the real 256MB maxmemory cap (verified live via INFO memory).
+        # The max_bytes>0 guard keeps the rule safe if maxmemory is ever unset.
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.8 and redis_memory_max_bytes > 0
+        for: 5m
         labels:
           severity: warning
           team: data-infra
         annotations:
-          summary: "Redis memory above 85% of container cap"
-          description: "Redis holds {{ $value | humanize1024 }}B. Evictions under noeviction fail writes."
+          summary: "Redis memory above 80% of maxmemory"
+          description: "Redis holds pressure against its maxmemory cap. Evictions under noeviction fail writes."
 
       - alert: RedisMainThreadSaturation
         expr: sum(rate(redis_cpu_user_main_thread_seconds_total[2m])) + sum(rate(redis_cpu_sys_main_thread_seconds_total[2m])) > 0.9

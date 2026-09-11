@@ -409,7 +409,12 @@ All configuration lives in `src/main/resources/application.yml`. The most import
 - `gateway.circuit-breaker.redis-timeout` bounds how long the breaker waits on Redis before it fails closed to the local mirror. The default is 250ms. Setting `spring.application.instance-id` gives each instance a stable name used to arbitrate the single probe.
 - `spring.datasource.*` controls the PostgreSQL connection that backs the usage ledger and pricing catalog.
 - `gateway.pricing.source-url` and `gateway.pricing.refresh-cron` control where the LiteLLM pricing file is fetched from and how often. The default is a daily sync at 03:00.
-- `gateway.ledger.dead-letter-path` is where ledger records go when the database is unavailable.
+- `gateway.ledger.dead-letter-path` is the last-resort file for ledger records when the database is unavailable.
+  Failed records first park in the shared `usage_ledger_staging` table (drained by any instance, exactly once per
+  row); only a total PostgreSQL outage falls back to the per-pod file.
+- Clients may send `Idempotency-Key` (1–255 printable ASCII) per logical operation and reuse it on retry: the
+  gateway derives a deterministic ledger id, so a retried request cannot duplicate rows on any instance. Malformed
+  keys are rejected with HTTP 400; see `docs/high-throughput/README.md` for the reconnect contract.
 - `gateway.database-migrate-enabled` and `gateway.database-migrate-interval` control the non fatal migration retry.
 - `gateway.bootstrap-keys-seed-interval` controls how often key seeding is retried if Redis was unavailable at startup.
 - `aegisgate.sse.flush.*` controls the adaptive downstream SSE flush strategy: `max-lines-per-flush` (default 16),
