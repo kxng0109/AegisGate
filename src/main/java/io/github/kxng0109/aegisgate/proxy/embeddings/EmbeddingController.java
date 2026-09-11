@@ -119,7 +119,8 @@ public class EmbeddingController {
 		} catch (IllegalArgumentException malformed) {
 			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid Idempotency-Key");
 		}
-		EmbeddingResponse response = embeddingService.processEmbedding(request, ownerId, idempotencyKey);
+		EmbeddingResponse response = embeddingService.processEmbedding(request, ownerId, idempotencyKey,
+				(String) httpServletRequest.getAttribute(KeyAuthFilter.KEY_HASH_ATTRIBUTE));
 		return ResponseEntity.ok(response);
 	}
 }

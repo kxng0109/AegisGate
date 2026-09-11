@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Spend budgets + chargeback (V7):** `budget_limits` + append-only `budget_audit` tables, atomic single-RTT Lua
+  gate (`budget_limit.lua`) across KEY → TEAM → ORG with rolling-60s + UTC-month windows in micro-dollars,
+  check-before-increment, first-denied-wins, TTL rollover, fail-closed everywhere; full admin CRUD plus live
+  balances (`POST/GET-balance/PUT/DELETE /v1/admin/budgets/**`); presence cache skips unbudgeted keys with zero
+  overhead. Flood proof on the budget tree: 43,196/43,196 checks, p95 8.44ms (baseline 8.9ms). Full `verify`
+  1,320 green, branch 0.9503.
+
+### Fixed
+
+- **SSE tail-drop race:** `BoundedLineBodyHandler` set its `eof` flag before flushing the buffered tail line, so a
+  consumer draining concurrently could observe completion before data and lose an unterminated final line
+  (e.g. `data: [DONE]`). The terminal sentinel is now the sole end-of-stream signal (JDK `HttpResponseInputStream`
+  pattern); covered by a 200-iteration concurrent drain-vs-complete regression test (proven to fail pre-fix).
+
 ### Changed
 
 - **JVM/container memory bundle:** `SoftMaxHeapSize=768m`, `MaxDirectMemorySize`

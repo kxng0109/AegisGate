@@ -514,6 +514,20 @@ Administrative endpoints require the configured master key via `Authorization: B
   `?page=0&size=20&sort=createdAt,desc`).
 - **`GET /v1/admin/ledger/entries/{requestId}`**: Retrieves full transaction and token coordinates for a single
   correlated client request.
+- **`POST /v1/admin/budgets`**: Creates a hard spend budget (`KEY` = key sha256 hex, `TEAM` = owner slug, `ORG` =
+  global scope) with rolling-60s and UTC-calendar-month caps in micro-dollars (`0` = no cap). Duplicate
+  level/subject is `409`; bad levels/subjects/negative caps are `400`.
+- **`GET /v1/admin/budgets/{level}/{subject}/balance`**: Reads caps plus live spend counters (missing counters read
+  as zero; Redis outage degrades to `503`, never to a zero-spend lie).
+- **`PUT /v1/admin/budgets/{id}`**: Replaces a budget's caps (optimistic locking fails concurrent edits with `409`).
+- **`DELETE /v1/admin/budgets/{id}`**: Deletes a cap, snapshotting live spend into the append-only audit row first so
+  chargeback history survives the subject.
+
+Every proxied request passes a single atomic Lua spend gate (`budget_limit.lua`, V7 `budget_limits` + `budget_audit`
+tables) across KEY → TEAM → ORG levels: check-before-increment (denials consume nothing), first-denied level wins,
+implicit month rollover via TTL (no reset job to race), uniform fail-closed on Redis/script/pricing outage. Keys
+with no configured budget skip the script entirely (zero overhead on the existing path); spend estimates are
+prompt-side admission heuristics while the ledger holds post-hoc truth.
 - **`GET /v1/admin/cache/stats`**: Inspects active cache configuration, layer statuses, and similarity thresholds.
 - **`DELETE /v1/admin/cache`**: Executes an emergency global purge across L0 in-memory, L1 Redis exact keys, and L2
   vector document indexes (supports optional `?ownerId=...` for single-tenant scoped purges).

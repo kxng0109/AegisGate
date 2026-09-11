@@ -1,14 +1,18 @@
 package io.github.kxng0109.aegisgate.proxy.embeddings;
 
+import io.github.kxng0109.aegisgate.budget.BudgetDecision;
+import io.github.kxng0109.aegisgate.budget.BudgetEnforcer;
 import io.github.kxng0109.aegisgate.contracts.GatewayProperties;
 import io.github.kxng0109.aegisgate.contracts.ModelAlias;
 import io.github.kxng0109.aegisgate.contracts.ProviderConfig;
 import io.github.kxng0109.aegisgate.contracts.ProviderRef;
+import io.github.kxng0109.aegisgate.contracts.SHA256Hash;
 import io.github.kxng0109.aegisgate.ledger.CostCalculator;
 import io.github.kxng0109.aegisgate.ledger.TokenUsageEvent;
 import io.github.kxng0109.aegisgate.proxy.IdempotencyKeys;
 import io.github.kxng0109.aegisgate.proxy.embeddings.dto.EmbeddingRequest;
 import io.github.kxng0109.aegisgate.proxy.embeddings.dto.EmbeddingResponse;
+import io.github.kxng0109.aegisgate.security.ratelimit.RateLimitUnavailableException;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.Nullable;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -84,6 +88,25 @@ public class EmbeddingService {
 	}
 
 	/**
+	 * Wires the spend-budget enforcer when present. Optional on purpose: unit-constructed services keep working
+	 * with budget enforcement silently skipped.
+	 *
+	 * @param budgetEnforcer the enforcer, if available
+	 */
+	/**
+	 * Wires the spend-budget enforcer when present. Optional on purpose: unit-constructed services keep working
+	 * with budget enforcement silently skipped.
+	 *
+	 * @param budgetEnforcer the enforcer, if available
+	 */
+	@Autowired(required = false)
+	public void setBudgetEnforcer(BudgetEnforcer budgetEnforcer) {
+		this.budgetEnforcer = budgetEnforcer;
+	}
+
+	private volatile @Nullable BudgetEnforcer budgetEnforcer;
+
+	/**
 	 * Processes an embedding request, managing batching, upstream routing, and ledger tracking.
 	 *
 	 * @param request client embedding request
@@ -91,7 +114,40 @@ public class EmbeddingService {
 	 * @return OpenAI-compliant embedding response
 	 */
 	public EmbeddingResponse processEmbedding(EmbeddingRequest request, @Nullable String ownerId) {
-		return processEmbedding(request, ownerId, null);
+		return processEmbedding(request, ownerId, null, null);
+	}
+
+	/**
+	 * Enforces spend budgets before any upstream spend. Skipped silently when no enforcer is wired or the key
+	 * digest is absent; malformed digests (impossible behind the filter) also skip rather than fail traffic.
+	 * Redis failures surface as 503 (uniform fail-closed); exhausted caps surface as 429 with the binding
+	 * level, window, and retry horizon in the message.
+	 */
+	private void enforceBudgetOrThrow(@Nullable String keyHashHex, @Nullable String ownerId,
+			ProviderConfig providerConfig, ResolvedEmbeddingTarget target, byte[] canonicalBytes) {
+		BudgetEnforcer enforcer = this.budgetEnforcer;
+		if (enforcer == null || keyHashHex == null || keyHashHex.isBlank()) {
+			return;
+		}
+		final SHA256Hash keyHash;
+		try {
+			keyHash = SHA256Hash.fromHex(keyHashHex);
+		} catch (IllegalArgumentException malformed) {
+			log.debug("Skipping budget check for malformed key digest");
+			return;
+		}
+		final BudgetDecision decision;
+		try {
+			decision = enforcer.checkBudget(keyHash, ownerId, providerConfig.type(), target.effectiveModel(),
+					BudgetEnforcer.estimatePromptTokens(canonicalBytes.length));
+		} catch (RateLimitUnavailableException unavailable) {
+			throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Budget service unavailable", unavailable);
+		}
+		if (decision instanceof BudgetDecision.Denied denied) {
+			throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
+					"budget exhausted (" + denied.level() + " " + denied.window()
+					+ ", retry after " + Math.max(1L, denied.retryAfterSeconds()) + "s)");
+		}
 	}
 
 	/**
@@ -113,10 +169,12 @@ public class EmbeddingService {
 	 * @param request        client embedding request
 	 * @param ownerId        authenticated tenant/owner identifier
 	 * @param idempotencyKey validated client key, or {@code null}
+	 * @param keyHashHex     authenticated key digest hex for spend budgets, or {@code null} to skip
 	 * @return OpenAI-compliant embedding response
 	 */
 	public EmbeddingResponse processEmbedding(
-			EmbeddingRequest request, @Nullable String ownerId, @Nullable String idempotencyKey) {
+			EmbeddingRequest request, @Nullable String ownerId, @Nullable String idempotencyKey,
+			@Nullable String keyHashHex) {
 		validateRequest(request);
 
 		ResolvedEmbeddingTarget target = resolveTarget(request.model());
@@ -133,6 +191,8 @@ public class EmbeddingService {
 		);
 		EmbeddingAdapter adapter = adapterResolver.resolve(providerConfig.type());
 		URI targetUri = resolveTargetUri(providerConfig);
+		byte[] canonicalBytes = canonicalEmbeddingBytes(request);
+		enforceBudgetOrThrow(keyHashHex, ownerId, providerConfig, target, canonicalBytes);
 
 		Instant start = Instant.now();
 		EmbeddingResponse response;
@@ -159,7 +219,7 @@ public class EmbeddingService {
 				idempotencyKey,
 				ownerId == null || ownerId.isBlank() ? "" : ownerId,
 				"/v1/embeddings",
-				IdempotencyKeys.sha256Hex(canonicalEmbeddingBytes(request)));
+				IdempotencyKeys.sha256Hex(canonicalBytes));
 		TokenUsageEvent event = new TokenUsageEvent(
 				requestId,
 				ownerId == null || ownerId.isBlank() ? "unknown" : ownerId,

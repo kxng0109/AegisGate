@@ -98,6 +98,13 @@ public class KeyAuthFilter extends OncePerRequestFilter {
 	public static final String OWNER_ID_ATTRIBUTE = "aegis.ownerId";
 
 	/**
+	 * Request attribute carrying the authenticated key digest hex for downstream budget checks. The hex is a one-way
+	 * digest, safe to pass in-process; controllers skip budget enforcement when it is absent (for example direct
+	 * internal calls), exactly like unauthenticated paths never reach them.
+	 */
+	public static final String KEY_HASH_ATTRIBUTE = "aegis.keyHash";
+
+	/**
 	 * RPM limit header.
 	 */
 	public static final String HEADER_LIMIT_RPM = "X-RateLimit-Limit-RPM";
@@ -289,6 +296,7 @@ public class KeyAuthFilter extends OncePerRequestFilter {
 		response.setHeader(HEADER_RESET_TPM, Long.toString(state.tpmResetAt().getEpochSecond()));
 
 		request.setAttribute(OWNER_ID_ATTRIBUTE, key.ownerId());
+		request.setAttribute(KEY_HASH_ATTRIBUTE, keyHash.hex());
 		filterChain.doFilter(request, response);
 	}
 
@@ -308,8 +316,8 @@ public class KeyAuthFilter extends OncePerRequestFilter {
 	}
 
 	/**
-	 * Parses the buffered body once; shared by {@link #extractModel} and
-	 * {@link #extractEstimatedTokens} so each request pays exactly one parse.
+	 * Parses the buffered body once; shared by {@link #extractModel} and {@link #extractEstimatedTokens} so each
+	 * request pays exactly one parse.
 	 *
 	 * @param bodyBytes the buffered request body
 	 * @return the JSON object root, or {@code null} on any parse failure
@@ -327,8 +335,8 @@ public class KeyAuthFilter extends OncePerRequestFilter {
 	}
 
 	/**
-	 * Extracts the {@code model} field from an already-parsed body. Returns {@code null} when the
-	 * tree is absent or the field is missing.
+	 * Extracts the {@code model} field from an already-parsed body. Returns {@code null} when the tree is absent or the
+	 * field is missing.
 	 *
 	 * @param root the parsed body, possibly {@code null}
 	 * @return the model id, or {@code null}

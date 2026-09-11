@@ -10,6 +10,9 @@ import io.github.kxng0109.aegisgate.config.SensitiveString;
 import io.github.kxng0109.aegisgate.contracts.*;
 import io.github.kxng0109.aegisgate.ledger.CostCalculator;
 import io.github.kxng0109.aegisgate.ledger.TokenUsageEvent;
+import io.github.kxng0109.aegisgate.budget.BudgetDecision;
+import io.github.kxng0109.aegisgate.budget.BudgetEnforcer;
+import io.github.kxng0109.aegisgate.security.ratelimit.RateLimitUnavailableException;
 import io.github.kxng0109.aegisgate.proxy.failover.FailoverOrchestrator;
 import io.github.kxng0109.aegisgate.proxy.failover.ProviderResponse;
 import io.github.kxng0109.aegisgate.proxy.failover.UpstreamUnavailableException;
@@ -456,6 +459,51 @@ class ProxyControllerTest {
 		assertEquals(
 				IdempotencyKeys.resolveRequestId("anon-op-9", "", "", IdempotencyKeys.sha256Hex(USAGE_BODY.trim().getBytes(StandardCharsets.UTF_8))),
 				captor.getValue().requestId());
+	}
+
+	@Test
+	@DisplayName("budget denial returns 429 with retry headers before upstream spend")
+	void budgetDeniedReturns429() throws Exception {
+		BudgetEnforcer mockEnforcer = mock(BudgetEnforcer.class);
+		controller.setBudgetEnforcer(mockEnforcer);
+		try {
+			when(mockEnforcer.checkBudget(any(), any(), any(), anyString(), anyInt()))
+					.thenReturn(new BudgetDecision.Denied("TEAM", "MINUTE", 45L));
+			MockHttpServletRequest req = request();
+			req.setAttribute("aegis.keyHash", "ab".repeat(32));
+
+			ResponseEntity<StreamingResponseBody> response = controller.proxyChatCompletions(PATH_BODY, req);
+
+			assertEquals(429, response.getStatusCode().value());
+			assertEquals("45", response.getHeaders().getFirst("Retry-After"));
+			assertEquals("TEAM", response.getHeaders().getFirst("X-Budget-Level"));
+			assertEquals("MINUTE", response.getHeaders().getFirst("X-Budget-Window"));
+			assertTrue(body(response).contains("budget exhausted"));
+			verify(orchestrator, never()).execute(any(), anyString());
+		} finally {
+			controller.setBudgetEnforcer(null);
+		}
+	}
+
+	@Test
+	@DisplayName("budget service outage fails closed with 503")
+	void budgetOutageFailsClosed() throws Exception {
+		BudgetEnforcer mockEnforcer = mock(BudgetEnforcer.class);
+		controller.setBudgetEnforcer(mockEnforcer);
+		try {
+			when(mockEnforcer.checkBudget(any(), any(), any(), anyString(), anyInt()))
+					.thenThrow(new RateLimitUnavailableException("budget down"));
+			MockHttpServletRequest req = request();
+			req.setAttribute("aegis.keyHash", "ab".repeat(32));
+
+			ResponseEntity<StreamingResponseBody> response = controller.proxyChatCompletions(PATH_BODY, req);
+
+			assertEquals(503, response.getStatusCode().value());
+			assertTrue(body(response).contains("Budget service unavailable"));
+			verify(orchestrator, never()).execute(any(), anyString());
+		} finally {
+			controller.setBudgetEnforcer(null);
+		}
 	}
 
 	@Test

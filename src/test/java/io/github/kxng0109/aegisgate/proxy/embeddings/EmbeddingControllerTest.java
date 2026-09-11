@@ -35,13 +35,13 @@ class EmbeddingControllerTest {
 				"text-embedding-3-small", List.of(EmbeddingData.of(0, new float[]{0.1f})), 5
 		);
 
-		when(embeddingService.processEmbedding(request, "tenant-alpha", null)).thenReturn(expected);
+		when(embeddingService.processEmbedding(request, "tenant-alpha", null, null)).thenReturn(expected);
 
 		ResponseEntity<EmbeddingResponse> response = controller.createEmbeddings(request, httpRequest);
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(response.getBody()).isEqualTo(expected);
-		verify(embeddingService).processEmbedding(request, "tenant-alpha", null);
+		verify(embeddingService).processEmbedding(request, "tenant-alpha", null, null);
 	}
 
 	@Test
@@ -56,6 +56,6 @@ class EmbeddingControllerTest {
 		assertThatThrownBy(() -> controller.createEmbeddings(request, httpRequest))
 				.isInstanceOf(ResponseStatusException.class)
 				.hasMessageContaining("400");
-		verify(embeddingService, never()).processEmbedding(any(), any(), any());
+		verify(embeddingService, never()).processEmbedding(any(), any(), any(), any());
 	}
 }

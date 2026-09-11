@@ -1,5 +1,7 @@
 package io.github.kxng0109.aegisgate.proxy;
 
+import io.github.kxng0109.aegisgate.budget.BudgetDecision;
+import io.github.kxng0109.aegisgate.budget.BudgetEnforcer;
 import io.github.kxng0109.aegisgate.cache.contracts.CacheEntry;
 import io.github.kxng0109.aegisgate.cache.contracts.CacheLookupResult;
 import io.github.kxng0109.aegisgate.cache.contracts.CacheStatus;
@@ -10,6 +12,7 @@ import io.github.kxng0109.aegisgate.contracts.GatewayProperties;
 import io.github.kxng0109.aegisgate.contracts.ModelAlias;
 import io.github.kxng0109.aegisgate.contracts.ProviderConfig;
 import io.github.kxng0109.aegisgate.contracts.ProviderType;
+import io.github.kxng0109.aegisgate.contracts.SHA256Hash;
 import io.github.kxng0109.aegisgate.ledger.CostCalculator;
 import io.github.kxng0109.aegisgate.ledger.TokenUsageEvent;
 import io.github.kxng0109.aegisgate.proxy.failover.FailoverOrchestrator;
@@ -31,6 +34,7 @@ import io.github.kxng0109.aegisgate.security.guardrail.pii.EphemeralPiiVault;
 import io.github.kxng0109.aegisgate.security.guardrail.streaming.MidStreamKillSwitch;
 import io.github.kxng0109.aegisgate.security.guardrail.streaming.SlidingWindowAhoCorasick;
 import io.github.kxng0109.aegisgate.security.guardrail.streaming.StreamingJsonPdaValidator;
+import io.github.kxng0109.aegisgate.security.ratelimit.RateLimitUnavailableException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.headers.Header;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -102,6 +106,8 @@ public class ProxyController {
 	private final @Nullable SystemPromptProtectionEngine systemPromptProtectionEngine;
 	private final @Nullable GuardrailProperties guardrailProperties;
 	private final @Nullable ZeroDataRetentionEnforcer zdrEnforcer;
+
+	private volatile @Nullable BudgetEnforcer budgetEnforcer;
 
 	/**
 	 * Full enterprise constructor injecting all components including cache, security, and compliance subsystems.
@@ -394,9 +400,17 @@ public class ProxyController {
 			}
 		}
 
+		// Spend-budget gate: cache misses only (hits served ~free and bypass spend).
+		// Runs after alias/idempotency validation, before any upstream spend.
+		ResponseEntity<StreamingResponseBody> budgetDenied = checkBudgetOrNull(
+				alias, model, ownerId, trimmed,
+				(String) request.getAttribute(KeyAuthFilter.KEY_HASH_ATTRIBUTE));
+		if (budgetDenied != null) {
+			return budgetDenied;
+		}
+
 		ProviderResponse providerResponse;
-		try {
-			providerResponse = failoverOrchestrator.execute(alias, trimmed).join();
+		try {			providerResponse = failoverOrchestrator.execute(alias, trimmed).join();
 		} catch (CompletionException ex) {
 			Throwable cause = ex.getCause();
 			if (cause instanceof UpstreamUnavailableException upstream) {
@@ -896,6 +910,68 @@ public class ProxyController {
 		} catch (JacksonException ex) {
 			return false;
 		}
+	}
+
+	/**
+	 * Wires the spend-budget enforcer when present. Optional on purpose: unit-constructed controllers keep working
+	 * with budget enforcement silently skipped, exactly like unauthenticated paths never reach them.
+	 *
+	 * @param budgetEnforcer the enforcer, if available
+	 */
+	@Autowired(required = false)
+	public void setBudgetEnforcer(BudgetEnforcer budgetEnforcer) {
+		this.budgetEnforcer = budgetEnforcer;
+	}
+
+	/**
+	 * Enforces spend budgets for one cache-miss request. Returns a 429 entity when a cap denies, a 503 when the
+	 * budget service is unreachable (uniform fail-closed), or {@code null} to continue. Skipped (null) when no
+	 * enforcer is wired or the key digest is absent.
+	 */
+	private @Nullable ResponseEntity<StreamingResponseBody> checkBudgetOrNull(
+			ModelAlias alias, String model, @Nullable String ownerId, String trimmed,
+			@Nullable String keyHashHex) {
+		BudgetEnforcer enforcer = this.budgetEnforcer;
+		if (enforcer == null || keyHashHex == null || keyHashHex.isBlank()) {
+			return null;
+		}
+		ProviderType budgetType;
+		try {
+			var primary = alias.chain().getFirst();
+			ProviderConfig primaryConfig = gatewayProperties.getProviders().get(primary.providerName());
+			budgetType = primaryConfig == null ? ProviderType.OPENAI : primaryConfig.type();
+		} catch (RuntimeException ex) {
+			budgetType = ProviderType.OPENAI;
+		}
+		final SHA256Hash keyHash;
+		try {
+			keyHash = SHA256Hash.fromHex(keyHashHex);
+		} catch (IllegalArgumentException malformed) {
+			log.debug("Skipping budget check for malformed key digest");
+			return null;
+		}
+		final BudgetDecision decision;
+		try {
+			decision = enforcer.checkBudget(keyHash, ownerId, budgetType, model,
+					BudgetEnforcer.estimatePromptTokens(trimmed.length()));
+		} catch (RateLimitUnavailableException unavailable) {
+			return errorResponse(HttpStatus.SERVICE_UNAVAILABLE, "Budget service unavailable");
+		}
+		if (decision instanceof BudgetDecision.Denied denied) {
+			long retryAfter = Math.max(1L, denied.retryAfterSeconds());
+			HttpHeaders denyHeaders = new HttpHeaders();
+			denyHeaders.setContentType(MediaType.APPLICATION_JSON);
+			denyHeaders.set(HttpHeaders.RETRY_AFTER, Long.toString(retryAfter));
+			denyHeaders.set("X-Budget-Remaining", "0");
+			denyHeaders.set("X-Budget-Reset", Long.toString(System.currentTimeMillis() / 1000L + retryAfter));
+			denyHeaders.set("X-Budget-Level", denied.level());
+			denyHeaders.set("X-Budget-Window", denied.window());
+			String denyBody = "{\"error\":{\"message\":\"budget exhausted (" + denied.level() + " "
+					+ denied.window() + ")\"}}";
+			return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).headers(denyHeaders)
+					.body(out -> out.write(denyBody.getBytes(StandardCharsets.UTF_8)));
+		}
+		return null;
 	}
 
 	private ResponseEntity<StreamingResponseBody> errorResponse(HttpStatus status, String message) {

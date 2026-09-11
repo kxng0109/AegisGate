@@ -6,6 +6,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.jspecify.annotations.Nullable;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.connection.PoolException;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -81,7 +82,7 @@ public class RateLimitEngine {
 	@Autowired
 	public RateLimitEngine(
 			StringRedisTemplate redisTemplate,
-			DefaultRedisScript<List> rateLimitScript,
+			@Qualifier("rateLimitScript") DefaultRedisScript<List> rateLimitScript,
 			RateLimitProperties properties,
 			@Nullable MeterRegistry meterRegistry
 	) {

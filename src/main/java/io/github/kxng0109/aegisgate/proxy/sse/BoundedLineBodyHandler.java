@@ -91,7 +91,6 @@ public final class BoundedLineBodyHandler
 		private final byte[] lineBuffer;
 		private int lineLen;
 		private boolean pendingCr;
-		private volatile boolean eof;
 
 		BoundedLineSubscriber(int maxLineBytes, Charset charset) {
 			this.maxLineBytes = maxLineBytes;
@@ -141,7 +140,8 @@ public final class BoundedLineBodyHandler
 
 		@Override
 		public void onComplete() {
-			eof = true;
+			// TERMINAL is the sole end-of-stream signal: it is enqueued after the
+			// tail flush, so the consumer can never observe completion before data.
 			if (lineLen > 0) {
 				emitLine();
 			}
@@ -183,7 +183,6 @@ public final class BoundedLineBodyHandler
 			if (t != null && !failure.compareAndSet(null, t)) {
 				return;
 			}
-			eof = true;
 			if (cancel) {
 				Flow.Subscription s = subscription.getAndSet(null);
 				if (s != null) {
@@ -233,9 +232,10 @@ public final class BoundedLineBodyHandler
 					rethrowIfFailed();
 					Object item = queue.poll();
 					if (item == null) {
-						if (eof) {
-							return false;
-						}
+						// Never consult a completion flag here: TERMINAL is always
+						// enqueued after the last line, so blocking until it arrives
+						// cannot hang and cannot skip data (JDK HttpResponseInputStream
+						// sentinel pattern).
 						try {
 							item = queue.take();
 						} catch (InterruptedException ex) {

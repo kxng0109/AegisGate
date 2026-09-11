@@ -409,6 +409,31 @@ class BoundedLineBodyHandlerTest {
 				.isInstanceOf(IllegalStateException.class);
 	}
 
+	@Test
+	@DisplayName("concurrent drain racing completion never drops the unterminated tail")
+	@Timeout(120)
+	void concurrentDrainNeverDropsTail() throws Exception {
+		// Regression test for the eof-before-enqueue race: the consumer must observe
+		// TERMINAL only after every line, even when it drains while onComplete runs.
+		for (int i = 0; i < 200; i++) {
+			BoundedLineBodyHandler handler = new BoundedLineBodyHandler(64, StandardCharsets.UTF_8);
+			HttpResponse.BodySubscriber<Stream<String>> sub = handler.apply(INFO);
+			sub.onSubscribe(new MockSubscription());
+
+			Thread producer = Thread.ofVirtual().start(() -> {
+				sub.onNext(List.of(ByteBuffer.wrap("data: {\"a\":1}\n\n".getBytes(StandardCharsets.UTF_8))));
+				sub.onNext(List.of(ByteBuffer.wrap("data: [DONE]".getBytes(StandardCharsets.UTF_8))));
+				sub.onComplete();
+			});
+
+			Stream<String> stream = sub.getBody().toCompletableFuture().get(5, TimeUnit.SECONDS);
+			List<String> lines = stream.toList();
+			producer.join(5_000);
+
+			assertThat(lines).containsExactly("data: {\"a\":1}", "", "data: [DONE]");
+		}
+	}
+
 	/**
 	 * Simple {@link Flow.Subscription} mock that records {@code request()} and {@code cancel()} calls.
 	 */

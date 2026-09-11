@@ -1,5 +1,7 @@
 package io.github.kxng0109.aegisgate.proxy.embeddings;
 
+import io.github.kxng0109.aegisgate.budget.BudgetDecision;
+import io.github.kxng0109.aegisgate.budget.BudgetEnforcer;
 import io.github.kxng0109.aegisgate.config.SensitiveString;
 import io.github.kxng0109.aegisgate.contracts.*;
 import io.github.kxng0109.aegisgate.ledger.CostCalculator;
@@ -7,6 +9,7 @@ import io.github.kxng0109.aegisgate.ledger.TokenUsageEvent;
 import io.github.kxng0109.aegisgate.proxy.embeddings.dto.EmbeddingData;
 import io.github.kxng0109.aegisgate.proxy.embeddings.dto.EmbeddingRequest;
 import io.github.kxng0109.aegisgate.proxy.embeddings.dto.EmbeddingResponse;
+import io.github.kxng0109.aegisgate.security.ratelimit.RateLimitUnavailableException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -355,6 +358,62 @@ class EmbeddingServiceTest {
 			EmbeddingResponse response = service.processEmbedding(request, "tenant-1");
 			assertThat(response).isEqualTo(mockResponse);
 		}
+	}
+
+	@Test
+	@DisplayName("budget denial rejects with 429 before upstream spend")
+	void budgetDeniedRejects() throws Exception {
+		ProviderConfig provider = new ProviderConfig(
+				"openai-main", ProviderType.OPENAI, URI.create("https://api.openai.com/v1"),
+				new SensitiveString("key"), Duration.ofSeconds(5), Duration.ofSeconds(30)
+		);
+		gatewayProperties.setProviders(Map.of("openai-main", provider));
+		ModelAlias alias = new ModelAlias(
+				List.of(new ProviderRef("openai-main", "text-embedding-3-small")),
+				FailoverStrategy.SEQUENTIAL
+		);
+		gatewayProperties.setAliases(Map.of("text-embedding-3-small", alias));
+		EmbeddingAdapter adapter = mock(EmbeddingAdapter.class);
+		when(adapterResolver.resolve(ProviderType.OPENAI)).thenReturn(adapter);
+		BudgetEnforcer mockEnforcer = mock(BudgetEnforcer.class);
+		service.setBudgetEnforcer(mockEnforcer);
+		when(mockEnforcer.checkBudget(any(), any(), any(), anyString(), anyInt()))
+				.thenReturn(new BudgetDecision.Denied("ORG", "MONTH", 3600L));
+
+		EmbeddingRequest request = new EmbeddingRequest(List.of("hello"), "text-embedding-3-small", null, null, null);
+
+		assertThatThrownBy(() -> service.processEmbedding(request, "tenant-1", null, "ab".repeat(32)))
+				.isInstanceOf(ResponseStatusException.class)
+				.hasMessageContaining("429");
+		verify(batchOrchestrator, never()).execute(any(), any(), any(), any());
+	}
+
+	@Test
+	@DisplayName("budget service outage fails closed with 503")
+	void budgetOutageFailsClosed() throws Exception {
+		ProviderConfig provider = new ProviderConfig(
+				"openai-main", ProviderType.OPENAI, URI.create("https://api.openai.com/v1"),
+				new SensitiveString("key"), Duration.ofSeconds(5), Duration.ofSeconds(30)
+		);
+		gatewayProperties.setProviders(Map.of("openai-main", provider));
+		ModelAlias alias = new ModelAlias(
+				List.of(new ProviderRef("openai-main", "text-embedding-3-small")),
+				FailoverStrategy.SEQUENTIAL
+		);
+		gatewayProperties.setAliases(Map.of("text-embedding-3-small", alias));
+		EmbeddingAdapter adapter = mock(EmbeddingAdapter.class);
+		when(adapterResolver.resolve(ProviderType.OPENAI)).thenReturn(adapter);
+		BudgetEnforcer mockEnforcer = mock(BudgetEnforcer.class);
+		service.setBudgetEnforcer(mockEnforcer);
+		when(mockEnforcer.checkBudget(any(), any(), any(), anyString(), anyInt()))
+				.thenThrow(new RateLimitUnavailableException("budget down"));
+
+		EmbeddingRequest request = new EmbeddingRequest(List.of("hello"), "text-embedding-3-small", null, null, null);
+
+		assertThatThrownBy(() -> service.processEmbedding(request, "tenant-1", null, "ab".repeat(32)))
+				.isInstanceOf(ResponseStatusException.class)
+				.hasMessageContaining("503");
+		verify(batchOrchestrator, never()).execute(any(), any(), any(), any());
 	}
 
 	@Test
