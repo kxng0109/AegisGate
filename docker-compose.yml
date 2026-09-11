@@ -2,16 +2,23 @@ name: aegisgate
 
 services:
   # ---------------------------------------------------------------------------
-  # Redis 7 with RediSearch - Rate Limiting, Circuit Breakers & Vector Search
+  # Redis 8 (Query Engine + JSON + TimeSeries built in) - Rate Limiting,
+  # Circuit Breakers & Vector Search. NOTE: the official redis image ignores
+  # REDIS_ARGS (a redis-stack-server convention), so flags live in command:.
   # ---------------------------------------------------------------------------
   redis:
-    image: redis/redis-stack-server:latest
+    image: redis:8.8.2-alpine3.23
     container_name: aegisgate-redis
     restart: unless-stopped
+    command: >
+      redis-server
+      --appendonly yes
+      --save 60 1
+      --maxmemory 256mb
+      --maxmemory-policy noeviction
+      --protected-mode no
     ports:
       - "${REDIS_PORT:-6379}:6379"
-    environment:
-      REDIS_ARGS: "--appendonly yes --save 60 1 --maxmemory 256mb --maxmemory-policy noeviction --protected-mode no"
     healthcheck:
       test: [ "CMD", "redis-cli", "ping" ]
       interval: 5s

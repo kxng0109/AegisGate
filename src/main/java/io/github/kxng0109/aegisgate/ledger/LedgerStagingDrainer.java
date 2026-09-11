@@ -5,6 +5,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.jspecify.annotations.Nullable;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -76,7 +77,7 @@ public class LedgerStagingDrainer {
 	 * identically whether invoked by the scheduler proxy or directly, which is also what makes it unit-testable
 	 * without a Spring proxy.</p>
 	 */
-	@org.springframework.scheduling.annotation.Scheduled(fixedDelay = 5000)
+	@Scheduled(fixedDelay = 5000)
 	public void drain() {
 		requiresNew.executeWithoutResult(ignored ->
 				staging.resetStaleClaims(Instant.now().minus(STALE_CLAIM_AGE)));
@@ -95,7 +96,7 @@ public class LedgerStagingDrainer {
 	/**
 	 * Purges terminal rows past the retention window. Daily; the partial poll index keeps the scan cheap.
 	 */
-	@org.springframework.scheduling.annotation.Scheduled(fixedDelay = 86_400_000, initialDelay = 3_600_000)
+	@Scheduled(fixedDelay = 86_400_000, initialDelay = 3_600_000)
 	public void purge() {
 		requiresNew.executeWithoutResult(ignored ->
 				staging.purgeCompleted(Instant.now().minus(RETENTION)));

@@ -23,10 +23,11 @@ measured before/after (flood p95, burst p95, RSS, `usec_per_call` on `evalsha`) 
 
 ### Committed, in order
 
-1. **Redis 8 cutover** (`redis:8.8.2-alpine3.23`, modules built in — Stack image is superseded): compose swap, RDB
-   carry-over with `FT.INFO` backfill check, ACL re-test under 8 semantics, Testcontainers → `GenericContainer`
-   pinned image. No backup needed (cache/ledger data disposable; PG remains source of truth). Then re-run the Lua
-   suites + flood proof on the final image.
+1. **Redis 8 cutover** ✅ SHIPPED (`redis:8.8.2-alpine3.23`; all 5 modules verified live; RDB index restored;
+   L2 HIT 16.5ms vs 458ms fresh; flood 43,200/43,200, 0 dropped, p95 9.57ms; `verify` 1,320 green): compose swap
+   with `REDIS_ARGS` folded into `command:`, `FT.INFO` backfill check, Testcontainers re-pinned (kept
+   `RedisContainer` type for `@ServiceConnection`, image string only). No backup taken (cache/ledger disposable;
+   PG is source of truth). ACL hardening deferred — compose runs without an ACL user.
 2. **Carriers A/B + Path A re-hunt**: thread-carrier sizing, Lettuce/Hikari sizing, keep-alive/backlog/`somaxconn`,
    ECDSA check; 2→4→8 goodput sweep to re-baseline the per-instance ceiling.
 3. **Budget Lua fast-path**: single-RTT consolidation audit, presence-cache TTL/miss-cost measurement, epoch-fencing

@@ -8,6 +8,7 @@ import io.github.kxng0109.aegisgate.mcp.contracts.McpServerConfig;
 import io.github.kxng0109.aegisgate.mcp.security.McpToolRbacPolicyEngine;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.jspecify.annotations.Nullable;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
@@ -166,7 +167,7 @@ public class McpHitlSuspensionEngine {
 		return Optional.of(McpJsonRpcResponse.success(request.id(), resultNode));
 	}
 
-	private @org.jspecify.annotations.Nullable String extractResumptionToken(McpJsonRpcRequest request) {
+	private @Nullable String extractResumptionToken(McpJsonRpcRequest request) {
 		JsonNode params = request.params();
 		if (params == null) {
 			return null;

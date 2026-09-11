@@ -85,7 +85,7 @@ public class RediSearchVectorClient {
 					ex.getCause() != null && ex.getCause().getMessage() != null ?
 							" " + ex.getCause().getMessage() : "");
 			if (msg.contains("Index already exists") || msg.contains("BUSYKEY")
-					|| msg.toLowerCase(java.util.Locale.ROOT).contains("already exists")) {
+					|| msg.toLowerCase(Locale.ROOT).contains("already exists")) {
 				log.debug("RediSearch index '{}' already exists", indexName);
 				return false;
 			}

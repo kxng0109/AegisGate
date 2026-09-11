@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -130,7 +131,7 @@ public class PricingSyncService {
 		return kept;
 	}
 
-	private JsonNode fetchCatalog() throws java.io.IOException, InterruptedException {
+	private JsonNode fetchCatalog() throws IOException, InterruptedException {
 		HttpRequest request = HttpRequest.newBuilder(URI.create(sourceUrl))
 		                                 .timeout(fetchTimeout)
 		                                 .GET()

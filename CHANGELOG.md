@@ -24,6 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   consumer draining concurrently could observe completion before data and lose an unterminated final line
   (e.g. `data: [DONE]`). The terminal sentinel is now the sole end-of-stream signal (JDK `HttpResponseInputStream`
   pattern); covered by a 200-iteration concurrent drain-vs-complete regression test (proven to fail pre-fix).
+- **Redis 8 cutover:** compose moves from `redis-stack-server` (superseded) to pinned `redis:8.8.2-alpine3.23`
+  (Query Engine + JSON + TimeSeries + Bloom built in; jemalloc retained on Alpine); `REDIS_ARGS` env folded into
+  the service `command:` (the official image ignores that Stack-only convention); 8 integration-test containers
+  re-pinned to the same image. Verified: module list, `FT.CREATE`/`FT._LIST`/`FT.INFO` canary, pre-existing vector
+  index restored from RDB, L2 semantic HIT 16.5ms vs 458ms fresh, flood re-proof 43,200/43,200 checks with 0
+  dropped and p95 9.57ms. Full `verify` 1,320 green, branch 0.9503.
 
 ### Changed
 

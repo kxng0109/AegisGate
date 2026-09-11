@@ -82,7 +82,7 @@ class BudgetServiceTest {
 	@Test
 	@DisplayName("malicious webhook URLs are rejected before storage")
 	void webhookValidated() {
-		org.mockito.Mockito.doThrow(new SsrfViolationException("blocked"))
+		doThrow(new SsrfViolationException("blocked"))
 		                   .when(ssrfValidator).validate(any());
 
 		assertThrows(

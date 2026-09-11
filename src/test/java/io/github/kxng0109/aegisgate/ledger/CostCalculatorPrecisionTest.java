@@ -3,6 +3,7 @@ package io.github.kxng0109.aegisgate.ledger;
 import io.github.kxng0109.aegisgate.contracts.ProviderType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
@@ -60,7 +61,7 @@ class CostCalculatorPrecisionTest {
 				.isEqualTo(expectedCostUsdMicros);
 	}
 
-	@org.junit.jupiter.api.Test
+	@Test
 	@DisplayName("CostCalculator computes 7-argument prompt caching across providers and explicit rates")
 	void shouldCalculatePromptCachingBranches() {
 		// 1. Explicit rates in pricing entry

@@ -15,6 +15,7 @@ import org.springframework.validation.annotation.Validated;
 import tools.jackson.databind.ObjectMapper;
 
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Auto-configuration for the SSE line guard.
@@ -61,7 +62,7 @@ public class SseLineGuardAutoConfig {
 		DefaultSseLineGuard newGuard(
 				SseLineGuard.ProviderType providerType,
 				String providerName,
-				java.util.UUID requestId
+				UUID requestId
 		);
 
 		/**

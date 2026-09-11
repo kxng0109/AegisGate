@@ -15,6 +15,7 @@ import org.springframework.data.domain.Sort;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
@@ -189,7 +190,7 @@ class UsageLedgerRepositoryImplTest {
 		TypedQuery<UsageLedgerEntry> dataQuery = mock(TypedQuery.class);
 
 		UsageLedgerEntry entry = new UsageLedgerEntry(
-				java.util.UUID.randomUUID(), "owner-1", "openai", "gpt-4o",
+				UUID.randomUUID(), "owner-1", "openai", "gpt-4o",
 				100, 50, 150, 1400L, 200L, Instant.now()
 		);
 

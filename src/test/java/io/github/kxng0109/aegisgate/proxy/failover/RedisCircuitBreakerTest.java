@@ -37,7 +37,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class RedisCircuitBreakerTest {
 
 	@Container
-	static final RedisContainer REDIS = new RedisContainer(DockerImageName.parse("redis:7-alpine"));
+	static final RedisContainer REDIS = new RedisContainer(DockerImageName.parse("redis:8.8.2-alpine3.23"));
 
 	static {
 		// Start synchronously at class-load time so @BeforeAll can rely on the container being up.

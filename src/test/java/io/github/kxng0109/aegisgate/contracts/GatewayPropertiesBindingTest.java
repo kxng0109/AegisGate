@@ -31,7 +31,7 @@ class GatewayPropertiesBindingTest {
 	@Container
 	@ServiceConnection
 	static final RedisContainer REDIS =
-			new RedisContainer(DockerImageName.parse("redis:7-alpine"));
+			new RedisContainer(DockerImageName.parse("redis:8.8.2-alpine3.23"));
 
 	@Autowired
 	private GatewayProperties gatewayProperties;

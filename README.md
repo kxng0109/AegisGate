@@ -318,7 +318,8 @@ The Lua script that implements the atomic RPM and TPM counters lives in `src/mai
 
 - Java 25 LTS with virtual threads enabled
 - Spring Boot 4.1 and Spring MVC
-- Redis via Spring Data Redis and Lettuce, with a connection pool
+- Redis 8 via Spring Data Redis and Lettuce, with a connection pool (Query Engine vector search, JSON,
+  TimeSeries, and Bloom ship in the server binary; compose pins `redis:8.8.2-alpine3.23`)
 - PostgreSQL via Spring Data JPA and Hibernate, with Flyway owning the schema
 - Caffeine for the short lived key lookup cache and the pricing catalog
 - JSpecify nullness annotations at package level
@@ -330,7 +331,8 @@ Dependency versions are managed by the Spring Boot 4.1 BOM. See `pom.xml`.
 ## Prerequisites
 
 - JDK 25
-- Redis 7 or newer, reachable at `localhost:6379` by default. Redis is also required for the distributed circuit breaker, which fails closed when Redis is unreachable.
+- Redis 8 (`redis:8.8.2-alpine3.23` in compose; 8.x required for the built-in Query Engine index used by
+  the L2 semantic cache), reachable at `localhost:6379` by default. Redis is also required for the distributed circuit breaker, which fails closed when Redis is unreachable.
 - PostgreSQL, reachable at `localhost:5432` by default. The gateway starts without it, but the ledger and pricing table need it.
 - Docker, only if you want to run the Testcontainers integration tests
 
@@ -343,7 +345,7 @@ The Maven wrapper is included, so no separate Maven installation is needed.
 The gateway includes production-ready multi-stage containers and pre-configured Docker Compose profiles:
 
 ```bash
-# Start only the dependencies (Redis 7 & PostgreSQL 16 for local IDE development)
+# Start only the dependencies (Redis 8 & PostgreSQL 16 for local IDE development)
 docker compose --profile deps up -d
 
 # Start the gateway with backing databases and the full observability stack (Prometheus & Grafana)

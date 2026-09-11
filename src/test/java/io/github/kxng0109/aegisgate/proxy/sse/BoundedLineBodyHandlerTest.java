@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
+import java.io.IOException;
 import java.net.http.HttpClient;
 import java.net.http.HttpHeaders;
 import java.net.http.HttpResponse;
@@ -69,14 +70,14 @@ class BoundedLineBodyHandlerTest {
 	@DisplayName("simple lines terminated with newline are yielded in order")
 	void simpleLines() throws Exception {
 		BoundedLineBodyHandler handler = new BoundedLineBodyHandler(10, StandardCharsets.UTF_8);
-		HttpResponse.BodySubscriber<java.util.stream.Stream<String>> sub = handler.apply(INFO);
+		HttpResponse.BodySubscriber<Stream<String>> sub = handler.apply(INFO);
 		MockSubscription mock = new MockSubscription();
 		sub.onSubscribe(mock);
 
 		sub.onNext(List.of(ByteBuffer.wrap("hello\nworld\n".getBytes(StandardCharsets.UTF_8))));
 		sub.onComplete();
 
-		java.util.stream.Stream<String> stream = sub.getBody().toCompletableFuture().get(5, TimeUnit.SECONDS);
+		Stream<String> stream = sub.getBody().toCompletableFuture().get(5, TimeUnit.SECONDS);
 		List<String> lines = stream.toList();
 		assertThat(lines).containsExactly("hello", "world");
 	}
@@ -85,14 +86,14 @@ class BoundedLineBodyHandlerTest {
 	@DisplayName("CRLF line endings are handled")
 	void crlfLineEndings() throws Exception {
 		BoundedLineBodyHandler handler = new BoundedLineBodyHandler(10, StandardCharsets.UTF_8);
-		HttpResponse.BodySubscriber<java.util.stream.Stream<String>> sub = handler.apply(INFO);
+		HttpResponse.BodySubscriber<Stream<String>> sub = handler.apply(INFO);
 		MockSubscription mock = new MockSubscription();
 		sub.onSubscribe(mock);
 
 		sub.onNext(List.of(ByteBuffer.wrap("foo\r\nbar\r\n".getBytes(StandardCharsets.UTF_8))));
 		sub.onComplete();
 
-		java.util.stream.Stream<String> stream = sub.getBody().toCompletableFuture().get(5, TimeUnit.SECONDS);
+		Stream<String> stream = sub.getBody().toCompletableFuture().get(5, TimeUnit.SECONDS);
 		assertThat(stream.toList()).containsExactly("foo", "bar");
 	}
 
@@ -100,14 +101,14 @@ class BoundedLineBodyHandlerTest {
 	@DisplayName("lone CR at EOF terminates a line")
 	void loneCrAtEof() throws Exception {
 		BoundedLineBodyHandler handler = new BoundedLineBodyHandler(10, StandardCharsets.UTF_8);
-		HttpResponse.BodySubscriber<java.util.stream.Stream<String>> sub = handler.apply(INFO);
+		HttpResponse.BodySubscriber<Stream<String>> sub = handler.apply(INFO);
 		MockSubscription mock = new MockSubscription();
 		sub.onSubscribe(mock);
 
 		sub.onNext(List.of(ByteBuffer.wrap("hello\r".getBytes(StandardCharsets.UTF_8))));
 		sub.onComplete();
 
-		java.util.stream.Stream<String> stream = sub.getBody().toCompletableFuture().get(5, TimeUnit.SECONDS);
+		Stream<String> stream = sub.getBody().toCompletableFuture().get(5, TimeUnit.SECONDS);
 		assertThat(stream.toList()).containsExactly("hello");
 	}
 
@@ -115,14 +116,14 @@ class BoundedLineBodyHandlerTest {
 	@DisplayName("a line exactly at the limit is allowed")
 	void lineExactlyAtLimit() throws Exception {
 		BoundedLineBodyHandler handler = new BoundedLineBodyHandler(5, StandardCharsets.UTF_8);
-		HttpResponse.BodySubscriber<java.util.stream.Stream<String>> sub = handler.apply(INFO);
+		HttpResponse.BodySubscriber<Stream<String>> sub = handler.apply(INFO);
 		MockSubscription mock = new MockSubscription();
 		sub.onSubscribe(mock);
 
 		sub.onNext(List.of(ByteBuffer.wrap("abcde\n".getBytes(StandardCharsets.UTF_8))));
 		sub.onComplete();
 
-		java.util.stream.Stream<String> stream = sub.getBody().toCompletableFuture().get(5, TimeUnit.SECONDS);
+		Stream<String> stream = sub.getBody().toCompletableFuture().get(5, TimeUnit.SECONDS);
 		assertThat(stream.toList()).containsExactly("abcde");
 	}
 
@@ -130,7 +131,7 @@ class BoundedLineBodyHandlerTest {
 	@DisplayName("a line one byte over the limit triggers LineTooLongException and cancels the upstream")
 	void lineOneByteOverLimit() {
 		BoundedLineBodyHandler handler = new BoundedLineBodyHandler(5, StandardCharsets.UTF_8);
-		HttpResponse.BodySubscriber<java.util.stream.Stream<String>> sub = handler.apply(INFO);
+		HttpResponse.BodySubscriber<Stream<String>> sub = handler.apply(INFO);
 		MockSubscription mock = new MockSubscription();
 		sub.onSubscribe(mock);
 
@@ -146,7 +147,7 @@ class BoundedLineBodyHandlerTest {
 	@DisplayName("multi-buffer line is reassembled correctly")
 	void multiBufferLine() throws Exception {
 		BoundedLineBodyHandler handler = new BoundedLineBodyHandler(20, StandardCharsets.UTF_8);
-		HttpResponse.BodySubscriber<java.util.stream.Stream<String>> sub = handler.apply(INFO);
+		HttpResponse.BodySubscriber<Stream<String>> sub = handler.apply(INFO);
 		MockSubscription mock = new MockSubscription();
 		sub.onSubscribe(mock);
 
@@ -157,7 +158,7 @@ class BoundedLineBodyHandlerTest {
 		));
 		sub.onComplete();
 
-		java.util.stream.Stream<String> stream = sub.getBody().toCompletableFuture().get(5, TimeUnit.SECONDS);
+		Stream<String> stream = sub.getBody().toCompletableFuture().get(5, TimeUnit.SECONDS);
 		assertThat(stream.toList()).containsExactly("abcdefghi");
 	}
 
@@ -165,7 +166,7 @@ class BoundedLineBodyHandlerTest {
 	@DisplayName("line terminator split across buffers is handled")
 	void terminatorSplitAcrossBuffers() throws Exception {
 		BoundedLineBodyHandler handler = new BoundedLineBodyHandler(20, StandardCharsets.UTF_8);
-		HttpResponse.BodySubscriber<java.util.stream.Stream<String>> sub = handler.apply(INFO);
+		HttpResponse.BodySubscriber<Stream<String>> sub = handler.apply(INFO);
 		MockSubscription mock = new MockSubscription();
 		sub.onSubscribe(mock);
 
@@ -175,7 +176,7 @@ class BoundedLineBodyHandlerTest {
 		));
 		sub.onComplete();
 
-		java.util.stream.Stream<String> stream = sub.getBody().toCompletableFuture().get(5, TimeUnit.SECONDS);
+		Stream<String> stream = sub.getBody().toCompletableFuture().get(5, TimeUnit.SECONDS);
 		assertThat(stream.toList()).containsExactly("abc");
 	}
 
@@ -184,7 +185,7 @@ class BoundedLineBodyHandlerTest {
 	@Timeout(value = 30, unit = TimeUnit.SECONDS)
 	void oomPrevention() throws Exception {
 		BoundedLineBodyHandler handler = new BoundedLineBodyHandler(1024, StandardCharsets.UTF_8);
-		HttpResponse.BodySubscriber<java.util.stream.Stream<String>> sub = handler.apply(INFO);
+		HttpResponse.BodySubscriber<Stream<String>> sub = handler.apply(INFO);
 		MockSubscription mock = new MockSubscription();
 		sub.onSubscribe(mock);
 
@@ -225,14 +226,14 @@ class BoundedLineBodyHandlerTest {
 	@DisplayName("partial line at EOF with size under limit is emitted (BufferedReader semantics)")
 	void partialLineAtEof() throws Exception {
 		BoundedLineBodyHandler handler = new BoundedLineBodyHandler(10, StandardCharsets.UTF_8);
-		HttpResponse.BodySubscriber<java.util.stream.Stream<String>> sub = handler.apply(INFO);
+		HttpResponse.BodySubscriber<Stream<String>> sub = handler.apply(INFO);
 		MockSubscription mock = new MockSubscription();
 		sub.onSubscribe(mock);
 
 		sub.onNext(List.of(ByteBuffer.wrap("hello".getBytes(StandardCharsets.UTF_8))));
 		sub.onComplete();
 
-		java.util.stream.Stream<String> stream = sub.getBody().toCompletableFuture().get(5, TimeUnit.SECONDS);
+		Stream<String> stream = sub.getBody().toCompletableFuture().get(5, TimeUnit.SECONDS);
 		assertThat(stream.toList()).containsExactly("hello");
 	}
 
@@ -240,7 +241,7 @@ class BoundedLineBodyHandlerTest {
 	@DisplayName("partial line at EOF over the limit throws LineTooLongException")
 	void partialLineAtEofOverLimit() {
 		BoundedLineBodyHandler handler = new BoundedLineBodyHandler(5, StandardCharsets.UTF_8);
-		HttpResponse.BodySubscriber<java.util.stream.Stream<String>> sub = handler.apply(INFO);
+		HttpResponse.BodySubscriber<Stream<String>> sub = handler.apply(INFO);
 		MockSubscription mock = new MockSubscription();
 		sub.onSubscribe(mock);
 
@@ -254,11 +255,11 @@ class BoundedLineBodyHandlerTest {
 	@DisplayName("onError surfaces as UncheckedIOException in the stream")
 	void onErrorSurfacesAsUnchecked() {
 		BoundedLineBodyHandler handler = new BoundedLineBodyHandler(10, StandardCharsets.UTF_8);
-		HttpResponse.BodySubscriber<java.util.stream.Stream<String>> sub = handler.apply(INFO);
+		HttpResponse.BodySubscriber<Stream<String>> sub = handler.apply(INFO);
 		MockSubscription mock = new MockSubscription();
 		sub.onSubscribe(mock);
 
-		sub.onError(new java.io.IOException("test io error"));
+		sub.onError(new IOException("test io error"));
 		assertThatThrownBy(() ->
 				                   sub.getBody().toCompletableFuture().get(5, TimeUnit.SECONDS).toList()
 		).isInstanceOf(java.io.UncheckedIOException.class);
@@ -268,7 +269,7 @@ class BoundedLineBodyHandlerTest {
 	@DisplayName("double onSubscribe cancels the second subscription")
 	void doubleOnSubscribe() throws Exception {
 		BoundedLineBodyHandler handler = new BoundedLineBodyHandler(10, StandardCharsets.UTF_8);
-		HttpResponse.BodySubscriber<java.util.stream.Stream<String>> sub = handler.apply(INFO);
+		HttpResponse.BodySubscriber<Stream<String>> sub = handler.apply(INFO);
 		MockSubscription mock1 = new MockSubscription();
 		MockSubscription mock2 = new MockSubscription();
 		sub.onSubscribe(mock1);
@@ -277,7 +278,7 @@ class BoundedLineBodyHandlerTest {
 
 		sub.onNext(List.of(ByteBuffer.wrap("hello\n".getBytes(StandardCharsets.UTF_8))));
 		sub.onComplete();
-		java.util.stream.Stream<String> stream = sub.getBody().toCompletableFuture().get(5, TimeUnit.SECONDS);
+		Stream<String> stream = sub.getBody().toCompletableFuture().get(5, TimeUnit.SECONDS);
 		assertThat(stream.toList()).containsExactly("hello");
 	}
 
@@ -285,11 +286,11 @@ class BoundedLineBodyHandlerTest {
 	@DisplayName("stream close via onClose cancels the upstream subscription")
 	void streamCloseCancelsUpstream() {
 		BoundedLineBodyHandler handler = new BoundedLineBodyHandler(10, StandardCharsets.UTF_8);
-		HttpResponse.BodySubscriber<java.util.stream.Stream<String>> sub = handler.apply(INFO);
+		HttpResponse.BodySubscriber<Stream<String>> sub = handler.apply(INFO);
 		MockSubscription mock = new MockSubscription();
 		sub.onSubscribe(mock);
 
-		java.util.stream.Stream<String> stream = sub.getBody().toCompletableFuture().join();
+		Stream<String> stream = sub.getBody().toCompletableFuture().join();
 		stream.close();
 		assertThat(mock.cancelled.get()).isEqualTo(1);
 	}
@@ -298,12 +299,12 @@ class BoundedLineBodyHandlerTest {
 	@DisplayName("empty body yields an empty stream")
 	void emptyBody() throws Exception {
 		BoundedLineBodyHandler handler = new BoundedLineBodyHandler(10, StandardCharsets.UTF_8);
-		HttpResponse.BodySubscriber<java.util.stream.Stream<String>> sub = handler.apply(INFO);
+		HttpResponse.BodySubscriber<Stream<String>> sub = handler.apply(INFO);
 		MockSubscription mock = new MockSubscription();
 		sub.onSubscribe(mock);
 
 		sub.onComplete();
-		java.util.stream.Stream<String> stream = sub.getBody().toCompletableFuture().get(5, TimeUnit.SECONDS);
+		Stream<String> stream = sub.getBody().toCompletableFuture().get(5, TimeUnit.SECONDS);
 		assertThat(stream.toList()).isEmpty();
 	}
 
@@ -311,7 +312,7 @@ class BoundedLineBodyHandlerTest {
 	@DisplayName("line over limit with CR terminator throws LineTooLongException")
 	void lineOverLimitWithCr() {
 		BoundedLineBodyHandler handler = new BoundedLineBodyHandler(5, StandardCharsets.UTF_8);
-		HttpResponse.BodySubscriber<java.util.stream.Stream<String>> sub = handler.apply(INFO);
+		HttpResponse.BodySubscriber<Stream<String>> sub = handler.apply(INFO);
 		MockSubscription mock = new MockSubscription();
 		sub.onSubscribe(mock);
 
@@ -325,14 +326,14 @@ class BoundedLineBodyHandlerTest {
 	@DisplayName("multiple CRLF sequences in stream")
 	void multipleCrlf() throws Exception {
 		BoundedLineBodyHandler handler = new BoundedLineBodyHandler(20, StandardCharsets.UTF_8);
-		HttpResponse.BodySubscriber<java.util.stream.Stream<String>> sub = handler.apply(INFO);
+		HttpResponse.BodySubscriber<Stream<String>> sub = handler.apply(INFO);
 		MockSubscription mock = new MockSubscription();
 		sub.onSubscribe(mock);
 
 		sub.onNext(List.of(ByteBuffer.wrap("line1\r\nline2\r\n\r\nline3\r\n".getBytes(StandardCharsets.UTF_8))));
 		sub.onComplete();
 
-		java.util.stream.Stream<String> stream = sub.getBody().toCompletableFuture().get(5, TimeUnit.SECONDS);
+		Stream<String> stream = sub.getBody().toCompletableFuture().get(5, TimeUnit.SECONDS);
 		assertThat(stream.toList()).containsExactly("line1", "line2", "", "line3");
 	}
 
@@ -340,9 +341,9 @@ class BoundedLineBodyHandlerTest {
 	@DisplayName("onError without prior onSubscribe is handled safely")
 	void onErrorWithoutSubscribe() {
 		BoundedLineBodyHandler handler = new BoundedLineBodyHandler(10, StandardCharsets.UTF_8);
-		HttpResponse.BodySubscriber<java.util.stream.Stream<String>> sub = handler.apply(INFO);
+		HttpResponse.BodySubscriber<Stream<String>> sub = handler.apply(INFO);
 
-		sub.onError(new java.io.IOException("early error"));
+		sub.onError(new IOException("early error"));
 		assertThatThrownBy(() ->
 				                   sub.getBody().toCompletableFuture().get(5, TimeUnit.SECONDS).toList()
 		).isInstanceOf(java.io.UncheckedIOException.class);
@@ -352,12 +353,12 @@ class BoundedLineBodyHandlerTest {
 	@DisplayName("repeated cancel or signal error is idempotent")
 	void errorSignalsIdempotent() {
 		BoundedLineBodyHandler handler = new BoundedLineBodyHandler(10, StandardCharsets.UTF_8);
-		HttpResponse.BodySubscriber<java.util.stream.Stream<String>> sub = handler.apply(INFO);
+		HttpResponse.BodySubscriber<Stream<String>> sub = handler.apply(INFO);
 		MockSubscription mock = new MockSubscription();
 		sub.onSubscribe(mock);
 
-		sub.onError(new java.io.IOException("first error"));
-		sub.onError(new java.io.IOException("second error"));
+		sub.onError(new IOException("first error"));
+		sub.onError(new IOException("second error"));
 		assertThat(mock.cancelled.get()).isEqualTo(0);
 	}
 
@@ -365,7 +366,7 @@ class BoundedLineBodyHandlerTest {
 	@DisplayName("line length exceeds buffer length without any terminator")
 	void bufferOverflowWithoutTerminator() {
 		BoundedLineBodyHandler handler = new BoundedLineBodyHandler(2, StandardCharsets.UTF_8);
-		HttpResponse.BodySubscriber<java.util.stream.Stream<String>> sub = handler.apply(INFO);
+		HttpResponse.BodySubscriber<Stream<String>> sub = handler.apply(INFO);
 		sub.onSubscribe(new MockSubscription());
 
 		// maxLineBytes=2, buffer length = 2 + 4 = 6. Feed 10 bytes without any terminator
@@ -379,8 +380,8 @@ class BoundedLineBodyHandlerTest {
 	@DisplayName("stream close before onSubscribe does not fail")
 	void streamCloseBeforeSubscribe() {
 		BoundedLineBodyHandler handler = new BoundedLineBodyHandler(10, StandardCharsets.UTF_8);
-		HttpResponse.BodySubscriber<java.util.stream.Stream<String>> sub = handler.apply(INFO);
-		java.util.stream.Stream<String> stream = sub.getBody().toCompletableFuture().join();
+		HttpResponse.BodySubscriber<Stream<String>> sub = handler.apply(INFO);
+		Stream<String> stream = sub.getBody().toCompletableFuture().join();
 		stream.close();
 	}
 

@@ -1,6 +1,7 @@
 package io.github.kxng0109.aegisgate.budget;
 
 import com.github.benmanes.caffeine.cache.Cache;
+import com.redis.testcontainers.RedisContainer;
 import io.github.kxng0109.aegisgate.contracts.ProviderType;
 import io.github.kxng0109.aegisgate.contracts.SHA256Hash;
 import io.github.kxng0109.aegisgate.ledger.CostCalculator;
@@ -34,8 +35,8 @@ import static org.testcontainers.utility.DockerImageName.parse;
 class BudgetLuaIntegrationTest {
 
 	@Container
-	static final com.redis.testcontainers.RedisContainer REDIS =
-			new com.redis.testcontainers.RedisContainer(parse("redis:7-alpine"));
+	static final RedisContainer REDIS =
+			new RedisContainer(parse("redis:8.8.2-alpine3.23"));
 
 	private static StringRedisTemplate sharedTemplate;
 

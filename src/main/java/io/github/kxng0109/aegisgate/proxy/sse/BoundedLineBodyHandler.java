@@ -2,11 +2,14 @@ package io.github.kxng0109.aegisgate.proxy.sse;
 
 import org.jspecify.annotations.Nullable;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.http.HttpResponse;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Spliterator;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Flow;
@@ -179,7 +182,7 @@ public final class BoundedLineBodyHandler
 			lineLen = 0;
 		}
 
-		private void terminate(@org.jspecify.annotations.Nullable Throwable t, boolean cancel) {
+		private void terminate(@Nullable Throwable t, boolean cancel) {
 			if (t != null && !failure.compareAndSet(null, t)) {
 				return;
 			}
@@ -214,8 +217,8 @@ public final class BoundedLineBodyHandler
 				if (err instanceof LineTooLongException ltle) {
 					throw ltle;
 				}
-				if (err instanceof java.io.IOException ioe) {
-					throw new java.io.UncheckedIOException(ioe);
+				if (err instanceof IOException ioe) {
+					throw new UncheckedIOException(ioe);
 				}
 				if (err instanceof RuntimeException re) {
 					throw re;
@@ -224,7 +227,7 @@ public final class BoundedLineBodyHandler
 			}
 		}
 
-		private final class LineSpliterator implements java.util.Spliterator<String> {
+		private final class LineSpliterator implements Spliterator<String> {
 
 			@Override
 			public boolean tryAdvance(java.util.function.Consumer<? super String> action) {
@@ -253,7 +256,7 @@ public final class BoundedLineBodyHandler
 			}
 
 			@Override
-			public java.util.@Nullable Spliterator<String> trySplit() {
+			public @Nullable Spliterator<String> trySplit() {
 				return null;
 			}
 

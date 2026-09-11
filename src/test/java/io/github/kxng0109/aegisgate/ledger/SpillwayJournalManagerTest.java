@@ -9,14 +9,19 @@ import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 @DisplayName("SpillwayJournalManager Unit Test Suite")
 class SpillwayJournalManagerTest {
@@ -48,7 +53,7 @@ class SpillwayJournalManagerTest {
 				return;
 			}
 			try (var paths = Files.walk(tempDir)) {
-				paths.sorted(java.util.Comparator.reverseOrder()).forEach(p -> {
+				paths.sorted(Comparator.reverseOrder()).forEach(p -> {
 					try {
 						Files.deleteIfExists(p);
 					} catch (IOException ignored) {
@@ -154,7 +159,7 @@ class SpillwayJournalManagerTest {
 		Files.writeString(
 				journalPath,
 				"not-json\n{\"foo\":\"bar\"}\n   \n" + noTimestampLine,
-				java.nio.charset.StandardCharsets.UTF_8
+				StandardCharsets.UTF_8
 		);
 
 		List<TokenUsageEvent> replayed = new ArrayList<>();
@@ -167,8 +172,8 @@ class SpillwayJournalManagerTest {
 	@Test
 	@DisplayName("Handles serialization and I/O failures gracefully")
 	void shouldHandleSerializationAndIoFailures() throws Exception {
-		ObjectMapper failingMapper = org.mockito.Mockito.mock(ObjectMapper.class);
-		org.mockito.Mockito.when(failingMapper.writeValueAsString(org.mockito.ArgumentMatchers.any()))
+		ObjectMapper failingMapper = mock(ObjectMapper.class);
+		when(failingMapper.writeValueAsString(any()))
 		                   .thenThrow(new RuntimeException("Simulated JSON failure"));
 
 		SpillwayJournalManager failingMgr = new SpillwayJournalManager(

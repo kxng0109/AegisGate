@@ -23,6 +23,8 @@ import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpHeaders;
@@ -35,6 +37,7 @@ import java.util.Map;
 import java.util.Spliterator;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.Flow;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -249,7 +252,7 @@ class E12CoverageSupportTest {
 	@DisplayName("DefaultSseLineGuard with null providerType and JSON serialization fallback")
 	void testDefaultSseLineGuardEdgeBranches() throws Exception {
 		ObjectMapper throwingMapper = mock(ObjectMapper.class);
-		when(throwingMapper.writeValueAsString(org.mockito.ArgumentMatchers.any()))
+		when(throwingMapper.writeValueAsString(any()))
 				.thenThrow(new JacksonException("mock fail") {
 				});
 
@@ -376,8 +379,8 @@ class E12CoverageSupportTest {
 		assertThat(res2.getStatusCode().value()).isEqualTo(400);
 
 		// CompletionException with generic RuntimeException
-		when(orchestrator.execute(any(), any())).thenReturn(java.util.concurrent.CompletableFuture.failedFuture(
-				new java.util.concurrent.CompletionException(new IllegalStateException("simulated unexpected boom"))
+		when(orchestrator.execute(any(), any())).thenReturn(CompletableFuture.failedFuture(
+				new CompletionException(new IllegalStateException("simulated unexpected boom"))
 		));
 		assertThatThrownBy(() -> controller.proxyChatCompletions("{\"model\": \"test-model\"}", req))
 				.isInstanceOf(UpstreamUnavailableException.class)
@@ -387,17 +390,17 @@ class E12CoverageSupportTest {
 		HttpResponse<java.util.stream.Stream<String>> errHttpResp = mock(HttpResponse.class);
 		when(errHttpResp.statusCode()).thenReturn(500);
 		when(errHttpResp.body()).thenReturn(java.util.stream.Stream.of("error line 1", "error line 2"));
-		when(orchestrator.execute(any(), any())).thenReturn(java.util.concurrent.CompletableFuture.completedFuture(
+		when(orchestrator.execute(any(), any())).thenReturn(CompletableFuture.completedFuture(
 				new ProviderResponse("openai-p", errHttpResp)
 		));
 
 		var res3 = controller.proxyChatCompletions("{\"model\": \"test-model\"}", req);
 		assertThat(res3.getStatusCode().value()).isEqualTo(500);
 		// Simulate client disconnect during error body write
-		res3.getBody().writeTo(new java.io.OutputStream() {
+		res3.getBody().writeTo(new OutputStream() {
 			@Override
-			public void write(int b) throws java.io.IOException {
-				throw new java.io.IOException("client gone");
+			public void write(int b) throws IOException {
+				throw new IOException("client gone");
 			}
 		});
 
@@ -409,7 +412,7 @@ class E12CoverageSupportTest {
 				"data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}",
 				"data: [DONE]"
 		));
-		when(orchestrator.execute(any(), any())).thenReturn(java.util.concurrent.CompletableFuture.completedFuture(
+		when(orchestrator.execute(any(), any())).thenReturn(CompletableFuture.completedFuture(
 				new ProviderResponse("openai-p", okHttpResp)
 		));
 

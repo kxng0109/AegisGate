@@ -7,6 +7,7 @@ import io.github.kxng0109.aegisgate.proxy.embeddings.dto.EmbeddingUsage;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -64,7 +65,7 @@ class EmbeddingDtoTest {
 		assertThat(otherObj.extractTextInputs()).containsExactly("12345");
 
 		// Mixed list with null and non-string elements
-		java.util.List<Object> mixedList = new java.util.ArrayList<>();
+		List<Object> mixedList = new ArrayList<>();
 		mixedList.add("firstText");
 		mixedList.add(null);
 		mixedList.add(new StringBuilder("secondText"));
