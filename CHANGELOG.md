@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   balances (`POST/GET-balance/PUT/DELETE /v1/admin/budgets/**`); presence cache skips unbudgeted keys with zero
   overhead. Flood proof on the budget tree: 43,196/43,196 checks, p95 8.44ms (baseline 8.9ms). Full `verify`
   1,320 green, branch 0.9503.
+- **Track 1 budget hardening:** Spring Security fail-closed default-deny boundary (new routes denied until
+  declared) + `/v1/embeddings` auth/rate/budget bypass closed; hex-validated digests, pricing/Redis outages deny
+  instead of zero-cost admit; single-slot `{b:global}` Lua keys (Cluster-ready), >2^53 estimate guard, single-instant
+  windows, exclusive-midnight month rollover; Redis writes after DB commit + startup backfill reconciler;
+  append-only `budget_audit` enforced by V8 trigger; 5s negative-cache TTL + pg_notify cross-pod invalidation;
+  idempotency-claim-in-Lua (retries admit without double-debit). Full `verify` 1,349 green, branch 0.9505.
 
 ### Fixed
 

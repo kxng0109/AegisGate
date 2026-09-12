@@ -11,10 +11,16 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.net.URI;
+import java.time.Instant;
 import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -59,13 +65,16 @@ public class BudgetService {
 
 	private final SsrfValidator ssrfValidator;
 
+	private final BudgetChangeNotifier notifier;
+
 	public BudgetService(
 			BudgetLimitRepository limits,
 			BudgetAuditRepository audits,
 			StringRedisTemplate redisTemplate,
 			BudgetEnforcer enforcer,
 			GatewayProperties gatewayProperties,
-			SsrfValidator ssrfValidator
+			SsrfValidator ssrfValidator,
+			BudgetChangeNotifier notifier
 	) {
 		this.limits = limits;
 		this.audits = audits;
@@ -73,6 +82,7 @@ public class BudgetService {
 		this.enforcer = enforcer;
 		this.gatewayProperties = gatewayProperties;
 		this.ssrfValidator = ssrfValidator;
+		this.notifier = notifier;
 	}
 
 	private static String snapshot(BudgetLimit limit) {
@@ -135,8 +145,7 @@ public class BudgetService {
 					"budget already exists for " + level + "/" + subject
 			);
 		}
-		writeConfig(limit);
-		enforcer.invalidateAll();
+		publishConfigAfterCommit(limit);
 		audits.save(new BudgetAuditRecord(ADMIN_ACTOR, "CREATE", level, subject, null, snapshot(limit)));
 		return limit;
 	}
@@ -158,11 +167,10 @@ public class BudgetService {
 		try {
 			limit.update(minuteMicros, monthMicros, webhook);
 			limit = limits.saveAndFlush(limit);
-		} catch (org.springframework.orm.ObjectOptimisticLockingFailureException conflict) {
+		} catch (ObjectOptimisticLockingFailureException conflict) {
 			throw new ResponseStatusException(HttpStatus.CONFLICT, "budget changed concurrently, retry");
 		}
-		writeConfig(limit);
-		enforcer.invalidateAll();
+		publishConfigAfterCommit(limit);
 		audits.save(new BudgetAuditRecord(
 				ADMIN_ACTOR, "UPDATE", limit.getLevel(), limit.getSubjectId(),
 				before, snapshot(limit)
@@ -182,8 +190,7 @@ public class BudgetService {
 				                                                    ));
 		String after = snapshotWithSpend(limit);
 		limits.delete(limit);
-		redisTemplate.delete(BudgetEnforcer.cfgKey(limit.getLevel(), limit.getSubjectId()));
-		enforcer.invalidateAll();
+		dropConfigAfterCommit(limit.getLevel(), limit.getSubjectId());
 		audits.save(new BudgetAuditRecord(
 				ADMIN_ACTOR, "DELETE", limit.getLevel(), limit.getSubjectId(),
 				snapshot(limit), after
@@ -199,8 +206,9 @@ public class BudgetService {
 		Optional<BudgetLimit> found = limits.findByLevelAndSubjectId(level, subject);
 		long minuteLimit = found.map(BudgetLimit::getMinuteMicros).orElse(0L);
 		long monthLimit = found.map(BudgetLimit::getMonthMicros).orElse(0L);
-		long epochMinute = System.currentTimeMillis() / 60_000L;
-		String month = YearMonth.now(ZoneOffset.UTC).toString();
+		Instant now = Instant.now();
+		long epochMinute = now.toEpochMilli() / 60_000L;
+		String month = YearMonth.from(now.atZone(ZoneOffset.UTC)).toString();
 		long minuteSpent = readCounter(BudgetEnforcer.minuteKey(level, subject, epochMinute));
 		long monthSpent = readCounter(BudgetEnforcer.monthKey(level, subject, month));
 		return new BalanceView(level, subject, minuteLimit, minuteSpent, monthLimit, monthSpent);
@@ -209,8 +217,10 @@ public class BudgetService {
 	/**
 	 * Mirrors every durable limit into Redis config hashes and warms presence. Best-effort: failures log and continue,
 	 * because enforcement correctness never depends on this having run (unknown subjects call the script, which reads
-	 * config live).
+	 * config live). Runs at startup as the crash reconciler: any config write lost to a pre-commit crash is restored
+	 * here, since Redis writes only happen after commit and never before it.
 	 */
+	@EventListener(ApplicationReadyEvent.class)
 	public void backfill() {
 		try {
 			for (BudgetLimit limit : limits.findAll()) {
@@ -230,6 +240,50 @@ public class BudgetService {
 						"month_micros", Long.toString(limit.getMonthMicros())
 				)
 		);
+	}
+
+	/**
+	 * Publishes one limit to Redis only after the surrounding database transaction commits. Publishing inside the
+	 * transaction would leave phantom caps (or phantom deletions) in Redis when the transaction rolls back; the
+	 * startup backfill restores anything lost the other way. Outside a transaction (plain unit-test calls) the
+	 * write runs synchronously.
+	 */
+	private void publishConfigAfterCommit(BudgetLimit limit) {
+		if (TransactionSynchronizationManager.isSynchronizationActive()) {
+			TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+				@Override
+				public void afterCommit() {
+					writeConfig(limit);
+					enforcer.invalidateAll();
+					notifier.notifyChanged(limit.getLevel(), limit.getSubjectId());
+				}
+			});
+		} else {
+			writeConfig(limit);
+			enforcer.invalidateAll();
+			notifier.notifyChanged(limit.getLevel(), limit.getSubjectId());
+		}
+	}
+
+	/**
+	 * Drops one limit from Redis only after the surrounding database transaction commits (see
+	 * {@link #publishConfigAfterCommit} for why).
+	 */
+	private void dropConfigAfterCommit(String level, String subject) {
+		if (TransactionSynchronizationManager.isSynchronizationActive()) {
+			TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+				@Override
+				public void afterCommit() {
+					redisTemplate.delete(BudgetEnforcer.cfgKey(level, subject));
+					enforcer.invalidateAll();
+					notifier.notifyChanged(level, subject);
+				}
+			});
+		} else {
+			redisTemplate.delete(BudgetEnforcer.cfgKey(level, subject));
+			enforcer.invalidateAll();
+			notifier.notifyChanged(level, subject);
+		}
 	}
 
 	private void markPresence(BudgetLimit limit) {
@@ -258,13 +312,15 @@ public class BudgetService {
 			String value = redisTemplate.opsForValue().get(key);
 			return value == null ? 0L : Math.max(0L, Long.parseLong(value.trim()));
 		} catch (RuntimeException ex) {
-			return 0L;
+			throw new ResponseStatusException(
+					HttpStatus.SERVICE_UNAVAILABLE, "Budget counters unavailable", ex);
 		}
 	}
 
 	private String snapshotWithSpend(BudgetLimit limit) {
-		long epochMinute = System.currentTimeMillis() / 60_000L;
-		String month = YearMonth.now(ZoneOffset.UTC).toString();
+		Instant now = Instant.now();
+		long epochMinute = now.toEpochMilli() / 60_000L;
+		String month = YearMonth.from(now.atZone(ZoneOffset.UTC)).toString();
 		long minuteSpent = readCounter(BudgetEnforcer.minuteKey(limit.getLevel(), limit.getSubjectId(), epochMinute));
 		long monthSpent = readCounter(BudgetEnforcer.monthKey(limit.getLevel(), limit.getSubjectId(), month));
 		return snapshot(limit) + ",\"minuteSpent\":" + minuteSpent + ",\"monthSpent\":" + monthSpent + "}";

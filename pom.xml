@@ -45,6 +45,17 @@
             <artifactId>spring-boot-starter-webmvc-test</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <!-- CRITICAL-1 remediation: Spring Security provides the fail-closed
+             default-deny filter chain that the servlet-only FilterRegistrationBean
+             wiring could not express. Auth/rate-limit/budget stay in the existing
+             filters (delegated to permitAll here); every other route is denied by
+             default so a newly added route can never silently bypass all gates. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
@@ -89,7 +100,9 @@
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
-            <scope>runtime</scope>
+            <!-- compile scope: the budget fan-out listener uses the pgjdbc
+                 LISTEN/NOTIFY API (PGConnection) in main code. The jar already
+                 ships at runtime; this only adds compile-time visibility. -->
         </dependency>
         <dependency>
             <groupId>org.testcontainers</groupId>

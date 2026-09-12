@@ -31,9 +31,12 @@ public class RequestBodyCachingFilter extends OncePerRequestFilter {
 	public static final int ORDER = 0;
 
 	/**
-	 * The only path this filter applies to.
+	 * The only paths this filter applies to. Both are wrapped so the body can be
+	 * read multiple times: once by the auth/rate-limit filter and again by the
+	 * controller's {@code @RequestBody}.
 	 */
-	public static final String TARGET_PATH = "/v1/chat/completions";
+	public static final String TARGET_PATH_CHAT = "/v1/chat/completions";
+	public static final String TARGET_PATH_EMBEDDINGS = "/v1/embeddings";
 
 	/**
 	 * Default body cap, matching {@link CachedBodyHttpServletRequest#DEFAULT_MAX_BODY_BYTES}.
@@ -63,7 +66,8 @@ public class RequestBodyCachingFilter extends OncePerRequestFilter {
 	@Override
 	protected boolean shouldNotFilter(HttpServletRequest request) {
 		return !HttpMethod.POST.matches(request.getMethod())
-				|| !TARGET_PATH.equals(request.getServletPath());
+				|| (!TARGET_PATH_CHAT.equals(request.getServletPath())
+						&& !TARGET_PATH_EMBEDDINGS.equals(request.getServletPath()));
 	}
 
 	@Override

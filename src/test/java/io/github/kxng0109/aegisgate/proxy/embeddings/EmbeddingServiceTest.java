@@ -377,7 +377,7 @@ class EmbeddingServiceTest {
 		when(adapterResolver.resolve(ProviderType.OPENAI)).thenReturn(adapter);
 		BudgetEnforcer mockEnforcer = mock(BudgetEnforcer.class);
 		service.setBudgetEnforcer(mockEnforcer);
-		when(mockEnforcer.checkBudget(any(), any(), any(), anyString(), anyInt()))
+		when(mockEnforcer.checkBudget(any(), any(), any(), anyString(), anyInt(), any()))
 				.thenReturn(new BudgetDecision.Denied("ORG", "MONTH", 3600L));
 
 		EmbeddingRequest request = new EmbeddingRequest(List.of("hello"), "text-embedding-3-small", null, null, null);
@@ -405,7 +405,7 @@ class EmbeddingServiceTest {
 		when(adapterResolver.resolve(ProviderType.OPENAI)).thenReturn(adapter);
 		BudgetEnforcer mockEnforcer = mock(BudgetEnforcer.class);
 		service.setBudgetEnforcer(mockEnforcer);
-		when(mockEnforcer.checkBudget(any(), any(), any(), anyString(), anyInt()))
+		when(mockEnforcer.checkBudget(any(), any(), any(), anyString(), anyInt(), any()))
 				.thenThrow(new RateLimitUnavailableException("budget down"));
 
 		EmbeddingRequest request = new EmbeddingRequest(List.of("hello"), "text-embedding-3-small", null, null, null);
@@ -424,5 +424,63 @@ class EmbeddingServiceTest {
 		String canonical = new String(EmbeddingService.canonicalEmbeddingBytes(request), StandardCharsets.UTF_8);
 
 		assertThat(canonical).isEqualTo("\n[x]");
+	}
+
+	@Test
+	@DisplayName("missing budget enforcer skips the gate (unit-test contexts only)")
+	void budgetMissingEnforcerSkipsGate() throws Exception {
+		ProviderConfig provider = new ProviderConfig(
+				"openai-main", ProviderType.OPENAI, URI.create("https://api.openai.com/v1"),
+				new SensitiveString("key"), Duration.ofSeconds(5), Duration.ofSeconds(30)
+		);
+		gatewayProperties.setProviders(Map.of("openai-main", provider));
+		ModelAlias alias = new ModelAlias(
+				List.of(new ProviderRef("openai-main", "text-embedding-3-small")),
+				FailoverStrategy.SEQUENTIAL
+		);
+		gatewayProperties.setAliases(Map.of("text-embedding-3-small", alias));
+		EmbeddingAdapter adapter = mock(EmbeddingAdapter.class);
+		when(adapterResolver.resolve(ProviderType.OPENAI)).thenReturn(adapter);
+		service.setBudgetEnforcer(null);
+		EmbeddingResponse mockResponse = EmbeddingResponse.of(
+				"text-embedding-3-small",
+				List.of(EmbeddingData.of(0, new float[]{0.1f})),
+				5
+		);
+		when(batchOrchestrator.execute(any(), any(), any(), any())).thenReturn(mockResponse);
+
+		EmbeddingRequest request = new EmbeddingRequest(List.of("hello"), "text-embedding-3-small", null, null, null);
+
+		EmbeddingResponse response = service.processEmbedding(request, "tenant-1", null, "ab".repeat(32));
+
+		assertThat(response).isEqualTo(mockResponse);
+		verify(batchOrchestrator).execute(any(), any(), any(), any());
+	}
+
+	@Test
+	@DisplayName("malformed key digest fails closed with 503")
+	void budgetMalformedDigestFailsClosed() throws Exception {
+		ProviderConfig provider = new ProviderConfig(
+				"openai-main", ProviderType.OPENAI, URI.create("https://api.openai.com/v1"),
+				new SensitiveString("key"), Duration.ofSeconds(5), Duration.ofSeconds(30)
+		);
+		gatewayProperties.setProviders(Map.of("openai-main", provider));
+		ModelAlias alias = new ModelAlias(
+				List.of(new ProviderRef("openai-main", "text-embedding-3-small")),
+				FailoverStrategy.SEQUENTIAL
+		);
+		gatewayProperties.setAliases(Map.of("text-embedding-3-small", alias));
+		EmbeddingAdapter adapter = mock(EmbeddingAdapter.class);
+		when(adapterResolver.resolve(ProviderType.OPENAI)).thenReturn(adapter);
+		BudgetEnforcer mockEnforcer = mock(BudgetEnforcer.class);
+		service.setBudgetEnforcer(mockEnforcer);
+
+		EmbeddingRequest request = new EmbeddingRequest(List.of("hello"), "text-embedding-3-small", null, null, null);
+
+		assertThatThrownBy(() -> service.processEmbedding(request, "tenant-1", null, "!!!not-hex!!!"))
+				.isInstanceOf(ResponseStatusException.class)
+				.hasMessageContaining("503");
+		verify(mockEnforcer, never()).checkBudget(any(), any(), any(), anyString(), anyInt(), any());
+		verify(batchOrchestrator, never()).execute(any(), any(), any(), any());
 	}
 }

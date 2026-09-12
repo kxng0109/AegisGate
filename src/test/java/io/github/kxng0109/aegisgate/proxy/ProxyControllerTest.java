@@ -467,7 +467,7 @@ class ProxyControllerTest {
 		BudgetEnforcer mockEnforcer = mock(BudgetEnforcer.class);
 		controller.setBudgetEnforcer(mockEnforcer);
 		try {
-			when(mockEnforcer.checkBudget(any(), any(), any(), anyString(), anyInt()))
+			when(mockEnforcer.checkBudget(any(), any(), any(), anyString(), anyInt(), any()))
 					.thenReturn(new BudgetDecision.Denied("TEAM", "MINUTE", 45L));
 			MockHttpServletRequest req = request();
 			req.setAttribute("aegis.keyHash", "ab".repeat(32));
@@ -491,7 +491,7 @@ class ProxyControllerTest {
 		BudgetEnforcer mockEnforcer = mock(BudgetEnforcer.class);
 		controller.setBudgetEnforcer(mockEnforcer);
 		try {
-			when(mockEnforcer.checkBudget(any(), any(), any(), anyString(), anyInt()))
+			when(mockEnforcer.checkBudget(any(), any(), any(), anyString(), anyInt(), any()))
 					.thenThrow(new RateLimitUnavailableException("budget down"));
 			MockHttpServletRequest req = request();
 			req.setAttribute("aegis.keyHash", "ab".repeat(32));
@@ -1915,6 +1915,44 @@ class ProxyControllerTest {
 
 	private static HttpHeaders jsonHeaders() {
 		return HttpHeaders.of(Map.of("Content-Type", List.of("application/json")), (n, v) -> true);
+	}
+
+	@Test
+	@DisplayName("missing budget enforcer skips the gate (unit-test contexts only)")
+	void budgetMissingEnforcerSkipsGate() throws Exception {
+		ProviderResponse response = providerResponse(
+				"openai", 200, sseHeaders(),
+				Stream.of("data: [DONE]")
+		);
+		when(orchestrator.execute(any(), anyString()))
+				.thenReturn(CompletableFuture.completedFuture(response));
+		controller.setBudgetEnforcer(null);
+		MockHttpServletRequest req = request();
+		req.setAttribute("aegis.keyHash", "ab".repeat(32));
+
+		ResponseEntity<StreamingResponseBody> responseEntity = controller.proxyChatCompletions(PATH_BODY, req);
+
+		assertEquals(200, responseEntity.getStatusCode().value());
+		verify(orchestrator).execute(any(), anyString());
+	}
+
+	@Test
+	@DisplayName("malformed key digest fails closed with 503")
+	void budgetMalformedDigestFailsClosed() throws Exception {
+		BudgetEnforcer mockEnforcer = mock(BudgetEnforcer.class);
+		controller.setBudgetEnforcer(mockEnforcer);
+		try {
+			MockHttpServletRequest req = request();
+			req.setAttribute("aegis.keyHash", "!!!not-hex!!!");
+
+			ResponseEntity<StreamingResponseBody> response = controller.proxyChatCompletions(PATH_BODY, req);
+
+			assertEquals(503, response.getStatusCode().value());
+			verify(mockEnforcer, never()).checkBudget(any(), any(), any(), anyString(), anyInt(), any());
+			verify(orchestrator, never()).execute(any(), anyString());
+		} finally {
+			controller.setBudgetEnforcer(null);
+		}
 	}
 
 	private static String body(ResponseEntity<StreamingResponseBody> response) throws Exception {

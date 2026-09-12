@@ -404,7 +404,7 @@ public class ProxyController {
 		// Runs after alias/idempotency validation, before any upstream spend.
 		ResponseEntity<StreamingResponseBody> budgetDenied = checkBudgetOrNull(
 				alias, model, ownerId, trimmed,
-				(String) request.getAttribute(KeyAuthFilter.KEY_HASH_ATTRIBUTE));
+				(String) request.getAttribute(KeyAuthFilter.KEY_HASH_ATTRIBUTE), idempotencyKey);
 		if (budgetDenied != null) {
 			return budgetDenied;
 		}
@@ -926,11 +926,13 @@ public class ProxyController {
 	/**
 	 * Enforces spend budgets for one cache-miss request. Returns a 429 entity when a cap denies, a 503 when the
 	 * budget service is unreachable (uniform fail-closed), or {@code null} to continue. Skipped (null) when no
-	 * enforcer is wired or the key digest is absent.
+	 * enforcer is wired — the bean is unconditional in production, so a null enforcer only occurs in non-Spring
+	 * unit-test contexts; or when the key digest is absent (internal callers such as the semantic-cache warmer
+	 * have no key to charge). A malformed digest is internal corruption and fails closed with 503.
 	 */
 	private @Nullable ResponseEntity<StreamingResponseBody> checkBudgetOrNull(
 			ModelAlias alias, String model, @Nullable String ownerId, String trimmed,
-			@Nullable String keyHashHex) {
+			@Nullable String keyHashHex, @Nullable String idempotencyKey) {
 		BudgetEnforcer enforcer = this.budgetEnforcer;
 		if (enforcer == null || keyHashHex == null || keyHashHex.isBlank()) {
 			return null;
@@ -947,13 +949,12 @@ public class ProxyController {
 		try {
 			keyHash = SHA256Hash.fromHex(keyHashHex);
 		} catch (IllegalArgumentException malformed) {
-			log.debug("Skipping budget check for malformed key digest");
-			return null;
+			return errorResponse(HttpStatus.SERVICE_UNAVAILABLE, "Budget service unavailable");
 		}
 		final BudgetDecision decision;
 		try {
 			decision = enforcer.checkBudget(keyHash, ownerId, budgetType, model,
-					BudgetEnforcer.estimatePromptTokens(trimmed.length()));
+					BudgetEnforcer.estimatePromptTokens(trimmed.length()), idempotencyKey);
 		} catch (RateLimitUnavailableException unavailable) {
 			return errorResponse(HttpStatus.SERVICE_UNAVAILABLE, "Budget service unavailable");
 		}

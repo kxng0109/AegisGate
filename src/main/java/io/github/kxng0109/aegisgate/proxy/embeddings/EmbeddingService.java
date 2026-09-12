@@ -118,13 +118,16 @@ public class EmbeddingService {
 	}
 
 	/**
-	 * Enforces spend budgets before any upstream spend. Skipped silently when no enforcer is wired or the key
-	 * digest is absent; malformed digests (impossible behind the filter) also skip rather than fail traffic.
-	 * Redis failures surface as 503 (uniform fail-closed); exhausted caps surface as 429 with the binding
-	 * level, window, and retry horizon in the message.
+	 * Enforces spend budgets before any upstream spend. Skipped when no enforcer is wired — the bean is
+	 * unconditional in production, so a null enforcer only occurs in non-Spring unit-test contexts; or when the
+	 * key digest is absent (the semantic-cache warmer generates embeddings with no user key to charge). A
+	 * malformed digest is internal corruption and fails closed. Redis failures surface as 503 (uniform
+	 * fail-closed); exhausted caps surface as 429 with the binding level, window, and retry horizon in the
+	 * message.
 	 */
 	private void enforceBudgetOrThrow(@Nullable String keyHashHex, @Nullable String ownerId,
-			ProviderConfig providerConfig, ResolvedEmbeddingTarget target, byte[] canonicalBytes) {
+			@Nullable String idempotencyKey, ProviderConfig providerConfig, ResolvedEmbeddingTarget target,
+			byte[] canonicalBytes) {
 		BudgetEnforcer enforcer = this.budgetEnforcer;
 		if (enforcer == null || keyHashHex == null || keyHashHex.isBlank()) {
 			return;
@@ -133,13 +136,12 @@ public class EmbeddingService {
 		try {
 			keyHash = SHA256Hash.fromHex(keyHashHex);
 		} catch (IllegalArgumentException malformed) {
-			log.debug("Skipping budget check for malformed key digest");
-			return;
+			throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Budget service unavailable", malformed);
 		}
 		final BudgetDecision decision;
 		try {
 			decision = enforcer.checkBudget(keyHash, ownerId, providerConfig.type(), target.effectiveModel(),
-					BudgetEnforcer.estimatePromptTokens(canonicalBytes.length));
+					BudgetEnforcer.estimatePromptTokens(canonicalBytes.length), idempotencyKey);
 		} catch (RateLimitUnavailableException unavailable) {
 			throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Budget service unavailable", unavailable);
 		}
@@ -192,7 +194,7 @@ public class EmbeddingService {
 		EmbeddingAdapter adapter = adapterResolver.resolve(providerConfig.type());
 		URI targetUri = resolveTargetUri(providerConfig);
 		byte[] canonicalBytes = canonicalEmbeddingBytes(request);
-		enforceBudgetOrThrow(keyHashHex, ownerId, providerConfig, target, canonicalBytes);
+		enforceBudgetOrThrow(keyHashHex, ownerId, idempotencyKey, providerConfig, target, canonicalBytes);
 
 		Instant start = Instant.now();
 		EmbeddingResponse response;

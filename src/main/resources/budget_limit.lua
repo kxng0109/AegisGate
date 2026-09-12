@@ -48,6 +48,52 @@ if estimated == nil or estimated < 0 then
 	estimated = 0
 end
 
+-- Counts configured dimensions exactly like the main loop (minute>0 and month>0
+-- each count once), for the early-return paths below that must report an honest
+-- configured count so the engine's presence cache is never poisoned by a zero.
+local function countConfigured()
+	local n = 0
+	local lvl = 1
+	while lvl <= 3 do
+		local ck = KEYS[lvl + 6]
+		if ck ~= '' then
+			if (tonumber(redis.call('HGET', ck, 'minute_micros') or '0') or 0) > 0 then
+				n = n + 1
+			end
+			if (tonumber(redis.call('HGET', ck, 'month_micros') or '0') or 0) > 0 then
+				n = n + 1
+			end
+		end
+		lvl = lvl + 1
+	end
+	return n
+end
+
+-- Lua numbers are doubles: integers above 2^53-1 compare and accumulate
+-- inexactly, so a corrupt estimate could overflow a counter or misjudge a cap.
+-- The engine clamps to this bound, so this is defense-in-depth only: deny without
+-- consuming (first-denied-wins is preserved trivially — nothing was evaluated),
+-- counting configured dimensions exactly like the main loop so the presence cache
+-- is not poisoned by a zero count.
+local MAX_EXACT_INTEGER = 9007199254740991
+if estimated > MAX_EXACT_INTEGER then
+	return { 0, 1, 0, 60, countConfigured() }
+end
+
+-- Idempotency: a retried client key must not double-debit. Claim-first with a 24h
+-- TTL (Stripe idempotency lifecycle); the loser of a duplicate claim is admitted
+-- without spending. The claim key shares the fleet slot tag so the whole script
+-- stays single-slot. Absent id means no dedupe (internal callers, legacy clients).
+-- Client keys are length- and charset-bounded at the controllers (<= 255 printable
+-- ASCII), so the composed key cannot bloat the keyspace per call.
+local dedupeId = ARGV[2]
+if dedupeId ~= nil and dedupeId ~= '' then
+	local dedupeKey = 'budget:{b:global}:dedupe:' .. dedupeId
+	if redis.call('SET', dedupeKey, '1', 'NX', 'EX', 86400) == false then
+		return { 1, 0, 0, 0, countConfigured() }
+	end
+end
+
 local rejected = 0
 local remaining = -1
 local resetSeconds = 0

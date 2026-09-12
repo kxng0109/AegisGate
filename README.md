@@ -526,10 +526,15 @@ Administrative endpoints require the configured master key via `Authorization: B
   chargeback history survives the subject.
 
 Every proxied request passes a single atomic Lua spend gate (`budget_limit.lua`, V7 `budget_limits` + `budget_audit`
-tables) across KEY → TEAM → ORG levels: check-before-increment (denials consume nothing), first-denied level wins,
-implicit month rollover via TTL (no reset job to race), uniform fail-closed on Redis/script/pricing outage. Keys
-with no configured budget skip the script entirely (zero overhead on the existing path); spend estimates are
-prompt-side admission heuristics while the ledger holds post-hoc truth.
+tables, V8 append-only trigger) across KEY → TEAM → ORG levels: check-before-increment (denials consume nothing),
+first-denied level wins, implicit month rollover via TTL (no reset job to race), uniform fail-closed on Redis/script/
+pricing outage. Keys with no configured budget skip the script entirely (zero overhead on the existing path); spend
+estimates are prompt-side admission heuristics while the ledger holds post-hoc truth. All gate keys share one Cluster
+slot tag (atomicity survives a future Cluster move); Redis config publishes only after the DB transaction commits
+(startup backfill reconciles the rest); cross-pod presence invalidates via pg_notify fan-out on top of a 5s negative
+TTL; retried idempotency keys are claimed in-Lua so a retry admits without double-debiting. A Spring Security
+default-deny boundary refuses any route not explicitly declared, so new endpoints can never silently bypass
+authentication.
 - **`GET /v1/admin/cache/stats`**: Inspects active cache configuration, layer statuses, and similarity thresholds.
 - **`DELETE /v1/admin/cache`**: Executes an emergency global purge across L0 in-memory, L1 Redis exact keys, and L2
   vector document indexes (supports optional `?ownerId=...` for single-tenant scoped purges).

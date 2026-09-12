@@ -38,11 +38,28 @@ public final class SHA256Hash {
 	/**
 	 * Wraps an already-computed hex digest (used when reconstructing from Redis).
 	 *
-	 * @param hex hex SHA-256 string
+	 * @param hex 64 lowercase-or-uppercase hex characters
 	 * @return hash instance
+	 * @throws IllegalArgumentException when {@code hex} is not exactly 64 hex characters
 	 */
 	public static SHA256Hash fromHex(String hex) {
+		if (hex == null || hex.length() != 64 || !isHex(hex)) {
+			throw new IllegalArgumentException("Invalid SHA-256 hex digest");
+		}
 		return new SHA256Hash(hex);
+	}
+
+	private static boolean isHex(String value) {
+		for (int i = 0; i < value.length(); i++) {
+			char c = value.charAt(i);
+			boolean digit = c >= '0' && c <= '9';
+			boolean lower = c >= 'a' && c <= 'f';
+			boolean upper = c >= 'A' && c <= 'F';
+			if (!digit && !lower && !upper) {
+				return false;
+			}
+		}
+		return true;
 	}
 
 	public String hex() {

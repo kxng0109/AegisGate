@@ -2,6 +2,7 @@ package io.github.kxng0109.aegisgate.budget;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.Expiry;
 import io.github.kxng0109.aegisgate.contracts.ProviderType;
 import io.github.kxng0109.aegisgate.contracts.SHA256Hash;
 import io.github.kxng0109.aegisgate.ledger.CostCalculator;
@@ -9,7 +10,6 @@ import io.github.kxng0109.aegisgate.security.ratelimit.RateLimitUnavailableExcep
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.Nullable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -18,6 +18,7 @@ import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
@@ -40,7 +41,6 @@ import java.util.List;
  * corrupt it. Fail-closed: any Redis failure raises {@link RateLimitUnavailableException} (deny for every key class,
  * including unlimited).</p>
  */
-@Slf4j
 @Service
 public class BudgetEnforcer {
 
@@ -49,7 +49,33 @@ public class BudgetEnforcer {
 	 */
 	public static final String GLOBAL_ORG = "global";
 
+	/**
+	 * Single-slot tag shared by every budget key. Redis Cluster routes a multi-key Lua script to one slot only
+	 * when all its keys share a hash tag; without it the 9-key gate dies with CROSSSLOT the day the fleet moves
+	 * to Cluster. One tag for the whole invocation (not per level) preserves the script's atomic
+	 * check-before-increment across KEY/TEAM/ORG — per-level tags would scatter the levels across slots and
+	 * reintroduce the TOCTOU the script exists to prevent. Cutover note: pre-tag counters are abandoned, not
+	 * migrated (minute counters TTL out in 60s; month counters restart — acceptable because budgets ship
+	 * unreleased with no live spend to preserve).
+	 */
+	private static final String SLOT_TAG = "{b:" + GLOBAL_ORG + "}";
+
+	/**
+	 * Largest integer exactly representable as a Lua number. Estimates above this can neither be compared nor
+	 * accumulated safely inside the script; the engine clamps to this bound and the script denies anything above
+	 * it without consuming.
+	 */
+	static final long MAX_EXACT_LUA_INTEGER = 9_007_199_254_099_001L;
+
 	private static final Duration PRESENCE_TTL = Duration.ofSeconds(60);
+
+	/**
+	 * Negative-cached (unbudgeted) TTL. A stale negative admits spend without a gate until it lapses, so it is
+	 * deliberately short: worst-case overspend per key per pod is bounded by
+	 * {@code arrival_rate × 5s × avg_cost}, and cross-pod invalidation (pg_notify fan-out) closes it sooner.
+	 * Positive presence keeps the 60s TTL: it never skips the script, so staleness cannot admit anything.
+	 */
+	private static final Duration NEGATIVE_TTL = Duration.ofSeconds(5);
 
 	private final StringRedisTemplate redisTemplate;
 
@@ -80,12 +106,37 @@ public class BudgetEnforcer {
 		this.meterRegistry = meterRegistry != null ? meterRegistry : new SimpleMeterRegistry();
 		this.budgetedKeys = Caffeine.newBuilder()
 		                            .maximumSize(10_000)
-		                            .expireAfterWrite(PRESENCE_TTL)
+		                            .expireAfter(presenceExpiry())
 		                            .build();
 	}
 
+	/**
+	 * Per-entry TTL policy: budgeted presence lives 60s (it never skips the script), unbudgeted negatives only
+	 * 5s (they do skip, so the stale window must stay small).
+	 */
+	static Expiry<String, Boolean> presenceExpiry() {
+		return new Expiry<>() {
+			@Override
+			public long expireAfterCreate(String key, Boolean budgeted, long currentTime) {
+				return (Boolean.TRUE.equals(budgeted) ? PRESENCE_TTL : NEGATIVE_TTL).toNanos();
+			}
+
+			@Override
+			public long expireAfterUpdate(String key, Boolean budgeted, long currentTime,
+			                              long currentDuration) {
+				return expireAfterCreate(key, budgeted, currentTime);
+			}
+
+			@Override
+			public long expireAfterRead(String key, Boolean budgeted, long currentTime,
+			                            long currentDuration) {
+				return currentDuration;
+			}
+		};
+	}
+
 	static String cfgKey(String level, String subject) {
-		return "budget:cfg:" + level + ":" + subject;
+		return "budget:" + SLOT_TAG + ":cfg:" + level + ":" + subject;
 	}
 
 	/**
@@ -105,18 +156,19 @@ public class BudgetEnforcer {
 	}
 
 	static String minuteKey(String level, String subject, long epochMinute) {
-		return "budget:" + level + ":" + subject + ":minute:" + epochMinute;
+		return "budget:" + SLOT_TAG + ":" + level + ":" + subject + ":minute:" + epochMinute;
 	}
 
 	static String monthKey(String level, String subject, String yearMonth) {
-		return "budget:" + level + ":" + subject + ":month:" + yearMonth;
+		return "budget:" + SLOT_TAG + ":" + level + ":" + subject + ":month:" + yearMonth;
 	}
 
 	static long secondsToMonthEnd() {
 		ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
-		ZonedDateTime end = YearMonth.now(ZoneOffset.UTC)
+		ZonedDateTime end = YearMonth.from(now)
 		                             .atEndOfMonth()
-		                             .atTime(23, 59, 59)
+		                             .plusDays(1)
+		                             .atStartOfDay()
 		                             .atZone(ZoneOffset.UTC);
 		return Math.max(1L, end.toEpochSecond() - now.toEpochSecond());
 	}
@@ -152,12 +204,15 @@ public class BudgetEnforcer {
 	 * @param type            provider type for the price estimate
 	 * @param model           model id for the price estimate
 	 * @param estimatedTokens prompt tokens the request is expected to add
+	 * @param idempotencyKey client-minted idempotency key, or {@code null} when the caller has none. A retried key
+	 *                       is admitted without double-debiting (the script claims it first); {@code null} skips the
+	 *                       claim (internal callers such as the semantic-cache warmer).
 	 * @return allowed with remaining spend, or denied with the binding level, window, and retry horizon
 	 * @throws RateLimitUnavailableException when Redis is unreachable (fail-closed for every key class)
 	 */
 	public BudgetDecision checkBudget(
 			SHA256Hash keyHash, @Nullable String ownerId,
-			ProviderType type, String model, int estimatedTokens
+			ProviderType type, String model, int estimatedTokens, @Nullable String idempotencyKey
 	) {
 		String hex = keyHash.hex();
 		Boolean known = budgetedKeys.getIfPresent(hex);
@@ -166,8 +221,9 @@ public class BudgetEnforcer {
 			return new BudgetDecision.Allowed(-1L, 0L);
 		}
 		long estimatedMicros = estimateCostMicros(type, model, estimatedTokens);
-		long epochMinute = System.currentTimeMillis() / 60_000L;
-		String month = YearMonth.now(ZoneOffset.UTC).toString();
+		Instant now = Instant.now();
+		long epochMinute = now.toEpochMilli() / 60_000L;
+		String month = YearMonth.from(now.atZone(ZoneOffset.UTC)).toString();
 		String team = ownerId == null || ownerId.isBlank() ? "" : ownerId;
 		List<String> keys = List.of(
 				minuteKey("KEY", hex, epochMinute),
@@ -182,7 +238,9 @@ public class BudgetEnforcer {
 		);
 		List<Long> result;
 		try {
-			result = assertFive(redisTemplate.execute(budgetScript, keys, Long.toString(estimatedMicros)));
+			result = assertFive(redisTemplate.execute(
+					budgetScript, keys, Long.toString(estimatedMicros),
+					idempotencyKey == null ? "" : idempotencyKey));
 		} catch (RuntimeException ex) {
 			throw new RateLimitUnavailableException("Budget service unavailable", ex);
 		}
@@ -227,10 +285,10 @@ public class BudgetEnforcer {
 
 	private long estimateCostMicros(ProviderType type, String model, int estimatedTokens) {
 		try {
-			return Math.max(0L, costCalculator.calculate(type, model, estimatedTokens, 0));
+			long raw = Math.max(0L, costCalculator.calculate(type, model, estimatedTokens, 0));
+			return Math.min(MAX_EXACT_LUA_INTEGER, raw);
 		} catch (RuntimeException ex) {
-			log.debug("Budget price estimate unavailable, treating as zero-cost: {}", ex.getMessage());
-			return 0L;
+			throw new RateLimitUnavailableException("Budget price estimate unavailable", ex);
 		}
 	}
 

@@ -58,9 +58,11 @@ public class KeyAuthFilter extends OncePerRequestFilter {
 	public static final int ORDER = 1;
 
 	/**
-	 * The only path this filter applies to.
+	 * The only paths this filter applies to. Both are authenticated, rate-limited,
+	 * and budget-gated by this filter before the controller runs.
 	 */
-	public static final String TARGET_PATH = "/v1/chat/completions";
+	public static final String TARGET_PATH_CHAT = "/v1/chat/completions";
+	public static final String TARGET_PATH_EMBEDDINGS = "/v1/embeddings";
 
 	/**
 	 * The {@code Bearer } scheme prefix.
@@ -201,7 +203,8 @@ public class KeyAuthFilter extends OncePerRequestFilter {
 	@Override
 	protected boolean shouldNotFilter(HttpServletRequest request) {
 		return !HttpMethod.POST.matches(request.getMethod())
-				|| !TARGET_PATH.equals(request.getServletPath());
+				|| (!TARGET_PATH_CHAT.equals(request.getServletPath())
+						&& !TARGET_PATH_EMBEDDINGS.equals(request.getServletPath()));
 	}
 
 	@Override

@@ -10,6 +10,11 @@ import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
+import org.springframework.http.HttpStatus;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
@@ -48,8 +53,10 @@ class BudgetServiceTest {
 
 	private final SsrfValidator ssrfValidator = mock(SsrfValidator.class);
 
+	private final BudgetChangeNotifier notifier = mock(BudgetChangeNotifier.class);
+
 	private final BudgetService service = new BudgetService(
-			limits, audits, redisTemplate, enforcer, gatewayProperties, ssrfValidator);
+			limits, audits, redisTemplate, enforcer, gatewayProperties, ssrfValidator, notifier);
 
 	@Test
 	@DisplayName("create persists, mirrors to Redis, audits, and invalidates")
@@ -63,6 +70,7 @@ class BudgetServiceTest {
 		assertEquals("TEAM", created.getLevel());
 		verify(hashOps).putAll(anyString(), any());
 		verify(enforcer).invalidateAll();
+		verify(notifier).notifyChanged("TEAM", "tenant-a");
 		verify(audits).save(any(BudgetAuditRecord.class));
 	}
 
@@ -102,6 +110,7 @@ class BudgetServiceTest {
 		BudgetLimit updated = service.update(existing.getId(), 300L, 400L, null);
 
 		assertEquals(300L, updated.getMinuteMicros());
+		verify(notifier).notifyChanged("TEAM", "tenant-a");
 		verify(audits).save(any(BudgetAuditRecord.class));
 	}
 
@@ -126,6 +135,7 @@ class BudgetServiceTest {
 
 		verify(limits).delete(existing);
 		verify(redisTemplate).delete(anyString());
+		verify(notifier).notifyChanged("KEY", "ab".repeat(32));
 		verify(audits).save(any(BudgetAuditRecord.class));
 	}
 
@@ -250,6 +260,19 @@ class BudgetServiceTest {
 	}
 
 	@Test
+	@DisplayName("balance Redis outage fails closed instead of zero-spend lie")
+	void balanceRedisOutageFailsClosed() {
+		when(limits.findByLevelAndSubjectId("TEAM", "tenant-a"))
+				.thenReturn(Optional.of(new BudgetLimit("TEAM", "tenant-a", 100L, 200L, null)));
+		when(redisTemplate.<String, String>opsForValue()).thenReturn(valueOps);
+		when(valueOps.get(anyString())).thenThrow(new RuntimeException("redis down"));
+
+		ResponseStatusException thrown = assertThrows(
+				ResponseStatusException.class, () -> service.balance("TEAM", "tenant-a"));
+		assertEquals(HttpStatus.SERVICE_UNAVAILABLE, thrown.getStatusCode());
+	}
+
+	@Test
 	@DisplayName("blank webhook is treated as absent")
 	void blankWebhookTreatedAsAbsent() {
 		when(redisTemplate.<String, String>opsForHash()).thenReturn(hashOps);
@@ -261,6 +284,58 @@ class BudgetServiceTest {
 		assertEquals("TEAM", created.getLevel());
 		assertNull(created.getWebhookUrl());
 		verify(hashOps).putAll(anyString(), any());
+	}
+
+	@Test
+	@DisplayName("config publishes after commit, not inside the transaction")
+	@SuppressWarnings("unchecked")
+	void configPublishesAfterCommit() {
+		when(redisTemplate.<String, String>opsForHash()).thenReturn(hashOps);
+		when(limits.findByLevelAndSubjectId("TEAM", "tenant-a")).thenReturn(Optional.empty());
+		when(limits.saveAndFlush(any(BudgetLimit.class))).thenAnswer(call -> call.getArgument(0));
+		ArgumentCaptor<TransactionSynchronization> syncCaptor =
+				ArgumentCaptor.forClass(TransactionSynchronization.class);
+
+		try (MockedStatic<TransactionSynchronizationManager> transactions =
+				mockStatic(TransactionSynchronizationManager.class)) {
+			transactions.when(TransactionSynchronizationManager::isSynchronizationActive).thenReturn(true);
+
+			service.create("TEAM", "tenant-a", 100L, 200L, null);
+
+			transactions.verify(() ->
+					TransactionSynchronizationManager.registerSynchronization(syncCaptor.capture()));
+			verify(hashOps, never()).putAll(anyString(), any());
+			syncCaptor.getValue().afterCommit();
+			verify(hashOps).putAll(anyString(), any());
+			verify(enforcer).invalidateAll();
+			verify(notifier).notifyChanged("TEAM", "tenant-a");
+		}
+	}
+
+	@Test
+	@DisplayName("config drops after commit, not inside the transaction")
+	void configDropsAfterCommit() {
+		BudgetLimit existing = new BudgetLimit("KEY", "ab".repeat(32), 100L, 200L, null);
+		when(limits.findById(existing.getId())).thenReturn(Optional.of(existing));
+		when(redisTemplate.<String, String>opsForValue()).thenReturn(valueOps);
+		when(valueOps.get(anyString())).thenReturn("40");
+		ArgumentCaptor<TransactionSynchronization> syncCaptor =
+				ArgumentCaptor.forClass(TransactionSynchronization.class);
+
+		try (MockedStatic<TransactionSynchronizationManager> transactions =
+				mockStatic(TransactionSynchronizationManager.class)) {
+			transactions.when(TransactionSynchronizationManager::isSynchronizationActive).thenReturn(true);
+
+			service.delete(existing.getId());
+
+			transactions.verify(() ->
+					TransactionSynchronizationManager.registerSynchronization(syncCaptor.capture()));
+			verify(redisTemplate, never()).delete(anyString());
+			syncCaptor.getValue().afterCommit();
+			verify(redisTemplate).delete(anyString());
+			verify(enforcer).invalidateAll();
+			verify(notifier).notifyChanged("KEY", "ab".repeat(32));
+		}
 	}
 }
 

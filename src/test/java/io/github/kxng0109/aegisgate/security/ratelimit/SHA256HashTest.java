@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class SHA256HashTest {
 
@@ -53,5 +54,22 @@ class SHA256HashTest {
 		Object foreignObj = "not-a-hash";
 		assertNotEquals(nullObj, hash);
 		assertNotEquals(foreignObj, hash);
+	}
+
+	@Test
+	void fromHexAcceptsUppercaseDigits() {
+		SHA256Hash hash = SHA256Hash.fromHex("AB".repeat(32));
+		assertEquals("AB".repeat(32), hash.hex());
+	}
+
+	@Test
+	@SuppressWarnings("DataFlowIssue")
+	void fromHexRejectsMalformed() {
+		assertThrows(IllegalArgumentException.class, () -> SHA256Hash.fromHex(null));
+		assertThrows(IllegalArgumentException.class, () -> SHA256Hash.fromHex(""));
+		assertThrows(IllegalArgumentException.class, () -> SHA256Hash.fromHex("ab".repeat(31)));
+		assertThrows(IllegalArgumentException.class, () -> SHA256Hash.fromHex("ab".repeat(33)));
+		assertThrows(IllegalArgumentException.class, () -> SHA256Hash.fromHex("zz".repeat(32)));
+		assertThrows(IllegalArgumentException.class, () -> SHA256Hash.fromHex("ab cd".repeat(16)));
 	}
 }

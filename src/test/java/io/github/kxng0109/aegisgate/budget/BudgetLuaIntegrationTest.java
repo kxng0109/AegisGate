@@ -1,6 +1,7 @@
 package io.github.kxng0109.aegisgate.budget;
 
 import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.redis.testcontainers.RedisContainer;
 import io.github.kxng0109.aegisgate.contracts.ProviderType;
 import io.github.kxng0109.aegisgate.contracts.SHA256Hash;
@@ -18,6 +19,7 @@ import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -73,7 +75,7 @@ class BudgetLuaIntegrationTest {
 	private static void seedCfg(StringRedisTemplate template, String level, String subject,
 	                            long minuteMicros, long monthMicros) {
 		template.opsForHash().putAll(
-				"budget:cfg:" + level + ":" + subject,
+				BudgetEnforcer.cfgKey(level, subject),
 				Map.of(
 						"minute_micros", Long.toString(minuteMicros),
 						"month_micros", Long.toString(monthMicros)
@@ -91,12 +93,12 @@ class BudgetLuaIntegrationTest {
 		StringRedisTemplate template = template();
 		template.getConnectionFactory().getConnection().serverCommands().flushDb();
 		seedCfg(template, "KEY", hex(), 1_000_000L, 100_000_000L);
-		Object cfgReadback = template.opsForHash().get("budget:cfg:KEY:" + hex(), "minute_micros");
-		org.junit.jupiter.api.Assertions.assertEquals("1000000", String.valueOf(cfgReadback), "DIAG cfg visible");
+		Object cfgReadback = template.opsForHash().get(BudgetEnforcer.cfgKey("KEY", hex()), "minute_micros");
+		assertEquals("1000000", String.valueOf(cfgReadback), "seeded config is visible to the script");
 		BudgetEnforcer enforcer = enforcer(template, 60_000L);
 
 		BudgetDecision first = enforcer.checkBudget(
-				SHA256Hash.fromHex(hex()), "owner-1", ProviderType.OPENAI, "gpt-5.6-luna", 10);
+				SHA256Hash.fromHex(hex()), "owner-1", ProviderType.OPENAI, "gpt-5.6-luna", 10, null);
 
 		assertTrue(first instanceof BudgetDecision.Allowed allowed);
 		assertEquals(940_000L, ((BudgetDecision.Allowed) first).remainingMicros());
@@ -117,11 +119,11 @@ class BudgetLuaIntegrationTest {
 		BudgetEnforcer enforcer = enforcer(template, 60_000L);
 
 		BudgetDecision first = enforcer.checkBudget(
-				SHA256Hash.fromHex(hex()), "tenant-a", ProviderType.OPENAI, "gpt-5.6-luna", 10);
+				SHA256Hash.fromHex(hex()), "tenant-a", ProviderType.OPENAI, "gpt-5.6-luna", 10, null);
 		assertTrue(first instanceof BudgetDecision.Allowed);
 
 		BudgetDecision second = enforcer.checkBudget(
-				SHA256Hash.fromHex(hex()), "tenant-a", ProviderType.OPENAI, "gpt-5.6-luna", 10);
+				SHA256Hash.fromHex(hex()), "tenant-a", ProviderType.OPENAI, "gpt-5.6-luna", 10, null);
 		assertTrue(second instanceof BudgetDecision.Denied denied);
 		assertEquals("KEY", ((BudgetDecision.Denied) second).level());
 		assertEquals("MINUTE", ((BudgetDecision.Denied) second).window());
@@ -146,7 +148,7 @@ class BudgetLuaIntegrationTest {
 		BudgetEnforcer enforcer = enforcer(template, 0L);
 
 		BudgetDecision decision = enforcer.checkBudget(
-				SHA256Hash.fromHex(hex()), "owner-1", ProviderType.OLLAMA, "local-llama", 10);
+				SHA256Hash.fromHex(hex()), "owner-1", ProviderType.OLLAMA, "local-llama", 10, null);
 
 		assertTrue(decision instanceof BudgetDecision.Allowed);
 		assertFalse(template.hasKey(BudgetEnforcer.minuteKey(
@@ -163,7 +165,7 @@ class BudgetLuaIntegrationTest {
 		seedCfg(template, "KEY", hex(), 0L, 100_000_000L);
 		BudgetEnforcer enforcer = enforcer(template, 60_000L);
 
-		enforcer.checkBudget(SHA256Hash.fromHex(hex()), "owner-1", ProviderType.OPENAI, "gpt-5.6-luna", 10);
+		enforcer.checkBudget(SHA256Hash.fromHex(hex()), "owner-1", ProviderType.OPENAI, "gpt-5.6-luna", 10, null);
 
 		String expected = BudgetEnforcer.monthKey("KEY", hex(), YearMonth.now(ZoneOffset.UTC).toString());
 		assertEquals("60000", template.opsForValue().get(expected));
@@ -172,11 +174,60 @@ class BudgetLuaIntegrationTest {
 	@Test
 	@DisplayName("presence cache is instance-local and invalidatable")
 	void presenceCacheInvalidates() {
-		Cache<String, Boolean> probe = com.github.benmanes.caffeine.cache.Caffeine.newBuilder()
-		                                                                          .maximumSize(10)
-		                                                                          .build();
+		Cache<String, Boolean> probe = Caffeine.newBuilder()
+		                                                          .maximumSize(10)
+		                                                          .build();
 		probe.put("k", Boolean.TRUE);
 		probe.invalidate("k");
 		assertTrue(probe.getIfPresent("k") == null);
+	}
+
+	@Test
+	@DisplayName("absurd estimates deny without consuming")
+	void absurdEstimateDeniesWithoutConsuming() {
+		StringRedisTemplate template = template();
+		template.getConnectionFactory().getConnection().serverCommands().flushDb();
+		seedCfg(template, "KEY", hex(), 1_000_000L, 100_000_000L);
+		DefaultRedisScript<List> script = script();
+		List<String> keys = List.of(
+				BudgetEnforcer.minuteKey("KEY", hex(), 1L),
+				"",
+				"",
+				BudgetEnforcer.monthKey("KEY", hex(), "2026-09"),
+				"",
+				"",
+				BudgetEnforcer.cfgKey("KEY", hex()),
+				"",
+				"");
+		List<?> result = template.execute(script, keys, "99999999999999999999");
+		assertEquals(5, result.size());
+		long[] actual = new long[5];
+		for (int i = 0; i < 5; i++) {
+			Object value = result.get(i);
+			actual[i] = value instanceof Number number ? number.longValue()
+					: Long.parseLong(String.valueOf(value).trim());
+		}
+		assertArrayEquals(new long[]{0L, 1L, 0L, 60L, 2L}, actual);
+		assertFalse(template.hasKey(BudgetEnforcer.minuteKey("KEY", hex(), 1L)));
+	}
+
+	@Test
+	@DisplayName("retried idempotency key admits without double-debit")
+	void retryAdmitsWithoutDoubleDebit() {
+		StringRedisTemplate template = template();
+		template.getConnectionFactory().getConnection().serverCommands().flushDb();
+		seedCfg(template, "KEY", hex(), 1_000_000L, 100_000_000L);
+		BudgetEnforcer enforcer = enforcer(template, 60_000L);
+		String idempotencyKey = UUID.randomUUID().toString();
+
+		BudgetDecision first = enforcer.checkBudget(
+				SHA256Hash.fromHex(hex()), "owner-1", ProviderType.OPENAI, "gpt-5.6-luna", 10, idempotencyKey);
+		BudgetDecision second = enforcer.checkBudget(
+				SHA256Hash.fromHex(hex()), "owner-1", ProviderType.OPENAI, "gpt-5.6-luna", 10, idempotencyKey);
+
+		assertTrue(first instanceof BudgetDecision.Allowed);
+		assertTrue(second instanceof BudgetDecision.Allowed);
+		String month = YearMonth.now(ZoneOffset.UTC).toString();
+		assertEquals("60000", template.opsForValue().get(BudgetEnforcer.monthKey("KEY", hex(), month)));
 	}
 }

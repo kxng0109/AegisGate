@@ -50,7 +50,10 @@ public class SecurityFilterConfig {
 		FilterRegistrationBean<RequestBodyCachingFilter> registration = new FilterRegistrationBean<>(
 				new RequestBodyCachingFilter(maxBodyBytes));
 		registration.setOrder(RequestBodyCachingFilter.ORDER);
-		registration.addUrlPatterns(RequestBodyCachingFilter.TARGET_PATH);
+		registration.addUrlPatterns(
+				RequestBodyCachingFilter.TARGET_PATH_CHAT,
+				RequestBodyCachingFilter.TARGET_PATH_EMBEDDINGS
+		);
 		registration.setName("aegisRequestBodyCachingFilter");
 		return registration;
 	}
@@ -72,7 +75,10 @@ public class SecurityFilterConfig {
 		FilterRegistrationBean<KeyAuthFilter> registration = new FilterRegistrationBean<>(
 				new KeyAuthFilter(keyManagementService, rateLimitEngine, objectMapper));
 		registration.setOrder(KeyAuthFilter.ORDER);
-		registration.addUrlPatterns(KeyAuthFilter.TARGET_PATH);
+		registration.addUrlPatterns(
+				KeyAuthFilter.TARGET_PATH_CHAT,
+				KeyAuthFilter.TARGET_PATH_EMBEDDINGS
+		);
 		registration.setName("aegisKeyAuthFilter");
 		return registration;
 	}

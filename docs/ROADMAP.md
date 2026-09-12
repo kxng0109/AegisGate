@@ -36,10 +36,14 @@ measured before/after (flood p95, burst p95, RSS, `usec_per_call` on `evalsha`) 
    hot path.
 5. **Response-replay store** (dedupe-only agreed scope): completes Stripe-semantics idempotency for spend (fixes the
    retry double-spend gap); bounded retention, no unbounded growth.
-6. **CRITICAL-1 + fail-open remediation**: `/v1/embeddings` filter-bypass verdict, C-9 fail-closed paths, C-10
-   outbox ordering, C-12 audit hardening, C-13 idempotent spend (research complete — see session notes).
-7. **CRITICAL-2 + counter hardening**: `{b:orgId}` slot tags, overflow guards, month-edge single-instant derivation,
-   result-contract versioning, negative-cache epoch fencing.
+6. **CRITICAL-1 + fail-open remediation** ✅ SHIPPED (full `verify` 1,349 green, branch 0.9505): Spring Security
+   default-deny boundary + `/v1/embeddings` bypass closed; hex-validated digests; pricing/Redis outages deny;
+   after-commit Redis publish + startup backfill reconciler; V8 append-only audit trigger; 5s negative TTL +
+   pg_notify fan-out; idempotency-claim-in-Lua.
+7. **CRITICAL-2 + counter hardening** ✅ SHIPPED (same verify): `{b:global}` single-slot tags, >2^53 estimate guard,
+   single-instant windows, exclusive-midnight rollover, key-layout pinning tests. Deferred with rationale: result
+   envelope versioning (behavioral pinning suffices), CLUSTER KEYSLOT CI (single-primary fleet), epoch-in-ARGV
+   (cannot fence an optimization skip without a round trip — fan-out + short TTL is the correct combination).
 8. **SSE at scale**: heartbeat frames vs LB idle timeouts, server replay ring, single-pass byte relay, chat-side
    `keep_alive` parity, crypto-holder allocation removal (ThreadLocal forbidden on virtual threads — bounded pool
    or per-request).
