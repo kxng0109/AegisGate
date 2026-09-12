@@ -6,6 +6,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -34,6 +36,12 @@ import static org.assertj.core.api.Assertions.fail;
  * <p>Uses the repo's established {@code SpringBootTest + LocalServerPort} pattern
  * with JDK {@link HttpClient}, rather than a WebMvcTest slice: the slice would try to wire every controller without its
  * service dependencies. The full context is the honest test of a boundary that lives in the servlet filter chain.
+ *
+ * <p>Redis connection details are injected via {@code DynamicPropertySource} (the repo's established pattern, see
+ * {@code RateLimitIntegrationTest}): {@code @ServiceConnection} only auto-creates {@code JdbcConnectionDetails} for
+ * PostgreSQL here, so without the explicit mapping the application would fall back to the default
+ * {@code localhost:6379} and the {@code redis} health indicator would report DOWN wherever no unrelated Redis
+ * happens to listen — exactly the persistent CI 503 this class previously masked as a cold-start transient.</p>
  */
 @DisplayName("Fail-closed default-deny boundary")
 @Testcontainers
@@ -46,9 +54,14 @@ class SecurityDenyAllBoundaryTest {
 			new PostgreSQLContainer(DockerImageName.parse("postgres:16-alpine"));
 
 	@Container
-	@ServiceConnection
 	static final RedisContainer REDIS =
 			new RedisContainer(DockerImageName.parse("redis:8.8.2-alpine3.23"));
+
+	@DynamicPropertySource
+	static void redisProperties(DynamicPropertyRegistry registry) {
+		registry.add("spring.data.redis.host", REDIS::getHost);
+		registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
+	}
 
 	@LocalServerPort
 	private int port;
@@ -57,7 +70,8 @@ class SecurityDenyAllBoundaryTest {
 	@DisplayName("public observability routes are permitted")
 	void publicRoutesPermitted() throws Exception {
 		// Aggregate health is a composite of indicators (db, redis, diskSpace, ...):
-		// a cold runner can report transient 503 until Hikari/Lettuce warm up, so
+		// Redis is explicitly mapped to this class's container above, and a cold
+		// runner can still report transient 503 until Hikari/Lettuce warm up, so
 		// this endpoint alone waits for UP instead of asserting a single shot.
 		awaitPublicRouteUp("/actuator/health", Duration.ofSeconds(30), Duration.ofMillis(500));
 		assertThat(status("GET", "/v3/api-docs")).isEqualTo(200);
