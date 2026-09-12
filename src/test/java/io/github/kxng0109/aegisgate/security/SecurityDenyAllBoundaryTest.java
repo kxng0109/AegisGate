@@ -11,12 +11,16 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
+import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
 
 /**
  * Proves the fail-closed default-deny boundary end-to-end against a live server.
@@ -52,7 +56,10 @@ class SecurityDenyAllBoundaryTest {
 	@Test
 	@DisplayName("public observability routes are permitted")
 	void publicRoutesPermitted() throws Exception {
-		assertThat(status("GET", "/actuator/health")).isEqualTo(200);
+		// Aggregate health is a composite of indicators (db, redis, diskSpace, ...):
+		// a cold runner can report transient 503 until Hikari/Lettuce warm up, so
+		// this endpoint alone waits for UP instead of asserting a single shot.
+		awaitPublicRouteUp("/actuator/health", Duration.ofSeconds(30), Duration.ofMillis(500));
 		assertThat(status("GET", "/v3/api-docs")).isEqualTo(200);
 	}
 
@@ -92,6 +99,49 @@ class SecurityDenyAllBoundaryTest {
 		                                 .method(method, HttpRequest.BodyPublishers.noBody())
 		                                 .build();
 		return HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.discarding()).statusCode();
+	}
+
+	/**
+	 * Polls a public route until it reports {@code 200 OK} or the deadline expires.
+	 *
+	 * <p>Fail-closed by construction: only HTTP {@code 503} (transient DOWN indicator
+	 * while connection pools warm up) and connection-level failures are retried. Any
+	 * other status — {@code 401}, {@code 403}, {@code 404}, or anything unexpected —
+	 * fails immediately, so a genuine boundary regression can never be masked by the
+	 * wait loop.
+	 *
+	 * @param path public path to poll; must not be {@code null}
+	 * @param timeout maximum time to wait for {@code 200 OK}; must be positive
+	 * @param interval delay between attempts; must be positive
+	 */
+	private void awaitPublicRouteUp(String path, Duration timeout, Duration interval) throws Exception {
+		HttpClient client = HttpClient.newHttpClient();
+		Instant deadline = Instant.now().plus(timeout);
+		int lastStatus = -1;
+		while (true) {
+			try {
+				HttpRequest request = HttpRequest.newBuilder()
+				                                 .uri(URI.create("http://localhost:" + port + path))
+				                                 .GET()
+				                                 .build();
+				lastStatus = client.send(request, HttpResponse.BodyHandlers.discarding()).statusCode();
+				if (lastStatus == 200) {
+					return;
+				}
+				assertThat(lastStatus).as("public route %s must never be denied, got %s", path, lastStatus)
+				                      .isEqualTo(503);
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				fail("interrupted while waiting for public route " + path, e);
+			} catch (IOException e) {
+				lastStatus = -1;
+			}
+			if (!Instant.now().isBefore(deadline)) {
+				break;
+			}
+			Thread.sleep(interval.toMillis());
+		}
+		fail("public route " + path + " did not report 200 within " + timeout + ", last status=" + lastStatus);
 	}
 }
 
