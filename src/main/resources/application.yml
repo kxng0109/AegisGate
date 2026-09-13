@@ -159,6 +159,14 @@ gateway:
       alertmanager-url: ${GATEWAY_BUDGET_DETECTION_ALERTMANAGER_URL:}
       dispatch-batch: ${GATEWAY_BUDGET_DETECTION_DISPATCH_BATCH:100}
       dispatch-interval: ${GATEWAY_BUDGET_DETECTION_DISPATCH_INTERVAL:30s}
+    settlement:
+      # Hold-then-settle accounting: admission holds H, stream-end trues up to actual.
+      enabled: ${GATEWAY_BUDGET_SETTLEMENT_ENABLED:true}
+      max-tokens-ceiling: ${GATEWAY_BUDGET_SETTLEMENT_MAX_TOKENS_CEILING:4096}
+      hold-ttl-seconds: ${GATEWAY_BUDGET_SETTLEMENT_HOLD_TTL_SECONDS:3600}
+      abort-grace-seconds: ${GATEWAY_BUDGET_SETTLEMENT_ABORT_GRACE_SECONDS:30}
+      sweeper-batch: ${GATEWAY_BUDGET_SETTLEMENT_SWEEPER_BATCH:500}
+      sweep-interval: ${GATEWAY_BUDGET_SETTLEMENT_SWEEP_INTERVAL:30s}
   maintenance:
     # Monthly retention janitor (replay partition detach, alert archive roll, purges).
     retention-enabled: ${GATEWAY_MAINTENANCE_RETENTION_ENABLED:true}
@@ -173,14 +181,6 @@ gateway:
         secret-ref: ${GATEWAY_NOTIFY_EMAIL_GRAPH_SECRET_REF:}
         mailbox: ${GATEWAY_NOTIFY_EMAIL_GRAPH_MAILBOX:}
         per-minute-cap: ${GATEWAY_NOTIFY_EMAIL_GRAPH_PER_MINUTE_CAP:25}
-    settlement:
-      # Hold-then-settle accounting: admission holds H, stream-end trues up to actual.
-      enabled: ${GATEWAY_BUDGET_SETTLEMENT_ENABLED:true}
-      max-tokens-ceiling: ${GATEWAY_BUDGET_SETTLEMENT_MAX_TOKENS_CEILING:4096}
-      hold-ttl-seconds: ${GATEWAY_BUDGET_SETTLEMENT_HOLD_TTL_SECONDS:3600}
-      abort-grace-seconds: ${GATEWAY_BUDGET_SETTLEMENT_ABORT_GRACE_SECONDS:30}
-      sweeper-batch: ${GATEWAY_BUDGET_SETTLEMENT_SWEEPER_BATCH:500}
-      sweep-interval: ${GATEWAY_BUDGET_SETTLEMENT_SWEEP_INTERVAL:30s}
   redis:
     cache:
       # Cache-tier Redis (L1/L2/replay-hot): evictable instance, best-effort by design.
