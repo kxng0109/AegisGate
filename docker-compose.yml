@@ -2,9 +2,10 @@ name: aegisgate
 
 services:
   # ---------------------------------------------------------------------------
-  # Redis 8 (Query Engine + JSON + TimeSeries built in) - Rate Limiting,
-  # Circuit Breakers & Vector Search. NOTE: the official redis image ignores
-  # REDIS_ARGS (a redis-stack-server convention), so flags live in command:.
+  # Redis 8 (Query Engine + JSON + TimeSeries built in) - ACCOUNTING TIER:
+  # rate limits, budgets, holds, dedupe, circuit breakers. noeviction is a
+  # correctness property here (an evicted month counter resets spend to zero),
+  # never a tuning knob: size maxmemory for the accounting working set +20%.
   # ---------------------------------------------------------------------------
   redis:
     image: redis:8.8.2-alpine3.23
@@ -14,7 +15,7 @@ services:
       redis-server
       --appendonly yes
       --save 60 1
-      --maxmemory 256mb
+      --maxmemory 384mb
       --maxmemory-policy noeviction
       --protected-mode no
     ports:
@@ -36,6 +37,53 @@ services:
         limits:
           cpus: "1.0"
           memory: 512M
+        reservations:
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - aegisgate-network
+
+  # ---------------------------------------------------------------------------
+  # Redis 8 - CACHE TIER (L1 exact, L2 vectors, replay hot): allkeys-lru so cache
+  # pressure evicts only cache keys. A full tier degrades to misses, never to
+  # accounting corruption. Separate persistence volume; loss is recoverable.
+  # ---------------------------------------------------------------------------
+  redis-cache:
+    image: redis:8.8.2-alpine3.23
+    container_name: aegisgate-redis-cache
+    restart: unless-stopped
+    command: >
+      redis-server
+      --appendonly yes
+      --save 60 1
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --protected-mode no
+    ports:
+      - "${REDIS_CACHE_PORT:-6380}:6379"
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    volumes:
+      - redis_cache_data:/data
+    profiles:
+      - deps
+      - monitoring
+      - all
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 640M
         reservations:
           memory: 128M
     logging:
@@ -145,6 +193,9 @@ services:
       # Infrastructure Connections (matching docker network services)
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      REDIS_CACHE_HOST: redis-cache
+      REDIS_CACHE_PORT: 6379
+      GATEWAY_BUDGET_DETECTION_ALERTMANAGER_URL: http://alertmanager:9093
       REDIS_POOL_MAX_ACTIVE: ${REDIS_POOL_MAX_ACTIVE:-20}
       REDIS_POOL_MAX_IDLE: ${REDIS_POOL_MAX_IDLE:-10}
       REDIS_POOL_MIN_IDLE: ${REDIS_POOL_MIN_IDLE:-2}
@@ -277,6 +328,44 @@ services:
       - aegisgate-network
 
   # ---------------------------------------------------------------------------
+  # Redis Cache Exporter - cache-tier internals (evictions are normal here;
+  # alert thresholds for this job must differ from the accounting tier).
+  # ---------------------------------------------------------------------------
+  redis-cache-exporter:
+    image: oliver006/redis_exporter:v1.89.0-alpine
+    container_name: aegisgate-redis-cache-exporter
+    restart: unless-stopped
+    command:
+      - "--redis.addr=redis://redis-cache:6379"
+      - "--include-modules-metrics"
+      - "--include-search-indexes-metrics"
+      - "--redact-config-metrics"
+    depends_on:
+      redis-cache:
+        condition: service_healthy
+    profiles:
+      - monitoring
+      - all
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
+        reservations:
+          memory: 64M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - aegisgate-network
+
+  # ---------------------------------------------------------------------------
   # Postgres Exporter - Postgres internals for Prometheus. Auth via
   # POSTGRES_EXPORTER_USER/PASSWORD (least-privilege pg_monitor member, see
   # README; values live ONLY in .env, referenced here by name).
@@ -306,6 +395,53 @@ services:
         limits:
           cpus: "0.5"
           memory: 128M
+        reservations:
+          memory: 64M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - aegisgate-network
+
+  # ---------------------------------------------------------------------------
+  # Alertmanager v0.34.0 - Alert routing for detector alerts (gateway POSTs to
+  # /api/v2/alerts; Prometheus rule alerts also land here). Replace the receiver
+  # webhook URL in monitoring/alertmanager/alertmanager.yml before relying on pages.
+  # ---------------------------------------------------------------------------
+  alertmanager:
+    image: prom/alertmanager:v0.34.0
+    container_name: aegisgate-alertmanager
+    restart: unless-stopped
+    user: "65534:65534"
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+    ports:
+      - "${ALERTMANAGER_PORT:-9093}:9093"
+    volumes:
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://127.0.0.1:9093/-/healthy" ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    profiles:
+      - monitoring
+      - all
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
         reservations:
           memory: 64M
     logging:
@@ -425,6 +561,10 @@ volumes:
     name: aegisgate_postgres_data
   redis_data:
     name: aegisgate_redis_data
+  redis_cache_data:
+    name: aegisgate_redis_cache_data
+  alertmanager_data:
+    name: aegisgate_alertmanager_data
   prometheus_data:
     name: aegisgate_prometheus_data
   grafana_data:

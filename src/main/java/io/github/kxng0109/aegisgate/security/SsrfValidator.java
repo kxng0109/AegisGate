@@ -2,10 +2,12 @@ package io.github.kxng0109.aegisgate.security;
 
 import org.springframework.stereotype.Component;
 
+import java.net.IDN;
 import java.net.InetAddress;
 import java.net.URI;
 import java.net.UnknownHostException;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Validates target URLs against SSRF attack vectors before any outbound connection is made.
@@ -36,9 +38,14 @@ public class SsrfValidator {
 			new CidrRange(InetAddress.ofLiteral("169.254.0.0"), 16),
 			new CidrRange(InetAddress.ofLiteral("127.0.0.0"), 8),
 			new CidrRange(InetAddress.ofLiteral("224.0.0.0"), 4),
+			new CidrRange(InetAddress.ofLiteral("::"), 128),
 			new CidrRange(InetAddress.ofLiteral("::1"), 128),
 			new CidrRange(InetAddress.ofLiteral("fc00::"), 7),
-			new CidrRange(InetAddress.ofLiteral("ff00::"), 8)
+			new CidrRange(InetAddress.ofLiteral("fe80::"), 10),
+			new CidrRange(InetAddress.ofLiteral("ff00::"), 8),
+			new CidrRange(InetAddress.ofLiteral("100::"), 64),
+			new CidrRange(InetAddress.ofLiteral("2001::"), 23),
+			new CidrRange(InetAddress.ofLiteral("2002::"), 16)
 	);
 
 	/**
@@ -68,10 +75,11 @@ public class SsrfValidator {
 					"URL must not embed credentials in userinfo for host '" + targetUrl.getHost() + "'");
 		}
 
-		String host = targetUrl.getHost();
-		if (host == null) {
+		String rawHost = targetUrl.getHost();
+		if (rawHost == null) {
 			throw new SsrfViolationException("URL has no resolvable host");
 		}
+		String host = normalizeHost(rawHost);
 
 		InetAddress[] addresses;
 		try {
@@ -93,5 +101,27 @@ public class SsrfValidator {
 				}
 			}
 		}
+	}
+
+	/**
+	 * Normalizes a URL host to its canonical resolution form: IDNA ASCII conversion, lowercasing, and removal of
+	 * a single trailing dot (fully-qualified DNS form). Pure function performing no network I/O; hosts that are
+	 * not valid IDNA names (IP literals, malformed input) fall back to lowercasing so resolution still decides.
+	 *
+	 * @param host the raw host from the URL; must not be {@code null}
+	 * @return the canonical host to resolve
+	 */
+	static String normalizeHost(String host) {
+		String ascii;
+		try {
+			ascii = IDN.toASCII(host);
+		} catch (IllegalArgumentException e) {
+			ascii = host;
+		}
+		String lower = ascii.toLowerCase(Locale.ROOT);
+		if (lower.endsWith(".") && lower.length() > 1) {
+			lower = lower.substring(0, lower.length() - 1);
+		}
+		return lower;
 	}
 }

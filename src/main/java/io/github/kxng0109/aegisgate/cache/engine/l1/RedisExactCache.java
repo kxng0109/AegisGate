@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.Nullable;
 import org.springframework.dao.DataAccessException;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
@@ -21,6 +22,7 @@ import java.time.Duration;
 @RequiredArgsConstructor
 public class RedisExactCache {
 
+	@Qualifier("cacheRedisTemplate")
 	private final StringRedisTemplate stringRedisTemplate;
 	private final ObjectMapper objectMapper;
 	private final AegisCacheProperties properties;

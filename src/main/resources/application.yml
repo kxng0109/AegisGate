@@ -151,6 +151,41 @@ gateway:
     max-estimated-tokens: ${GATEWAY_RATELIMIT_MAX_ESTIMATED_TOKENS:1000000}
     key-cache-maximum-size: ${GATEWAY_RATELIMIT_KEY_CACHE_MAXIMUM_SIZE:1000}
     key-cache-ttl-seconds: ${GATEWAY_RATELIMIT_KEY_CACHE_TTL_SECONDS:5}
+  budget:
+    detection:      # Background spend watchdog (static thresholds, exhaustion forecast, anomaly): reads Redis counters
+      # once a minute, writes the alert_events outbox, dispatches to Alertmanager. Empty URL = log-only.
+      enabled: ${GATEWAY_BUDGET_DETECTION_ENABLED:true}
+      interval: ${GATEWAY_BUDGET_DETECTION_INTERVAL:60s}
+      alertmanager-url: ${GATEWAY_BUDGET_DETECTION_ALERTMANAGER_URL:}
+      dispatch-batch: ${GATEWAY_BUDGET_DETECTION_DISPATCH_BATCH:100}
+      dispatch-interval: ${GATEWAY_BUDGET_DETECTION_DISPATCH_INTERVAL:30s}
+  maintenance:
+    # Monthly retention janitor (replay partition detach, alert archive roll, purges).
+    retention-enabled: ${GATEWAY_MAINTENANCE_RETENTION_ENABLED:true}
+    retention-batch: ${GATEWAY_MAINTENANCE_RETENTION_BATCH:1000}
+    retention-cron: ${GATEWAY_MAINTENANCE_RETENTION_CRON:0 0 3 1 * *}
+  notify:
+    email:
+      graph:
+        # Microsoft Graph mail (application permission Mail.Send). All blank = email channel disabled.
+        tenant-id: ${GATEWAY_NOTIFY_EMAIL_GRAPH_TENANT_ID:}
+        client-id: ${GATEWAY_NOTIFY_EMAIL_GRAPH_CLIENT_ID:}
+        secret-ref: ${GATEWAY_NOTIFY_EMAIL_GRAPH_SECRET_REF:}
+        mailbox: ${GATEWAY_NOTIFY_EMAIL_GRAPH_MAILBOX:}
+        per-minute-cap: ${GATEWAY_NOTIFY_EMAIL_GRAPH_PER_MINUTE_CAP:25}
+    settlement:
+      # Hold-then-settle accounting: admission holds H, stream-end trues up to actual.
+      enabled: ${GATEWAY_BUDGET_SETTLEMENT_ENABLED:true}
+      max-tokens-ceiling: ${GATEWAY_BUDGET_SETTLEMENT_MAX_TOKENS_CEILING:4096}
+      hold-ttl-seconds: ${GATEWAY_BUDGET_SETTLEMENT_HOLD_TTL_SECONDS:3600}
+      abort-grace-seconds: ${GATEWAY_BUDGET_SETTLEMENT_ABORT_GRACE_SECONDS:30}
+      sweeper-batch: ${GATEWAY_BUDGET_SETTLEMENT_SWEEPER_BATCH:500}
+      sweep-interval: ${GATEWAY_BUDGET_SETTLEMENT_SWEEP_INTERVAL:30s}
+  redis:
+    cache:
+      # Cache-tier Redis (L1/L2/replay-hot): evictable instance, best-effort by design.
+      host: ${REDIS_CACHE_HOST:localhost}
+      port: ${REDIS_CACHE_PORT:6380}
   embeddings:
     # Embedding batching and provider fan-out ceilings.
     max-batch-items: ${GATEWAY_EMBEDDINGS_MAX_BATCH_ITEMS:2048}

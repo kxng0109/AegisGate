@@ -8,23 +8,44 @@ import org.springframework.data.redis.core.script.DefaultRedisScript;
 import java.util.List;
 
 /**
- * Registers the atomic spend-budget script.
+ * Registers the atomic spend-budget scripts.
  *
- * <p>Loads {@code budget_limit.lua} from the classpath and registers it as a
- * {@link DefaultRedisScript} (EVALSHA with transparent NOSCRIPT fallback), mirroring how the rate limiter registers
- * {@code rate_limit.lua}. Kept as a separate script on purpose: keys without budgets never invoke it, so the existing
- * rate path keeps its single round trip byte-identical.</p>
+ * <p>Loads {@code budget_limit.lua} (admission), {@code hold.lua} (hold-record creation), and {@code settle.lua}
+ * (hold true-up) from the classpath as {@link DefaultRedisScript} beans (EVALSHA with transparent NOSCRIPT
+ * fallback), mirroring how the rate limiter registers {@code rate_limit.lua}.</p>
  */
 @Configuration
 public class BudgetScriptConfig {
 
 	/**
-	 * @return the configured script, referencing {@code budget_limit.lua} on the classpath
+	 * @return the configured admission script, referencing {@code budget_limit.lua} on the classpath
 	 */
 	@Bean
 	public DefaultRedisScript<List> budgetLimitScript() {
 		DefaultRedisScript<List> script = new DefaultRedisScript<>();
 		script.setLocation(new ClassPathResource("budget_limit.lua"));
+		script.setResultType(List.class);
+		return script;
+	}
+
+	/**
+	 * @return the configured hold script, referencing {@code hold.lua} on the classpath
+	 */
+	@Bean
+	public DefaultRedisScript<List> budgetHoldScript() {
+		DefaultRedisScript<List> script = new DefaultRedisScript<>();
+		script.setLocation(new ClassPathResource("hold.lua"));
+		script.setResultType(List.class);
+		return script;
+	}
+
+	/**
+	 * @return the configured settle script, referencing {@code settle.lua} on the classpath
+	 */
+	@Bean
+	public DefaultRedisScript<List> budgetSettleScript() {
+		DefaultRedisScript<List> script = new DefaultRedisScript<>();
+		script.setLocation(new ClassPathResource("settle.lua"));
 		script.setResultType(List.class);
 		return script;
 	}

@@ -89,10 +89,15 @@ public class CircuitBreakerConfig {
 	/**
 	 * Creates the dedicated String template bound to the fast breaker factory.
 	 *
+	 * <p>Marked {@code @Primary}: it is the sole accounting template today, and the marker keeps every
+	 * unqualified {@code StringRedisTemplate} point resolving to it now that the cache tier contributes a
+	 * second template bean (which is qualifier-only by design).</p>
+	 *
 	 * @param connectionFactory the dedicated breaker factory
 	 * @return the breaker template
 	 */
 	@Bean("circuitBreakerRedisTemplate")
+	@Primary
 	public StringRedisTemplate circuitBreakerRedisTemplate(
 			@Qualifier("circuitBreakerRedisConnectionFactory") LettuceConnectionFactory connectionFactory
 	) {

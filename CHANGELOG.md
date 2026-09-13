@@ -23,6 +23,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   windows, exclusive-midnight month rollover; Redis writes after DB commit + startup backfill reconciler;
   append-only `budget_audit` enforced by V8 trigger; 5s negative-cache TTL + pg_notify cross-pod invalidation;
   idempotency-claim-in-Lua (retries admit without double-debit). Full `verify` 1,349 green, branch 0.9505.
+- **Track 4 — Hold-then-settle spend accounting (V9):** admission now charges a hold `H = prompt +
+  max_tokens × output` (mandatory server-side `max_tokens` ceiling) through the same Lua gate; `hold.lua` records
+  the hold and `settle.lua` trues it up to measured actual spend with exactly-once `settled`-flag semantics
+  (replay is an idempotent no-op, never a double move). Client abort settles the input-known portion and re-arms
+  the output hold for the 30s grace; crash/lapse expires the hold to $0 and writes an append-only `budget_gap`
+  row (V9 trigger), so counters never silently under-count. Advisory-lock single-flight `BudgetHoldSweeper` (30s)
+  expires due holds with re-arm-on-failure. Month rollover straddles refund the original month and charge the
+  current month with a gap row. Full `verify` green, branch ≥ 0.95.
+- **Track 4 — Response replay store (V10):** exact byte-identical replay for idempotent retries, distinct from the
+  semantic cache. Redis hot tier (24h, evictable) + partitioned PostgreSQL durable tier (V10, monthly RANGE
+  partitions, TOASTed 1MiB bodies). Same key + same fingerprint → `200` with `Idempotent-Replayed: true` and no
+  upstream spend; same key + different body → `422`; concurrent first flight → `409` + `Retry-After: 1`; oversized
+  payloads are skipped, never truncated; aborts never auto-replay (fresh keys required). Fill claims are
+  single-key `SET NX EX` (cross-pod single-flight). Replay paths are best-effort by design: every failure degrades
+  to a re-proxy while the budget dedupe still prevents double-charge.
+- **Two-Redis topology (accounting vs cache):** the cache tier (L1 exact, L2 vectors, replay hot) moves to a
+  dedicated `redis-cache` instance (`allkeys-lru`, 512MB) so eviction can never touch spend accounting
+  (`noeviction`, 384MB) — an evicted month counter would silently reset spend to zero. `CacheRedisConfig` wires a
+  distinct `CacheRedisTemplate`/factory via explicit qualifiers; a dedicated `redisHealthContributor` keeps the
+  aggregate health probe scoped to the accounting tier only. Compose + prometheus (`redis-cache` job) + exporters
+  updated; `.env.example` documents `REDIS_CACHE_HOST/PORT`.
+- **SSRF validator hardening:** `CidrRange` now unwraps IPv4-mapped (`::ffff:0:0/96`) and NAT64 (`64:ff9b::/96`)
+  encodings so `::ffff:127.0.0.1` and `64:ff9b::a00:1` can never reach internal ranges; blocked ranges extended
+  (Teredo `2001::/23`, 6to4 `2002::/16`, discard `100::/64`, multicast `ff00::/8`, `::/128`); hosts normalized
+  (IDNA ASCII, lowercase, trailing-dot strip) before resolution. 10 adversarial bypass tests (literal-IP matrix,
+  network-free) + `BudgetKeySlotTest` proving every budget key hashes to one Cluster slot (CRC16 via Lettuce
+  `SlotHash`).
+- **Track 3 — Spend watchdog (V11):** background-only `BudgetDetector` (1-min cadence, never on the hot path):
+  static 50/90/100% thresholds with hysteresis + latched re-fire, EWMA forecast (α = β = 0.2) projecting
+  exhaustion with <48h warning / <24h critical on paired 5-min + 1-hour burn windows with a 3-tick sustain,
+  and an EWMA z-score>3 anomaly detector with a `max($50/min, 2× minute cap)` floor and 15-tick warmup.
+  Cross-pod single-flight via advisory lock; per-scope state in Redis hashes; decisions write an
+  `alert_events` outbox (SHA-256 dedupe, `SKIP LOCKED` claims, poison ceiling) that `AlertDispatcher` POSTs to
+  Alertmanager v2 (Full-Jitter backoff honoring `Retry-After`; log-only mode when unconfigured). Compose adds
+  `prom/alertmanager:v0.34.0`; Prometheus `alerting:` stanza wired.
+- **Track 3 — Opt-in alert delivery (V12–V14):** `notification_preferences` (email / Teams / Slack / webhook,
+  secrets referenced by env var name, never stored), `notification_bounces` (hard-bounce suppression),
+  `notification_dedupe` (per-alert per-channel claim), `notification_log` (send audit). `NotificationFanout`
+  (AFTER_COMMIT) fans delivered alerts to every subscribed channel: SSRF-validated targets at save time
+  (`/v1/admin/notifications` CRUD), Stripe-style HMAC-SHA256 webhook signing (`X-Aegis-Timestamp`,
+  `X-Aegis-Signature`), Teams Power Automate `text` cards, Slack incoming webhooks, and Microsoft Graph
+  `sendMail` via client-credentials (application permission `Mail.Send`, token cached to `expires_in` − 5m,
+  ~25 msg/min cap, secret by env ref). PII-free `NotificationPayload` by construction. `budget_audit` is now a
+  tamper-evident hash chain (V13: GENESIS-seeded `prev_hash`/`row_hash`, server-side trigger chaining with a
+  unique-predecessor constraint so forks collide loudly). `RetentionJanitor` (monthly, advisory-locked) detaches
+  expired replay partitions, rolls old alerts to the 1-year archive, and trims logs/dedupe. Full `verify` 1,583
+  green, branch 0.9505.
 
 ### Fixed
 

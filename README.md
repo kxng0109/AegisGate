@@ -47,6 +47,10 @@ AES-256-GCM resumption tokens, and per-server circuit breaking with auto-pruning
 - Incrementally validates streaming JSON schema outputs byte-by-byte using a 64-bit integer stack Pushdown Automaton (PDA).
 - Provides mid-stream guardrail kill-switch (`TERMINATE_WITH_ERROR`) emitting compliant SSE error events and immediately sending HTTP/2 `RST_STREAM(CANCEL)` frames upstream to stop GPU token billing.
 - Enforces Geo-Sovereignty and Data Residency (`STRICT_SOVEREIGN`, `SOVEREIGN_CASCADE`, `PERMISSIVE_FAILOVER_WITH_AUDIT`), Zero Data Retention headers, and cryptographic SHA-256 Merkle audit ledger non-repudiation receipts.
+- Charges every admitted stream a **hold** (`prompt + max_tokens × output` micro-dollars, mandatory server-side `max_tokens` ceiling) through an atomic Lua gate and trues it up to measured actual spend at stream end with exactly-once semantics. Client aborts settle the input-known portion and re-arm the output hold for a grace window; crashes expire the hold to $0 and write an append-only gap row — counters can never silently under-count. A 30s advisory-locked sweeper reclaims orphaned holds across pods.
+- **Replays** exact byte-identical responses for idempotent retries (`Idempotent-Replayed: true`, no upstream spend) from a Redis hot tier + partitioned PostgreSQL durable tier, distinct from the semantic cache. Same key + different body → 422, concurrent duplicate → 409, aborted streams never auto-replay.
+- Runs a **background spend watchdog** (never on the hot path): static 50/90/100% thresholds, an EWMA exhaustion forecast, and a z-score anomaly detector, all writing an outbox that an advisory-locked dispatcher delivers to Alertmanager v2 and then to opt-in email / Microsoft Teams / Slack / signed webhooks — with a PII-free payload and an append-only tamper-evident audit hash chain.
+- Keeps spend accounting on a **dedicated noeviction Redis** while the cache tier (exact/vector/replay-hot) lives on a separate evictable instance, so cache pressure can never erase a spend counter.
 
 ## How a request flows
 
@@ -309,6 +313,15 @@ The code is organized by responsibility under `src/main/java/io/github/kxng0109/
 - `mcp/resilience` contains `McpServerCircuitBreakerManager` with per-server atomic CAS circuit breaking and catalog
   auto-pruning.
 - `ledger` contains the FinOps ledger engine: `FinOpsPromptCacheCalculator`, `SpillwayJournalManager`, `UsageLedgerListener`, `UsageLedgerRepository`, `UsageLedgerRepositoryImpl`, `UsageLedgerService`, `CostCalculator`, `ModelPriceCatalog`, `ModelPricingRepository`, and `PricingSyncService`.
+- `budget` contains the spend-gate engine plus settlement and watchdog internals: `BudgetEnforcer`,
+  `BudgetSettlement`, `BudgetHoldSweeper`, `AdvisoryLock`, `BudgetDetector`, `AlertEvent`/`AlertDispatcher`/
+  `AlertmanagerClient`, notification preferences/service, and `RetentionJanitor`.
+- `replay` contains the idempotent replay store: `ReplayService` (Redis hot + PG durable), `ReplayRecord`/
+  `ReplayId`/`ReplayRepository`.
+- `notify` contains the opt-in delivery senders: `ChannelSender`, `TeamsSender`, `SlackSender`, `WebhookSender`
+  (Stripe-style HMAC), `GraphEmailSender`, `NotificationFanout`, `NotificationPayload`.
+- `cache/config` contains the cache-tier Redis wiring (`CacheRedisConfig`, `CacheRedisTemplate`,
+  `CacheRedisProperties`).
 - `proxy` contains `ProxyController` and shared `HttpClient` bean in `proxy/config/HttpClientConfig.java`.
 - `config` contains `SensitiveString`, OpenAPI configuration `OpenApiConfig`, and retrying `DatabaseMigrator`.
 
@@ -319,7 +332,9 @@ The Lua script that implements the atomic RPM and TPM counters lives in `src/mai
 - Java 25 LTS with virtual threads enabled
 - Spring Boot 4.1 and Spring MVC
 - Redis 8 via Spring Data Redis and Lettuce, with a connection pool (Query Engine vector search, JSON,
-  TimeSeries, and Bloom ship in the server binary; compose pins `redis:8.8.2-alpine3.23`)
+  TimeSeries, and Bloom ship in the server binary; compose pins `redis:8.8.2-alpine3.23`) — two tiers: an
+  accounting instance (`noeviction`, rate/budget/hold/dedupe/breaker keys) and a cache instance
+  (`allkeys-lru`, L1/L2/replay-hot)
 - PostgreSQL via Spring Data JPA and Hibernate, with Flyway owning the schema
 - Caffeine for the short lived key lookup cache and the pricing catalog
 - JSpecify nullness annotations at package level
@@ -419,6 +434,16 @@ All configuration lives in `src/main/resources/application.yml`. The most import
   keys are rejected with HTTP 400; see `docs/high-throughput/README.md` for the reconnect contract.
 - `gateway.database-migrate-enabled` and `gateway.database-migrate-interval` control the non fatal migration retry.
 - `gateway.bootstrap-keys-seed-interval` controls how often key seeding is retried if Redis was unavailable at startup.
+- `gateway.budget.settlement.*` controls hold-then-settle accounting: `enabled`, `max-tokens-ceiling` (default 4096),
+  `hold-ttl-seconds` (3600), `abort-grace-seconds` (30), `sweeper-batch` (500), `sweep-interval` (30s).
+- `gateway.budget.detection.*` controls the spend watchdog: `enabled`, `interval` (60s), `alertmanager-url`
+  (blank = log-only), `dispatch-batch`, `dispatch-interval`.
+- `gateway.redis.cache.host/port` points the cache tier at its dedicated evictable Redis
+  (`REDIS_CACHE_HOST`/`REDIS_CACHE_PORT`, default `localhost:6380`); accounting stays on `spring.data.redis.*`.
+- `gateway.notify.email.graph.*` configures Microsoft Graph mail (`tenant-id`, `client-id`, `secret-ref`,
+  `mailbox`, `per-minute-cap`); all blank disables the email channel.
+- `gateway.maintenance.*` controls the monthly retention janitor (`retention-enabled`, `retention-batch`,
+  `retention-cron`).
 - `aegisgate.sse.flush.*` controls the adaptive downstream SSE flush strategy: `max-lines-per-flush` (default 16),
   `max-interval-ms` (default 20ms), `flush-backpressure-threshold-ms` (default 500ms), `max-buffer-bytes` (default
   64KB), `max-flushes-per-second` (default 1000), `enabled` (default true), and `reload-interval` (default 30s).
@@ -524,6 +549,10 @@ Administrative endpoints require the configured master key via `Authorization: B
 - **`PUT /v1/admin/budgets/{id}`**: Replaces a budget's caps (optimistic locking fails concurrent edits with `409`).
 - **`DELETE /v1/admin/budgets/{id}`**: Deletes a cap, snapshotting live spend into the append-only audit row first so
   chargeback history survives the subject.
+- **`POST /v1/admin/notifications`**: Opts a scope into alert delivery over `email`, `teams`, `slack`, or `webhook`
+  (URL targets SSRF-validated at save time; secrets travel as environment-variable references only, never inline).
+- **`GET /v1/admin/notifications?scope=...`**: Lists all subscriptions for one alert scope.
+- **`DELETE /v1/admin/notifications/{id}`**: Opts out (unknown ids are no-ops).
 
 Every proxied request passes a single atomic Lua spend gate (`budget_limit.lua`, V7 `budget_limits` + `budget_audit`
 tables, V8 append-only trigger) across KEY → TEAM → ORG levels: check-before-increment (denials consume nothing),
@@ -534,7 +563,11 @@ slot tag (atomicity survives a future Cluster move); Redis config publishes only
 (startup backfill reconciles the rest); cross-pod presence invalidates via pg_notify fan-out on top of a 5s negative
 TTL; retried idempotency keys are claimed in-Lua so a retry admits without double-debiting. A Spring Security
 default-deny boundary refuses any route not explicitly declared, so new endpoints can never silently bypass
-authentication.
+authentication. On top of the gate, admitted streams carry a hold (`budget:{b:global}:hold:*`) that settlement
+(`settle.lua`, exactly-once `settled` flag) trues up to measured usage; aborts/crashes settle input-known and
+surface as append-only `budget_gap` rows. The same key hash is reused as the idempotent replay fingerprint: a
+stored completion is served with `Idempotent-Replayed: true` and no second charge, a reused key with a different
+body is 422, and a concurrent duplicate is 409.
 - **`GET /v1/admin/cache/stats`**: Inspects active cache configuration, layer statuses, and similarity thresholds.
 - **`DELETE /v1/admin/cache`**: Executes an emergency global purge across L0 in-memory, L1 Redis exact keys, and L2
   vector document indexes (supports optional `?ownerId=...` for single-tenant scoped purges).
@@ -592,7 +625,7 @@ Run the full suite with coverage and the packaging step:
 ./mvnw clean verify
 ```
 
-The suite currently has 1,246 tests (100% passing):
+The suite currently has 1,583 tests (100% passing):
 
 JaCoCo coverage gates (BUNDLE, `target/site/jacoco/jacoco.xml` is single-session honest via
 `<append>false</append>` on `prepare-agent`): INSTRUCTION/BRANCH/LINE/METHOD/CLASS ≥ 95%, COMPLEXITY ≥ 90%.

@@ -4,6 +4,7 @@ import io.github.kxng0109.aegisgate.proxy.embeddings.VectorEncodingUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataAccessException;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.stereotype.Component;
@@ -24,6 +25,7 @@ public class RediSearchVectorClient {
 	private static final byte[] FT_SEARCH = "FT.SEARCH".getBytes(StandardCharsets.UTF_8);
 	private static final byte[] FT_DROPINDEX = "FT.DROPINDEX".getBytes(StandardCharsets.UTF_8);
 
+	@Qualifier("cacheRedisConnectionFactory")
 	private final RedisConnectionFactory redisConnectionFactory;
 
 	/**

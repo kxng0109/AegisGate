@@ -1,0 +1,21 @@
+# Alertmanager v0.34.0 — routes gateway detector alerts (POSTed to /api/v2/alerts by the
+# AlertDispatcher) to the operator webhook. The default receiver points at the app itself as a
+# documented placeholder: set ALERTMANAGER_WEBHOOK_URL to the real incident endpoint (PagerDuty,
+# Opsgenie, Teams workflow, Slack webhook) before relying on pages.
+global:
+  resolve_timeout: 5m
+
+route:
+  group_by: ['alertname', 'scope']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 1h
+  receiver: ops-webhook
+
+receivers:
+  - name: ops-webhook
+    webhook_configs:
+      - url: http://localhost:8080/v1/admin/alerts/webhook
+        send_resolved: true
+
+templates: []

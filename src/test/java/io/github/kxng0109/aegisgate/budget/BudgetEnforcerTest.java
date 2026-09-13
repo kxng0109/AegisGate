@@ -36,7 +36,8 @@ class BudgetEnforcerTest {
 	private final CostCalculator costCalculator = mock(CostCalculator.class);
 
 	private final BudgetEnforcer enforcer =
-			new BudgetEnforcer(redisTemplate, script, costCalculator, new SimpleMeterRegistry());
+			new BudgetEnforcer(redisTemplate, script(), script(), script(), costCalculator,
+					new SimpleMeterRegistry());
 
 	private static SHA256Hash keyHash() {
 		return SHA256Hash.fromRawKey("gw-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
@@ -162,7 +163,7 @@ class BudgetEnforcerTest {
 	@DisplayName("null meter registry falls back to an isolated registry")
 	void nullRegistryFallsBack() {
 		BudgetEnforcer local =
-				new BudgetEnforcer(redisTemplate, script, costCalculator, null);
+				new BudgetEnforcer(redisTemplate, script(), script(), script(), costCalculator, null);
 		when(redisTemplate.execute(any(), anyList(), any(), any()))
 				.thenReturn(List.of(1L, 0L, 500L, 60L, 2L));
 		when(costCalculator.calculate(any(), any(), anyLong(), anyLong())).thenReturn(4_000L);

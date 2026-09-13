@@ -69,7 +69,22 @@ class BudgetLuaIntegrationTest {
 	private static BudgetEnforcer enforcer(StringRedisTemplate template, long estimateMicros) {
 		CostCalculator calculator = mock(CostCalculator.class);
 		when(calculator.calculate(any(), anyString(), anyLong(), anyLong())).thenReturn(estimateMicros);
-		return new BudgetEnforcer(template, script(), calculator, new SimpleMeterRegistry());
+		return new BudgetEnforcer(template, script(), holdScript(), settleScript(), calculator,
+				new SimpleMeterRegistry());
+	}
+
+	private static DefaultRedisScript<List> holdScript() {
+		DefaultRedisScript<List> script = new DefaultRedisScript<>();
+		script.setLocation(new org.springframework.core.io.ClassPathResource("hold.lua"));
+		script.setResultType(List.class);
+		return script;
+	}
+
+	private static DefaultRedisScript<List> settleScript() {
+		DefaultRedisScript<List> script = new DefaultRedisScript<>();
+		script.setLocation(new org.springframework.core.io.ClassPathResource("settle.lua"));
+		script.setResultType(List.class);
+		return script;
 	}
 
 	private static void seedCfg(StringRedisTemplate template, String level, String subject,

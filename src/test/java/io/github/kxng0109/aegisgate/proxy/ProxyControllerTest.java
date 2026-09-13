@@ -12,6 +12,8 @@ import io.github.kxng0109.aegisgate.ledger.CostCalculator;
 import io.github.kxng0109.aegisgate.ledger.TokenUsageEvent;
 import io.github.kxng0109.aegisgate.budget.BudgetDecision;
 import io.github.kxng0109.aegisgate.budget.BudgetEnforcer;
+import io.github.kxng0109.aegisgate.budget.BudgetSettlement;
+import io.github.kxng0109.aegisgate.replay.ReplayService;
 import io.github.kxng0109.aegisgate.security.ratelimit.RateLimitUnavailableException;
 import io.github.kxng0109.aegisgate.proxy.failover.FailoverOrchestrator;
 import io.github.kxng0109.aegisgate.proxy.failover.ProviderResponse;
@@ -42,6 +44,7 @@ import java.net.http.HttpHeaders;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -52,6 +55,12 @@ import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.*;
 
 @DisplayName("ProxyController")
@@ -1952,6 +1961,822 @@ class ProxyControllerTest {
 			verify(orchestrator, never()).execute(any(), anyString());
 		} finally {
 			controller.setBudgetEnforcer(null);
+		}
+	}
+
+	@Test
+	@DisplayName("settlement allow creates a hold and settles measured usage at stream end")
+	void settlementAllowSettlesMeasuredUsage() throws Exception {
+		BudgetEnforcer mockEnforcer = mock(BudgetEnforcer.class);
+		BudgetSettlement mockSettlement = mock(BudgetSettlement.class);
+		controller.setBudgetEnforcer(mockEnforcer);
+		controller.setBudgetSettlement(mockSettlement);
+		try {
+			when(mockSettlement.authorize(any(), any(), any(), anyString(), anyInt(), any(), any()))
+					.thenReturn(new BudgetEnforcer.HoldAuthorization(
+							new BudgetDecision.Allowed(100L, 60L), 9_000L, "2026-09"));
+			when(mockSettlement.createHold(anyString(), anyString(), any(), any()))
+					.thenReturn(true);
+			when(mockSettlement.settleStream(anyString(), anyString(), any(), anyString(), anyLong(), anyBoolean()))
+					.thenReturn(new BudgetEnforcer.SettleOutcome(true, BudgetEnforcer.SETTLE_OK, 4_200L, 10L, false));
+			ProviderResponse firstUpstream = providerResponse(
+					"openai", 200, sseHeaders(),
+					Stream.of(
+							"data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-5.6-luna\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"},\"finish_reason\":null}]}",
+							"data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-5.6-luna\",\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}",
+							"data: [DONE]"
+					)
+			);
+			when(orchestrator.execute(any(), anyString()))
+					.thenReturn(CompletableFuture.completedFuture(firstUpstream));
+			when(costCalculator.calculate(ProviderType.OPENAI, "gpt-5.6-luna", 10, 5)).thenReturn(4200L);
+			MockHttpServletRequest req = request();
+			req.setAttribute("aegis.keyHash", "ab".repeat(32));
+
+			ResponseEntity<StreamingResponseBody> entity = controller.proxyChatCompletions(USAGE_BODY, req);
+			body(entity);
+
+			verify(mockSettlement).createHold(anyString(), eq("ab".repeat(32)), eq("owner-1"), any());
+			verify(mockSettlement).settleStream(
+					anyString(), eq("ab".repeat(32)), eq("owner-1"), eq("2026-09"), eq(4200L), eq(false));
+			verify(mockEnforcer, never()).checkBudget(any(), any(), any(), anyString(), anyInt(), any());
+		} finally {
+			controller.setBudgetEnforcer(null);
+			controller.setBudgetSettlement(null);
+		}
+	}
+
+	@Test
+	@DisplayName("settlement abort on guard rejection settles the input-known portion with grace")
+	void settlementAbortSettlesPromptKnown() throws Exception {
+		BudgetEnforcer mockEnforcer = mock(BudgetEnforcer.class);
+		BudgetSettlement mockSettlement = mock(BudgetSettlement.class);
+		controller.setBudgetEnforcer(mockEnforcer);
+		controller.setBudgetSettlement(mockSettlement);
+		try {
+			when(mockSettlement.authorize(any(), any(), any(), anyString(), anyInt(), any(), any()))
+					.thenReturn(new BudgetEnforcer.HoldAuthorization(
+							new BudgetDecision.Allowed(100L, 60L), 9_000L, "2026-09"));
+			when(mockSettlement.createHold(anyString(), anyString(), any(), any()))
+					.thenReturn(true);
+			int promptTokens = BudgetEnforcer.estimatePromptTokens(PATH_BODY.trim().length());
+			when(costCalculator.calculate(eq(ProviderType.OPENAI), eq("gpt-5.6-luna"), eq((long) promptTokens), eq(0L)))
+					.thenReturn(111L);
+			DefaultSseLineGuard rejectingGuard = mock(DefaultSseLineGuard.class);
+			when(rejectingGuard.checkLine(anyString(), any(SseLineGuard.ProviderType.class)))
+					.thenReturn(List.of("data: {\"error\":{\"message\":\"blocked\"}}"));
+			when(rejectingGuard.isRejected()).thenReturn(true);
+			when(lineGuardFactory.newGuard(any(SseLineGuard.ProviderType.class), anyString(), any()))
+					.thenReturn(rejectingGuard);
+			ProviderResponse response = providerResponse(
+					"openai", 200, sseHeaders(),
+					Stream.of("data: {\"choices\":[{\"delta\":{\"content\":\"leak\"}}]}", "data: [DONE]")
+			);
+			when(orchestrator.execute(any(), anyString()))
+					.thenReturn(CompletableFuture.completedFuture(response));
+			MockHttpServletRequest req = request();
+			req.setAttribute("aegis.keyHash", "ab".repeat(32));
+
+			ResponseEntity<StreamingResponseBody> entity = controller.proxyChatCompletions(PATH_BODY, req);
+			body(entity);
+
+			verify(mockSettlement).settleStream(
+					anyString(), eq("ab".repeat(32)), eq("owner-1"), eq("2026-09"), eq(111L), eq(true));
+		} finally {
+			controller.setBudgetEnforcer(null);
+			controller.setBudgetSettlement(null);
+		}
+	}
+
+	@Test
+	@DisplayName("absent settlement bean keeps the legacy prompt-only gate with no hold")
+	void absentSettlementKeepsLegacyGate() throws Exception {		BudgetEnforcer mockEnforcer = mock(BudgetEnforcer.class);
+		controller.setBudgetEnforcer(mockEnforcer);
+		controller.setBudgetSettlement(null);
+		try {
+			when(mockEnforcer.checkBudget(any(), any(), any(), anyString(), anyInt(), any()))
+					.thenReturn(new BudgetDecision.Allowed(100L, 60L));
+			ProviderResponse response = providerResponse(
+					"openai", 200, sseHeaders(),
+					Stream.of("data: [DONE]")
+			);
+			when(orchestrator.execute(any(), anyString()))
+					.thenReturn(CompletableFuture.completedFuture(response));
+			MockHttpServletRequest req = request();
+			req.setAttribute("aegis.keyHash", "ab".repeat(32));
+
+			ResponseEntity<StreamingResponseBody> responseEntity =
+					controller.proxyChatCompletions(PATH_BODY, req);
+			body(responseEntity);
+
+			assertEquals(200, responseEntity.getStatusCode().value());
+			verify(mockEnforcer).checkBudget(any(), any(), any(), anyString(), anyInt(), any());
+		} finally {
+			controller.setBudgetEnforcer(null);
+		}
+	}
+
+	@Test
+	@DisplayName("unknown provider in chain falls back to OPENAI pricing for the hold")
+	void unknownProviderFallsBackToOpenAiPricing() throws Exception {
+		BudgetEnforcer mockEnforcer = mock(BudgetEnforcer.class);
+		BudgetSettlement mockSettlement = mock(BudgetSettlement.class);
+		controller.setBudgetEnforcer(mockEnforcer);
+		controller.setBudgetSettlement(mockSettlement);
+		try {
+			gatewayProperties.setAliases(Map.of(
+					"ghost-model", new ModelAlias(
+							List.of(new ProviderRef("ghost-provider", null)), FailoverStrategy.SEQUENTIAL)));
+			when(mockSettlement.authorize(any(), any(), any(), anyString(), anyInt(), any(), any()))
+					.thenReturn(new BudgetEnforcer.HoldAuthorization(
+							new BudgetDecision.Denied("ORG", "MONTH", 99L), 0L, "2026-09"));
+			MockHttpServletRequest req = request();
+			req.setAttribute("aegis.keyHash", "ab".repeat(32));
+
+			ResponseEntity<StreamingResponseBody> response = controller.proxyChatCompletions(
+					"{\"model\":\"ghost-model\",\"messages\":[]}", req);
+
+			assertEquals(429, response.getStatusCode().value());
+			ArgumentCaptor<ProviderType> typeCaptor = ArgumentCaptor.forClass(ProviderType.class);
+			verify(mockSettlement).authorize(any(), any(), typeCaptor.capture(), anyString(), anyInt(), any(),
+					any());
+			assertEquals(ProviderType.OPENAI, typeCaptor.getValue());
+		} finally {
+			controller.setBudgetEnforcer(null);
+			controller.setBudgetSettlement(null);
+		}
+	}
+
+	@Test
+	@DisplayName("unparseable chat request admits with a null max-tokens bound")
+	void unparseableChatRequestAdmitsWithNullMaxTokens() throws Exception {
+		BudgetEnforcer mockEnforcer = mock(BudgetEnforcer.class);
+		BudgetSettlement mockSettlement = mock(BudgetSettlement.class);
+		controller.setBudgetEnforcer(mockEnforcer);
+		controller.setBudgetSettlement(mockSettlement);
+		try {
+			when(mockSettlement.authorize(any(), any(), any(), anyString(), anyInt(), any(), any()))
+					.thenReturn(new BudgetEnforcer.HoldAuthorization(
+							new BudgetDecision.Denied("KEY", "MINUTE", 7L), 0L, "2026-09"));
+			MockHttpServletRequest req = request();
+			req.setAttribute("aegis.keyHash", "ab".repeat(32));
+
+			ResponseEntity<StreamingResponseBody> response = controller.proxyChatCompletions(
+					"{\"model\":\"gpt-5.6-luna\",\"messages\":\"not-an-array\"}", req);
+
+			assertEquals(429, response.getStatusCode().value());
+			verify(mockSettlement).authorize(any(), any(), any(), anyString(), anyInt(), isNull(), any());
+		} finally {
+			controller.setBudgetEnforcer(null);
+			controller.setBudgetSettlement(null);
+		}
+	}
+
+	@Test
+	@DisplayName("sentinel hold without a record streams without any settle call")
+	void sentinelHoldSkipsSettle() throws Exception {
+		BudgetEnforcer mockEnforcer = mock(BudgetEnforcer.class);
+		BudgetSettlement mockSettlement = mock(BudgetSettlement.class);
+		controller.setBudgetEnforcer(mockEnforcer);
+		controller.setBudgetSettlement(mockSettlement);
+		try {
+			when(mockSettlement.authorize(any(), any(), any(), anyString(), anyInt(), any(), any()))
+					.thenReturn(new BudgetEnforcer.HoldAuthorization(
+							new BudgetDecision.Allowed(100L, 60L), -1L, "2026-09"));
+			ProviderResponse firstUpstream = providerResponse(
+					"openai", 200, sseHeaders(),
+					Stream.of(
+							"data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-5.6-luna\",\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}",
+							"data: [DONE]"
+					)
+			);
+			when(orchestrator.execute(any(), anyString()))
+					.thenReturn(CompletableFuture.completedFuture(firstUpstream));
+			when(costCalculator.calculate(ProviderType.OPENAI, "gpt-5.6-luna", 10, 5)).thenReturn(4200L);
+			MockHttpServletRequest req = request();
+			req.setAttribute("aegis.keyHash", "ab".repeat(32));
+
+			ResponseEntity<StreamingResponseBody> entity = controller.proxyChatCompletions(USAGE_BODY, req);
+			body(entity);
+
+			verify(mockSettlement, never()).createHold(anyString(), anyString(), any(), any());
+			verify(mockSettlement, never()).settleStream(anyString(), anyString(), any(), anyString(), anyLong(),
+					anyBoolean());
+		} finally {
+			controller.setBudgetEnforcer(null);
+			controller.setBudgetSettlement(null);
+		}
+	}
+
+	@Test
+	@DisplayName("duplicate hold id streams without any settle call")
+	void duplicateHoldSkipsSettle() throws Exception {
+		BudgetEnforcer mockEnforcer = mock(BudgetEnforcer.class);
+		BudgetSettlement mockSettlement = mock(BudgetSettlement.class);
+		controller.setBudgetEnforcer(mockEnforcer);
+		controller.setBudgetSettlement(mockSettlement);
+		try {
+			when(mockSettlement.authorize(any(), any(), any(), anyString(), anyInt(), any(), any()))
+					.thenReturn(new BudgetEnforcer.HoldAuthorization(
+							new BudgetDecision.Allowed(100L, 60L), 9_000L, "2026-09"));
+			when(mockSettlement.createHold(anyString(), anyString(), any(), any())).thenReturn(false);
+			ProviderResponse firstUpstream = providerResponse(
+					"openai", 200, sseHeaders(),
+					Stream.of(
+							"data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-5.6-luna\",\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}",
+							"data: [DONE]"
+					)
+			);
+			when(orchestrator.execute(any(), anyString()))
+					.thenReturn(CompletableFuture.completedFuture(firstUpstream));
+			when(costCalculator.calculate(ProviderType.OPENAI, "gpt-5.6-luna", 10, 5)).thenReturn(4200L);
+			MockHttpServletRequest req = request();
+			req.setAttribute("aegis.keyHash", "ab".repeat(32));
+
+			ResponseEntity<StreamingResponseBody> entity = controller.proxyChatCompletions(USAGE_BODY, req);
+			body(entity);
+
+			verify(mockSettlement, never()).settleStream(anyString(), anyString(), any(), anyString(), anyLong(),
+					anyBoolean());
+		} finally {
+			controller.setBudgetEnforcer(null);
+			controller.setBudgetSettlement(null);
+		}
+	}
+
+	@Test
+	@DisplayName("settle outage at stream end is absorbed and the response still completes")
+	void settleOutageAbsorbedAtStreamEnd() throws Exception {
+		BudgetEnforcer mockEnforcer = mock(BudgetEnforcer.class);
+		BudgetSettlement mockSettlement = mock(BudgetSettlement.class);
+		controller.setBudgetEnforcer(mockEnforcer);
+		controller.setBudgetSettlement(mockSettlement);
+		try {
+			when(mockSettlement.authorize(any(), any(), any(), anyString(), anyInt(), any(), any()))
+					.thenReturn(new BudgetEnforcer.HoldAuthorization(
+							new BudgetDecision.Allowed(100L, 60L), 9_000L, "2026-09"));
+			when(mockSettlement.createHold(anyString(), anyString(), any(), any())).thenReturn(true);
+			when(mockSettlement.settleStream(anyString(), anyString(), any(), anyString(), anyLong(),
+					anyBoolean()))
+					.thenThrow(new RateLimitUnavailableException("redis down"));
+			ProviderResponse firstUpstream = providerResponse(
+					"openai", 200, sseHeaders(),
+					Stream.of(
+							"data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-5.6-luna\",\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}",
+							"data: [DONE]"
+					)
+			);
+			when(orchestrator.execute(any(), anyString()))
+					.thenReturn(CompletableFuture.completedFuture(firstUpstream));
+			when(costCalculator.calculate(ProviderType.OPENAI, "gpt-5.6-luna", 10, 5)).thenReturn(4200L);
+			MockHttpServletRequest req = request();
+			req.setAttribute("aegis.keyHash", "ab".repeat(32));
+
+			ResponseEntity<StreamingResponseBody> entity = controller.proxyChatCompletions(USAGE_BODY, req);
+			String written = body(entity);
+
+			assertEquals(200, entity.getStatusCode().value());
+			assertTrue(written.contains("hi") || written.contains("DONE") || !written.isEmpty());
+		} finally {
+			controller.setBudgetEnforcer(null);
+			controller.setBudgetSettlement(null);
+		}
+	}
+
+	@Test
+	@DisplayName("unpriceable prompt at abort settles the hold value with no refund")
+	void unpriceablePromptSettlesHoldValue() throws Exception {
+		BudgetEnforcer mockEnforcer = mock(BudgetEnforcer.class);
+		BudgetSettlement mockSettlement = mock(BudgetSettlement.class);
+		controller.setBudgetEnforcer(mockEnforcer);
+		controller.setBudgetSettlement(mockSettlement);
+		try {
+			when(mockSettlement.authorize(any(), any(), any(), anyString(), anyInt(), any(), any()))
+					.thenReturn(new BudgetEnforcer.HoldAuthorization(
+							new BudgetDecision.Allowed(100L, 60L), 9_000L, "2026-09"));
+			when(mockSettlement.createHold(anyString(), anyString(), any(), any())).thenReturn(true);
+			int promptTokens = BudgetEnforcer.estimatePromptTokens(PATH_BODY.trim().length());
+			when(costCalculator.calculate(eq(ProviderType.OPENAI), eq("gpt-5.6-luna"), eq((long) promptTokens),
+					eq(0L)))
+					.thenThrow(new RuntimeException("catalog down"));
+			DefaultSseLineGuard rejectingGuard = mock(DefaultSseLineGuard.class);
+			when(rejectingGuard.checkLine(anyString(), any(SseLineGuard.ProviderType.class)))
+					.thenReturn(List.of("data: {\"error\":{\"message\":\"blocked\"}}"));
+			when(rejectingGuard.isRejected()).thenReturn(true);
+			when(lineGuardFactory.newGuard(any(SseLineGuard.ProviderType.class), anyString(), any()))
+					.thenReturn(rejectingGuard);
+			ProviderResponse response = providerResponse(
+					"openai", 200, sseHeaders(),
+					Stream.of("data: {\"choices\":[{\"delta\":{\"content\":\"leak\"}}]}", "data: [DONE]")
+			);
+			when(orchestrator.execute(any(), anyString()))
+					.thenReturn(CompletableFuture.completedFuture(response));
+			MockHttpServletRequest req = request();
+			req.setAttribute("aegis.keyHash", "ab".repeat(32));
+
+			ResponseEntity<StreamingResponseBody> entity = controller.proxyChatCompletions(PATH_BODY, req);
+			body(entity);
+
+			verify(mockSettlement).settleStream(
+					anyString(), eq("ab".repeat(32)), eq("owner-1"), eq("2026-09"), eq(9_000L), eq(true));
+		} finally {
+			controller.setBudgetEnforcer(null);
+			controller.setBudgetSettlement(null);
+		}
+	}
+
+	@Test
+	@DisplayName("blank key digest skips the gate without touching Redis")
+	void blankKeyDigestSkipsGate() throws Exception {
+		BudgetEnforcer mockEnforcer = mock(BudgetEnforcer.class);
+		BudgetSettlement mockSettlement = mock(BudgetSettlement.class);
+		controller.setBudgetEnforcer(mockEnforcer);
+		controller.setBudgetSettlement(mockSettlement);
+		try {
+			ProviderResponse response = providerResponse(
+					"openai", 200, sseHeaders(),
+					Stream.of("data: [DONE]")
+			);
+			when(orchestrator.execute(any(), anyString()))
+					.thenReturn(CompletableFuture.completedFuture(response));
+			MockHttpServletRequest req = request();
+			req.setAttribute("aegis.keyHash", "   ");
+
+			ResponseEntity<StreamingResponseBody> responseEntity =
+					controller.proxyChatCompletions(PATH_BODY, req);
+			body(responseEntity);
+
+			assertEquals(200, responseEntity.getStatusCode().value());
+			verify(mockSettlement, never()).authorize(any(), any(), any(), anyString(), anyInt(), any(), any());
+			verify(mockEnforcer, never()).checkBudget(any(), any(), any(), anyString(), anyInt(), any());
+		} finally {
+			controller.setBudgetEnforcer(null);
+			controller.setBudgetSettlement(null);
+		}
+	}
+
+	@Test
+	@DisplayName("reused idempotency key with another body returns 422 without upstream spend")
+	void replayFingerprintMismatchReturns422() throws Exception {
+		ReplayService mockReplay = mock(ReplayService.class);
+		controller.setReplayService(mockReplay);
+		try {
+			when(mockReplay.lookup(anyString(), anyString()))
+					.thenReturn(new ReplayService.FingerprintMismatch());
+			MockHttpServletRequest req = request();
+			req.addHeader("Idempotency-Key", "rk-1");
+
+			ResponseEntity<StreamingResponseBody> response =
+					controller.proxyChatCompletions(PATH_BODY, req);
+
+			assertEquals(422, response.getStatusCode().value());
+			assertTrue(body(response).contains("already used with a different request"));
+			verify(orchestrator, never()).execute(any(), anyString());
+		} finally {
+			controller.setReplayService(null);
+		}
+	}
+
+	@Test
+	@DisplayName("concurrent duplicate returns 409 with a retry horizon")
+	void replayInFlightReturns409() throws Exception {
+		ReplayService mockReplay = mock(ReplayService.class);
+		controller.setReplayService(mockReplay);
+		try {
+			when(mockReplay.lookup(anyString(), anyString()))
+					.thenReturn(new ReplayService.InFlight());
+			MockHttpServletRequest req = request();
+			req.addHeader("Idempotency-Key", "rk-1");
+
+			ResponseEntity<StreamingResponseBody> response =
+					controller.proxyChatCompletions(PATH_BODY, req);
+
+			assertEquals(409, response.getStatusCode().value());
+			assertEquals("1", response.getHeaders().getFirst("Retry-After"));
+			assertTrue(body(response).contains("identical request in flight"));
+			verify(orchestrator, never()).execute(any(), anyString());
+		} finally {
+			controller.setReplayService(null);
+		}
+	}
+
+	@Test
+	@DisplayName("lost fill race returns 409 without upstream spend")
+	void replayLostFillRaceReturns409() throws Exception {
+		ReplayService mockReplay = mock(ReplayService.class);
+		controller.setReplayService(mockReplay);
+		try {
+			when(mockReplay.lookup(anyString(), anyString()))
+					.thenReturn(new ReplayService.Miss());
+			when(mockReplay.beginFill(anyString())).thenReturn(false);
+			MockHttpServletRequest req = request();
+			req.addHeader("Idempotency-Key", "rk-1");
+
+			ResponseEntity<StreamingResponseBody> response =
+					controller.proxyChatCompletions(PATH_BODY, req);
+
+			assertEquals(409, response.getStatusCode().value());
+			assertTrue(body(response).contains("identical request in flight"));
+			verify(orchestrator, never()).execute(any(), anyString());
+		} finally {
+			controller.setReplayService(null);
+		}
+	}
+
+	@Test
+	@DisplayName("stored completion is re-delivered with the replay marker and no upstream call")
+	void replayHitServedWithoutUpstream() throws Exception {
+		ReplayService mockReplay = mock(ReplayService.class);
+		controller.setReplayService(mockReplay);
+		try {
+			byte[] stored = "{\"id\":\"chatcmpl-x\",\"object\":\"chat.completion\"}"
+					.getBytes(StandardCharsets.UTF_8);
+			when(mockReplay.lookup(anyString(), anyString()))
+					.thenReturn(new ReplayService.Hit(stored, false, Instant.now().plusSeconds(60)));
+			MockHttpServletRequest req = request();
+			req.addHeader("Idempotency-Key", "rk-1");
+
+			ResponseEntity<StreamingResponseBody> response =
+					controller.proxyChatCompletions(PATH_BODY, req);
+			String written = body(response);
+
+			assertEquals(200, response.getStatusCode().value());
+			assertEquals("true", response.getHeaders().getFirst("Idempotent-Replayed"));
+			assertTrue(written.contains("chatcmpl-x"));
+			verify(orchestrator, never()).execute(any(), anyString());
+		} finally {
+			controller.setReplayService(null);
+		}
+	}
+
+	@Test
+	@DisplayName("completed stream stores the replay payload for future retries")
+	void replayStoredOnStreamCompletion() throws Exception {
+		ReplayService mockReplay = mock(ReplayService.class);
+		controller.setReplayService(mockReplay);
+		try {
+			when(mockReplay.lookup(anyString(), anyString()))
+					.thenReturn(new ReplayService.Miss());
+			when(mockReplay.beginFill(anyString())).thenReturn(true);
+			ProviderResponse firstUpstream = providerResponse(
+					"openai", 200, sseHeaders(),
+					Stream.of(
+							"data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-5.6-luna\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"},\"finish_reason\":null}]}",
+							"data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-5.6-luna\",\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}",
+							"data: [DONE]"
+					)
+			);
+			when(orchestrator.execute(any(), anyString()))
+					.thenReturn(CompletableFuture.completedFuture(firstUpstream));
+			MockHttpServletRequest req = request();
+			req.addHeader("Idempotency-Key", "rk-store");
+
+			ResponseEntity<StreamingResponseBody> entity = controller.proxyChatCompletions(USAGE_BODY, req);
+			body(entity);
+
+			ArgumentCaptor<byte[]> payload = ArgumentCaptor.forClass(byte[].class);
+			verify(mockReplay).store(eq("rk-store"), anyString(), payload.capture(), eq(true));
+			assertTrue(new String(payload.getValue(), StandardCharsets.UTF_8).contains("\"content\":\"hi\""));
+		} finally {
+			controller.setReplayService(null);
+		}
+	}
+
+	@Test
+	@DisplayName("completed JSON completion stores the exact bytes for replay")
+	void replayStoredOnJsonCompletion() throws Exception {
+		ReplayService mockReplay = mock(ReplayService.class);
+		controller.setReplayService(mockReplay);
+		try {
+			when(mockReplay.lookup(anyString(), anyString()))
+					.thenReturn(new ReplayService.Miss());
+			when(mockReplay.beginFill(anyString())).thenReturn(true);
+			String upstream = "{\"id\":\"chatcmpl-abc\",\"object\":\"chat.completion\",\"created\":1700000000,"
+					+ "\"model\":\"gpt-5.6-luna\",\"choices\":[{\"index\":2,\"message\":{\"role\":\"assistant\","
+					+ "\"content\":\"hi\"},\"finish_reason\":\"stop\"}],"
+					+ "\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":7,\"total_tokens\":12}}";
+			ProviderResponse response = providerResponse("openai", 200, jsonHeaders(), Stream.of(upstream));
+			when(orchestrator.execute(any(), anyString()))
+					.thenReturn(CompletableFuture.completedFuture(response));
+			MockHttpServletRequest req = request();
+			req.addHeader("Idempotency-Key", "rk-json");
+
+			ResponseEntity<StreamingResponseBody> entity = controller.proxyChatCompletions(PATH_BODY, req);
+			body(entity);
+
+			verify(mockReplay).store(eq("rk-json"), anyString(), any(byte[].class), eq(false));
+		} finally {
+			controller.setReplayService(null);
+		}
+	}
+
+	@Test
+	@DisplayName("streaming hit is re-framed as SSE with the replay marker")
+	void replayStreamingHitReframedAsSse() throws Exception {
+		ReplayService mockReplay = mock(ReplayService.class);
+		controller.setReplayService(mockReplay);
+		try {
+			byte[] stored = "{\"content\":\"hi\"}".getBytes(StandardCharsets.UTF_8);
+			when(mockReplay.lookup(anyString(), anyString()))
+					.thenReturn(new ReplayService.Hit(stored, true, Instant.now().plusSeconds(60)));
+			MockHttpServletRequest req = request();
+			req.addHeader("Idempotency-Key", "rk-sse");
+
+			ResponseEntity<StreamingResponseBody> response =
+					controller.proxyChatCompletions(PATH_BODY, req);
+			String written = body(response);
+
+			assertEquals(200, response.getStatusCode().value());
+			assertEquals("true", response.getHeaders().getFirst("Idempotent-Replayed"));
+			assertTrue(response.getHeaders().getContentType().toString().contains("text/event-stream"));
+			assertTrue(written.contains("data: {\"content\":\"hi\"}"));
+			assertTrue(written.contains("data: [DONE]"));
+			verify(orchestrator, never()).execute(any(), anyString());
+		} finally {
+			controller.setReplayService(null);
+		}
+	}
+
+	@Test
+	@DisplayName("store outage at stream end releases the fill and still completes")
+	void replayStoreOutageReleasesFill() throws Exception {
+		BudgetEnforcer mockEnforcer = mock(BudgetEnforcer.class);
+		ReplayService mockReplay = mock(ReplayService.class);
+		controller.setBudgetEnforcer(mockEnforcer);
+		controller.setReplayService(mockReplay);
+		try {
+			when(mockReplay.lookup(anyString(), anyString()))
+					.thenReturn(new ReplayService.Miss());
+			when(mockReplay.beginFill(anyString())).thenReturn(true);
+			doThrow(new RuntimeException("redis down")).when(mockReplay)
+					.store(anyString(), anyString(), any(byte[].class), anyBoolean());
+			ProviderResponse firstUpstream = providerResponse(
+					"openai", 200, sseHeaders(),
+					Stream.of(
+							"data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-5.6-luna\",\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}",
+							"data: [DONE]"
+					)
+			);
+			when(orchestrator.execute(any(), anyString()))
+					.thenReturn(CompletableFuture.completedFuture(firstUpstream));
+			MockHttpServletRequest req = request();
+			req.setAttribute("aegis.keyHash", "ab".repeat(32));
+			req.addHeader("Idempotency-Key", "rk-boom");
+
+			ResponseEntity<StreamingResponseBody> entity = controller.proxyChatCompletions(USAGE_BODY, req);
+			body(entity);
+
+			assertEquals(200, entity.getStatusCode().value());
+			verify(mockReplay).releaseFill("rk-boom");
+		} finally {
+			controller.setBudgetEnforcer(null);
+			controller.setReplayService(null);
+		}
+	}
+
+	@Test
+	@DisplayName("release outage on abort is absorbed")
+	void replayReleaseOutageAbsorbed() throws Exception {
+		BudgetEnforcer mockEnforcer = mock(BudgetEnforcer.class);
+		BudgetSettlement mockSettlement = mock(BudgetSettlement.class);
+		ReplayService mockReplay = mock(ReplayService.class);
+		controller.setBudgetEnforcer(mockEnforcer);
+		controller.setBudgetSettlement(mockSettlement);
+		controller.setReplayService(mockReplay);
+		try {
+			when(mockSettlement.authorize(any(), any(), any(), anyString(), anyInt(), any(), any()))
+					.thenReturn(new BudgetEnforcer.HoldAuthorization(
+							new BudgetDecision.Allowed(100L, 60L), 9_000L, "2026-09"));
+			when(mockSettlement.createHold(anyString(), anyString(), any(), any())).thenReturn(true);
+			when(mockReplay.lookup(anyString(), anyString()))
+					.thenReturn(new ReplayService.Miss());
+			when(mockReplay.beginFill(anyString())).thenReturn(true);
+			doThrow(new RuntimeException("redis down")).when(mockReplay).releaseFill(anyString());
+			int promptTokens = BudgetEnforcer.estimatePromptTokens(PATH_BODY.trim().length());
+			when(costCalculator.calculate(eq(ProviderType.OPENAI), eq("gpt-5.6-luna"), eq((long) promptTokens),
+					eq(0L)))
+					.thenReturn(111L);
+			DefaultSseLineGuard rejectingGuard = mock(DefaultSseLineGuard.class);
+			when(rejectingGuard.checkLine(anyString(), any(SseLineGuard.ProviderType.class)))
+					.thenReturn(List.of("data: {\"error\":{\"message\":\"blocked\"}}"));
+			when(rejectingGuard.isRejected()).thenReturn(true);
+			when(lineGuardFactory.newGuard(any(SseLineGuard.ProviderType.class), anyString(), any()))
+					.thenReturn(rejectingGuard);
+			ProviderResponse response = providerResponse(
+					"openai", 200, sseHeaders(),
+					Stream.of("data: {\"choices\":[{\"delta\":{\"content\":\"leak\"}}]}", "data: [DONE]")
+			);
+			when(orchestrator.execute(any(), anyString()))
+					.thenReturn(CompletableFuture.completedFuture(response));
+			MockHttpServletRequest req = request();
+			req.setAttribute("aegis.keyHash", "ab".repeat(32));
+			req.addHeader("Idempotency-Key", "rk-rel");
+
+			ResponseEntity<StreamingResponseBody> entity = controller.proxyChatCompletions(PATH_BODY, req);
+			body(entity);
+
+			verify(mockSettlement).settleStream(
+					anyString(), eq("ab".repeat(32)), eq("owner-1"), eq("2026-09"), eq(111L), eq(true));
+		} finally {
+			controller.setBudgetEnforcer(null);
+			controller.setBudgetSettlement(null);
+			controller.setReplayService(null);
+		}
+	}
+
+	@Test
+	@DisplayName("completion without an idempotency key skips replay but still settles")
+	void completionWithoutKeySkipsReplay() throws Exception {
+		BudgetEnforcer mockEnforcer = mock(BudgetEnforcer.class);
+		BudgetSettlement mockSettlement = mock(BudgetSettlement.class);
+		ReplayService mockReplay = mock(ReplayService.class);
+		controller.setBudgetEnforcer(mockEnforcer);
+		controller.setBudgetSettlement(mockSettlement);
+		controller.setReplayService(mockReplay);
+		try {
+			when(mockSettlement.authorize(any(), any(), any(), anyString(), anyInt(), any(), any()))
+					.thenReturn(new BudgetEnforcer.HoldAuthorization(
+							new BudgetDecision.Allowed(100L, 60L), 9_000L, "2026-09"));
+			when(mockSettlement.createHold(anyString(), anyString(), any(), any())).thenReturn(true);
+			when(mockSettlement.settleStream(anyString(), anyString(), any(), anyString(), anyLong(),
+					anyBoolean()))
+					.thenReturn(new BudgetEnforcer.SettleOutcome(true, BudgetEnforcer.SETTLE_OK, 4_200L, 10L,
+							false));
+			ProviderResponse firstUpstream = providerResponse(
+					"openai", 200, sseHeaders(),
+					Stream.of(
+							"data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-5.6-luna\",\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}",
+							"data: [DONE]"
+					)
+			);
+			when(orchestrator.execute(any(), anyString()))
+					.thenReturn(CompletableFuture.completedFuture(firstUpstream));
+			when(costCalculator.calculate(ProviderType.OPENAI, "gpt-5.6-luna", 10, 5)).thenReturn(4200L);
+			MockHttpServletRequest req = request();
+			req.setAttribute("aegis.keyHash", "ab".repeat(32));
+
+			ResponseEntity<StreamingResponseBody> entity = controller.proxyChatCompletions(USAGE_BODY, req);
+			body(entity);
+
+			verify(mockSettlement).settleStream(
+					anyString(), eq("ab".repeat(32)), eq("owner-1"), eq("2026-09"), eq(4200L), eq(false));
+			verify(mockReplay, never()).lookup(anyString(), anyString());
+			verify(mockReplay, never()).store(anyString(), anyString(), any(byte[].class), anyBoolean());
+		} finally {
+			controller.setBudgetEnforcer(null);
+			controller.setBudgetSettlement(null);
+			controller.setReplayService(null);
+		}
+	}
+
+	@Test
+	@DisplayName("abort without an idempotency key settles and skips the fill release")
+	void abortWithoutKeySkipsFillRelease() throws Exception {
+		BudgetEnforcer mockEnforcer = mock(BudgetEnforcer.class);
+		BudgetSettlement mockSettlement = mock(BudgetSettlement.class);
+		ReplayService mockReplay = mock(ReplayService.class);
+		controller.setBudgetEnforcer(mockEnforcer);
+		controller.setBudgetSettlement(mockSettlement);
+		controller.setReplayService(mockReplay);
+		try {
+			when(mockSettlement.authorize(any(), any(), any(), anyString(), anyInt(), any(), any()))
+					.thenReturn(new BudgetEnforcer.HoldAuthorization(
+							new BudgetDecision.Allowed(100L, 60L), 9_000L, "2026-09"));
+			when(mockSettlement.createHold(anyString(), anyString(), any(), any())).thenReturn(true);
+			int promptTokens = BudgetEnforcer.estimatePromptTokens(PATH_BODY.trim().length());
+			when(costCalculator.calculate(eq(ProviderType.OPENAI), eq("gpt-5.6-luna"), eq((long) promptTokens),
+					eq(0L)))
+					.thenReturn(111L);
+			DefaultSseLineGuard rejectingGuard = mock(DefaultSseLineGuard.class);
+			when(rejectingGuard.checkLine(anyString(), any(SseLineGuard.ProviderType.class)))
+					.thenReturn(List.of("data: {\"error\":{\"message\":\"blocked\"}}"));
+			when(rejectingGuard.isRejected()).thenReturn(true);
+			when(lineGuardFactory.newGuard(any(SseLineGuard.ProviderType.class), anyString(), any()))
+					.thenReturn(rejectingGuard);
+			ProviderResponse response = providerResponse(
+					"openai", 200, sseHeaders(),
+					Stream.of("data: {\"choices\":[{\"delta\":{\"content\":\"leak\"}}]}", "data: [DONE]")
+			);
+			when(orchestrator.execute(any(), anyString()))
+					.thenReturn(CompletableFuture.completedFuture(response));
+			MockHttpServletRequest req = request();
+			req.setAttribute("aegis.keyHash", "ab".repeat(32));
+
+			ResponseEntity<StreamingResponseBody> entity = controller.proxyChatCompletions(PATH_BODY, req);
+			body(entity);
+
+			verify(mockSettlement).settleStream(
+					anyString(), eq("ab".repeat(32)), eq("owner-1"), eq("2026-09"), eq(111L), eq(true));
+			verify(mockReplay, never()).releaseFill(anyString());
+		} finally {
+			controller.setBudgetEnforcer(null);
+			controller.setBudgetSettlement(null);
+			controller.setReplayService(null);
+		}
+	}
+
+	@Test
+	@DisplayName("flush-handle rejection settles and releases the fill")
+	void flushRejectionSettlesAndReleases() throws Exception {
+		BudgetEnforcer mockEnforcer = mock(BudgetEnforcer.class);
+		BudgetSettlement mockSettlement = mock(BudgetSettlement.class);
+		ReplayService mockReplay = mock(ReplayService.class);
+		controller.setBudgetEnforcer(mockEnforcer);
+		controller.setBudgetSettlement(mockSettlement);
+		controller.setReplayService(mockReplay);
+		try {
+			when(mockSettlement.authorize(any(), any(), any(), anyString(), anyInt(), any(), any()))
+					.thenReturn(new BudgetEnforcer.HoldAuthorization(
+							new BudgetDecision.Allowed(100L, 60L), 9_000L, "2026-09"));
+			when(mockSettlement.createHold(anyString(), anyString(), any(), any())).thenReturn(true);
+			int promptTokens = BudgetEnforcer.estimatePromptTokens(PATH_BODY.trim().length());
+			when(costCalculator.calculate(eq(ProviderType.OPENAI), eq("gpt-5.6-luna"), eq((long) promptTokens),
+					eq(0L)))
+					.thenReturn(111L);
+			SseFlushStrategy.FlushHandle handle = mock(SseFlushStrategy.FlushHandle.class);
+			when(flushStrategy.register(any())).thenThrow(
+					new SseConnectionLimitException("too many streams"));
+			when(mockReplay.lookup(anyString(), anyString()))
+					.thenReturn(new ReplayService.Miss());
+			when(mockReplay.beginFill(anyString())).thenReturn(true);
+			ProviderResponse response = providerResponse(
+					"openai", 200, sseHeaders(),
+					Stream.of("data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}", "data: [DONE]")
+			);
+			when(orchestrator.execute(any(), anyString()))
+					.thenReturn(CompletableFuture.completedFuture(response));
+			MockHttpServletRequest req = request();
+			req.setAttribute("aegis.keyHash", "ab".repeat(32));
+			req.addHeader("Idempotency-Key", "rk-flush");
+
+			ResponseEntity<StreamingResponseBody> entity = controller.proxyChatCompletions(PATH_BODY, req);
+			RecordingServletOutputStream out = new RecordingServletOutputStream();
+			entity.getBody().writeTo(out);
+
+			verify(mockSettlement).settleStream(
+					anyString(), eq("ab".repeat(32)), eq("owner-1"), eq("2026-09"), eq(111L), eq(true));
+			verify(mockReplay).releaseFill("rk-flush");
+		} finally {
+			controller.setBudgetEnforcer(null);
+			controller.setBudgetSettlement(null);
+			controller.setReplayService(null);
+		}
+	}
+
+	@Test
+	@DisplayName("absent key digest with an enforcer skips admission")
+	void absentKeyDigestSkipsAdmission() throws Exception {
+		BudgetEnforcer mockEnforcer = mock(BudgetEnforcer.class);
+		BudgetSettlement mockSettlement = mock(BudgetSettlement.class);
+		controller.setBudgetEnforcer(mockEnforcer);
+		controller.setBudgetSettlement(mockSettlement);
+		try {
+			ProviderResponse response = providerResponse(
+					"openai", 200, sseHeaders(),
+					Stream.of("data: [DONE]")
+			);
+			when(orchestrator.execute(any(), anyString()))
+					.thenReturn(CompletableFuture.completedFuture(response));
+
+			ResponseEntity<StreamingResponseBody> responseEntity =
+					controller.proxyChatCompletions(PATH_BODY, request());
+			body(responseEntity);
+
+			assertEquals(200, responseEntity.getStatusCode().value());
+			verify(mockSettlement, never()).authorize(any(), any(), any(), anyString(), anyInt(), any(), any());
+		} finally {
+			controller.setBudgetEnforcer(null);
+			controller.setBudgetSettlement(null);
+		}
+	}
+
+	@Test
+	@DisplayName("empty provider chain falls back to OPENAI pricing")
+	void emptyChainFallsBackToOpenAi() throws Exception {
+		BudgetEnforcer mockEnforcer = mock(BudgetEnforcer.class);
+		BudgetSettlement mockSettlement = mock(BudgetSettlement.class);
+		controller.setBudgetEnforcer(mockEnforcer);
+		controller.setBudgetSettlement(mockSettlement);
+		try {
+			gatewayProperties.setAliases(Map.of(
+					"empty-chain", new ModelAlias(List.of(), FailoverStrategy.SEQUENTIAL)));
+			when(mockSettlement.authorize(any(), any(), any(), anyString(), anyInt(), any(), any()))
+					.thenReturn(new BudgetEnforcer.HoldAuthorization(
+							new BudgetDecision.Denied("ORG", "MONTH", 99L), 0L, "2026-09"));
+			MockHttpServletRequest req = request();
+			req.setAttribute("aegis.keyHash", "ab".repeat(32));
+
+			ResponseEntity<StreamingResponseBody> response = controller.proxyChatCompletions(
+					"{\"model\":\"empty-chain\",\"messages\":[]}", req);
+
+			assertEquals(429, response.getStatusCode().value());
+			ArgumentCaptor<ProviderType> typeCaptor = ArgumentCaptor.forClass(ProviderType.class);
+			verify(mockSettlement).authorize(any(), any(), typeCaptor.capture(), anyString(), anyInt(), any(),
+					any());
+			assertEquals(ProviderType.OPENAI, typeCaptor.getValue());
+		} finally {
+			controller.setBudgetEnforcer(null);
+			controller.setBudgetSettlement(null);
 		}
 	}
 

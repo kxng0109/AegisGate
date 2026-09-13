@@ -10,7 +10,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @ConfigurationPropertiesScan
 @EnableScheduling
 @EnableJpaRepositories(basePackages = { "io.github.kxng0109.aegisgate.ledger",
-		"io.github.kxng0109.aegisgate.budget" })
+		"io.github.kxng0109.aegisgate.budget", "io.github.kxng0109.aegisgate.replay" })
 public class AegisGateApplication {
 
 	static void main(String[] args) {

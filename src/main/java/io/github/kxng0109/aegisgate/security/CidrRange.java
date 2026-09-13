@@ -14,6 +14,11 @@ public record CidrRange(
 		int prefixLength
 ) {
 
+	/** First 8 bytes of the NAT64 well-known prefix {@code 64:ff9b::/96}. */
+	private static final byte[] NAT64_PREFIX = {
+			0x00, 0x64, (byte) 0xFF, (byte) 0x9B, 0x00, 0x00, 0x00, 0x00
+	};
+
 	/**
 	 * Validates the {@code networkAddress} and {@code prefixLength} components of this {@code CidrRange} record.
 	 *
@@ -54,7 +59,15 @@ public record CidrRange(
 		byte[] mask = buildMask();
 
 		if (candidateBytes.length != networkBytes.length) {
-			return false;
+			if (networkBytes.length == 4) {
+				byte[] unwrapped = embeddedIpv4(candidateBytes);
+				if (unwrapped == null) {
+					return false;
+				}
+				candidateBytes = unwrapped;
+			} else {
+				return false;
+			}
 		}
 
 		for (int i = 0; i < candidateBytes.length; i++) {
@@ -63,6 +76,28 @@ public record CidrRange(
 			}
 		}
 		return true;
+	}
+
+	/**
+	 * Extracts the embedded IPv4 address from the NAT64 well-known prefix
+	 * ({@code 64:ff9b::/96}). Without this, a translated encoding of an internal IPv4
+	 * address would never match an IPv4 deny range, because the 16-byte form fails the
+	 * length check.
+	 * <p>
+	 * IPv4-mapped IPv6 ({@code ::ffff:0:0/96}) needs no handling here: the JDK collapses
+	 * mapped literals to 4-byte {@code Inet4Address} at resolution time, so they arrive
+	 * as IPv4 and match directly (locked by test).
+	 *
+	 * @param address the 16-byte address to inspect (callers only pass 16-byte candidates)
+	 * @return the 4 embedded IPv4 bytes, or {@code null} when the address is not NAT64
+	 */
+	private static byte[] embeddedIpv4(byte[] address) {
+		for (int i = 0; i < NAT64_PREFIX.length; i++) {
+			if (address[i] != NAT64_PREFIX[i]) {
+				return null;
+			}
+		}
+		return new byte[]{address[12], address[13], address[14], address[15]};
 	}
 
 	/**

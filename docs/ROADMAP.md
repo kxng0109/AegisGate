@@ -1,7 +1,7 @@
 # AegisGate feature roadmap
 
 Live build: `1.7.0` (next minor: `1.8.0` — everything through budgets ships there; no `1.7.x` line).
-Full `verify`: 1,320 green, JaCoCo branch gate 0.95 (currently 0.9503 — every new branch needs a test).
+Full `verify`: 1,583 green, JaCoCo branch gate 0.95 (currently 0.9505 — every new branch needs a test).
 
 ## Shipped (Phase 2 → budgets)
 
@@ -14,6 +14,11 @@ Full `verify`: 1,320 green, JaCoCo branch gate 0.95 (currently 0.9503 — every 
 - Latency trims (20ms SSE flush default, embed `keep_alive: 30m`, single-parse paths).
 - Phase 0 multi-instance correctness (atomic seed, idempotency keys, pool math, SSE contract, V6 shared journal).
 - Spend budgets + chargeback (V7, Lua gate, admin CRUD/balances/audit); SSE tail-drop race fix.
+- Track 1 budget hardening (V8 append-only audit, fail-closed, single-slot tags, pg_notify invalidation).
+- Track 4 settlement + replay (V9 `budget_gap`, hold/settle Lua, sweeper; V10 replay store, two-Redis split,
+  replay 200/409/422 contract); SSRF validator mapped/NAT64 hardening; CROSSSLOT key-slot test.
+- Track 3 detection + delivery (V11 `alert_events` + Alertmanager poller; V12 notification tables + senders,
+  V13 audit hash chain, V14 alert value columns; `RetentionJanitor`).
 
 ## Optimization & efficiency section (the 2-vCPU stretch program)
 
@@ -32,10 +37,13 @@ measured before/after (flood p95, burst p95, RSS, `usec_per_call` on `evalsha`) 
    ECDSA check; 2→4→8 goodput sweep to re-baseline the per-instance ceiling.
 3. **Budget Lua fast-path**: single-RTT consolidation audit, presence-cache TTL/miss-cost measurement, epoch-fencing
    follow-up; per-request Redis command accounting (target: budget gate adds ~0 measurable p99).
-4. **Anomaly/forecast job** (standalone): burn-rate 50/90/100% alerts + webhooks; reuses the audit table, never the
-   hot path.
-5. **Response-replay store** (dedupe-only agreed scope): completes Stripe-semantics idempotency for spend (fixes the
-   retry double-spend gap); bounded retention, no unbounded growth.
+4. **Anomaly/forecast job** ✅ SHIPPED (`BudgetDetector` 1-min cadence: static 50/90/100 + hysteresis, EWMA
+   forecast with paired 5m/1h burn windows + 3-tick sustain, z-score>3 anomaly with floor + warmup; `alert_events`
+   outbox + Alertmanager v2 dispatcher; opt-in notification senders; advisory-lock single-flight; `verify` 1,583,
+   branch 0.9505).
+5. **Response-replay store** ✅ SHIPPED (dedupe-only agreed scope): Redis hot + PG partitioned durable, replay
+   200/409/422 + `Idempotent-Replayed`, fill-claim single-flight, aborts never auto-replay; two-Redis accounting/
+   cache split so eviction can never corrupt spend counters.
 6. **CRITICAL-1 + fail-open remediation** ✅ SHIPPED (full `verify` 1,349 green, branch 0.9505): Spring Security
    default-deny boundary + `/v1/embeddings` bypass closed; hex-validated digests; pricing/Redis outages deny;
    after-commit Redis publish + startup backfill reconciler; V8 append-only audit trigger; 5s negative TTL +

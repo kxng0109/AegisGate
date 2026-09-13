@@ -2,6 +2,8 @@ package io.github.kxng0109.aegisgate.proxy;
 
 import io.github.kxng0109.aegisgate.budget.BudgetDecision;
 import io.github.kxng0109.aegisgate.budget.BudgetEnforcer;
+import io.github.kxng0109.aegisgate.budget.BudgetSettlement;
+import io.github.kxng0109.aegisgate.replay.ReplayService;
 import io.github.kxng0109.aegisgate.cache.contracts.CacheEntry;
 import io.github.kxng0109.aegisgate.cache.contracts.CacheLookupResult;
 import io.github.kxng0109.aegisgate.cache.contracts.CacheStatus;
@@ -108,6 +110,10 @@ public class ProxyController {
 	private final @Nullable ZeroDataRetentionEnforcer zdrEnforcer;
 
 	private volatile @Nullable BudgetEnforcer budgetEnforcer;
+
+	private volatile @Nullable BudgetSettlement budgetSettlement;
+
+	private volatile @Nullable ReplayService replayService;
 
 	/**
 	 * Full enterprise constructor injecting all components including cache, security, and compliance subsystems.
@@ -369,6 +375,43 @@ public class ProxyController {
 
 		@Nullable String ownerId = (String) request.getAttribute(KeyAuthFilter.OWNER_ID_ATTRIBUTE);
 		OpenAiChatRequest chatRequest = parseChatRequest(trimmed);
+		String bodyHashHex = IdempotencyKeys.sha256Hex(trimmed.getBytes(StandardCharsets.UTF_8));
+
+		// Exact replay for idempotent retries: a stored completion is re-delivered without upstream spend
+		// or budget charge. Same key + different body is 422 (key reuse); a concurrent first flight is 409.
+		@Nullable ReplayFlight claimedFlight = null;
+		ReplayService replay = this.replayService;
+		if (idempotencyKey != null && replay != null) {
+			ReplayService.Lookup lookup = replay.lookup(idempotencyKey, bodyHashHex);
+			if (lookup instanceof ReplayService.FingerprintMismatch) {
+				return errorResponse(HttpStatus.UNPROCESSABLE_ENTITY,
+						"idempotency key already used with a different request");
+			}
+			if (lookup instanceof ReplayService.InFlight) {
+				HttpHeaders conflictHeaders = new HttpHeaders();
+				conflictHeaders.setContentType(MediaType.APPLICATION_JSON);
+				conflictHeaders.set(HttpHeaders.RETRY_AFTER, "1");
+				return ResponseEntity.status(HttpStatus.CONFLICT).headers(conflictHeaders)
+						.body(out -> out.write(
+								"{\"error\":{\"message\":\"identical request in flight\"}}"
+										.getBytes(StandardCharsets.UTF_8)));
+			}
+			if (lookup instanceof ReplayService.Hit hit) {
+				return serveReplay(hit);
+			}
+			if (replay.beginFill(idempotencyKey)) {
+				claimedFlight = new ReplayFlight(idempotencyKey, bodyHashHex);
+			} else {
+				HttpHeaders conflictHeaders = new HttpHeaders();
+				conflictHeaders.setContentType(MediaType.APPLICATION_JSON);
+				conflictHeaders.set(HttpHeaders.RETRY_AFTER, "1");
+				return ResponseEntity.status(HttpStatus.CONFLICT).headers(conflictHeaders)
+						.body(out -> out.write(
+								"{\"error\":{\"message\":\"identical request in flight\"}}"
+										.getBytes(StandardCharsets.UTF_8)));
+			}
+		}
+		final @Nullable ReplayFlight replayFlight = claimedFlight;
 
 		if (cacheService != null && cachedStreamReconstitution != null && chatRequest != null) {
 			CacheLookupResult cacheResult = cacheService.evaluateCache(chatRequest, request, ownerId);
@@ -400,14 +443,22 @@ public class ProxyController {
 			}
 		}
 
+		UUID requestId = IdempotencyKeys.resolveRequestId(
+				idempotencyKey,
+				ownerId == null ? "" : ownerId,
+				request.getRequestURI(),
+				bodyHashHex);
+
 		// Spend-budget gate: cache misses only (hits served ~free and bypass spend).
 		// Runs after alias/idempotency validation, before any upstream spend.
-		ResponseEntity<StreamingResponseBody> budgetDenied = checkBudgetOrNull(
-				alias, model, ownerId, trimmed,
+		// On allow, an admission hold H is charged and recorded for stream-end true-up.
+		BudgetAdmission admission = admitWithBudget(
+				alias, model, ownerId, trimmed, chatRequest, requestId,
 				(String) request.getAttribute(KeyAuthFilter.KEY_HASH_ATTRIBUTE), idempotencyKey);
-		if (budgetDenied != null) {
-			return budgetDenied;
+		if (admission.denied() != null) {
+			return admission.denied();
 		}
+		@Nullable SettlementContext settlementContext = admission.context();
 
 		ProviderResponse providerResponse;
 		try {			providerResponse = failoverOrchestrator.execute(alias, trimmed).join();
@@ -425,6 +476,9 @@ public class ProxyController {
 
 		int status = providerResponse.response().statusCode();
 		if (status != HttpStatus.OK.value()) {
+			// Upstream failed: no usable output exists, so only the processed input stands.
+			settlePromptKnown(settlementContext, false);
+			replayReleaseQuietly(replayFlight);
 			return ResponseEntity.status(status)
 			                     .contentType(MediaType.APPLICATION_JSON)
 			                     .body(out -> relayRaw(providerResponse, out));
@@ -434,11 +488,6 @@ public class ProxyController {
 		ProviderType providerType = config == null ? ProviderType.OPENAI : config.type();
 		ProtocolAdapter adapter = adapterResolver.resolve(providerType);
 		boolean clientWantsUsage = requestsUsage(trimmed);
-		UUID requestId = IdempotencyKeys.resolveRequestId(
-				idempotencyKey,
-				ownerId == null ? "" : ownerId,
-				request.getRequestURI(),
-				IdempotencyKeys.sha256Hex(trimmed.getBytes(StandardCharsets.UTF_8)));
 
 		HttpHeaders headers = new HttpHeaders();
 		headers.setCacheControl("no-cache");
@@ -465,7 +514,8 @@ public class ProxyController {
 			headers.setContentType(MediaType.APPLICATION_JSON);
 			return ResponseEntity.ok().headers(headers).body(out -> relayJson(
 					providerResponse, requestId, ownerId, providerType,
-					providerResponse.providerName(), model, chatRequest, request, out
+					providerResponse.providerName(), model, chatRequest, request, out,
+					settlementContext, replayFlight
 			));
 		}
 
@@ -473,8 +523,64 @@ public class ProxyController {
 		return ResponseEntity.ok().headers(headers).body(out -> relaySse(
 				providerResponse, adapter.newNormalizer(clientWantsUsage, model), out,
 				requestId, ownerId, providerType, providerResponse.providerName(), model,
-				chatRequest, request
+				chatRequest, request, settlementContext, replayFlight
 		));
+	}
+
+	/**
+	 * Re-delivers a stored completion for an idempotent retry without upstream spend or budget charge.
+	 * Non-streaming payloads are byte-identical to the original response; streaming completions are
+	 * re-framed as a single SSE data event plus {@code [DONE]} (transport framing, identical content and
+	 * usage). Every replay carries the {@code Idempotent-Replayed} marker.
+	 */
+	private ResponseEntity<StreamingResponseBody> serveReplay(ReplayService.Hit hit) {
+		HttpHeaders headers = new HttpHeaders();
+		headers.set("Idempotent-Replayed", "true");
+		headers.setCacheControl("no-cache");
+		byte[] payload = hit.body();
+		if (hit.sseFramed()) {
+			headers.setContentType(MediaType.TEXT_EVENT_STREAM);
+			headers.set("X-Accel-Buffering", "no");
+			return ResponseEntity.ok().headers(headers).body(out -> {
+				out.write("data: ".getBytes(StandardCharsets.UTF_8));
+				out.write(payload);
+				out.write("\n\ndata: [DONE]\n\n".getBytes(StandardCharsets.UTF_8));
+			});
+		}
+		headers.setContentType(MediaType.APPLICATION_JSON);
+		return ResponseEntity.ok().headers(headers).body(out -> out.write(payload));
+	}
+
+	/**
+	 * Stores a completed payload for future idempotent retries. Best-effort by design: every failure is
+	 * logged and absorbed (the fill claim is released, so a later retry simply re-proxies).
+	 */
+	private void replayStoreQuietly(@Nullable ReplayFlight flight, byte[] payload, boolean sseFramed) {
+		ReplayService replay = this.replayService;
+		if (replay == null || flight == null) {
+			return;
+		}
+		try {
+			replay.store(flight.key(), flight.bodyHash(), payload, sseFramed);
+		} catch (RuntimeException ex) {
+			log.warn("Replay store failed; fill released for a later retry");
+			replayReleaseQuietly(flight);
+		}
+	}
+
+	/**
+	 * Releases an owned fill claim without storing (abort, upstream failure, unmeasurable usage).
+	 */
+	private void replayReleaseQuietly(@Nullable ReplayFlight flight) {
+		ReplayService replay = this.replayService;
+		if (replay == null || flight == null) {
+			return;
+		}
+		try {
+			replay.releaseFill(flight.key());
+		} catch (RuntimeException ex) {
+			log.warn("Replay fill release failed; TTL bounds the stale claim");
+		}
 	}
 
 	private void relaySse(
@@ -487,7 +593,9 @@ public class ProxyController {
 			String providerName,
 			String requestedModel,
 			@Nullable OpenAiChatRequest chatRequest,
-			HttpServletRequest servletRequest
+			HttpServletRequest servletRequest,
+			@Nullable SettlementContext settlementContext,
+			@Nullable ReplayFlight replayFlight
 	) throws IOException {
 		long startedNanos = System.nanoTime();
 		ServletOutputStream servletOut = out instanceof ServletOutputStream candidate ? candidate : null;
@@ -497,6 +605,8 @@ public class ProxyController {
 				flushHandle = flushStrategy.register(servletOut);
 			} catch (SseConnectionLimitException ex) {
 				log.warn("SSE stream rejected, connection limit reached: {}", ex.getMessage());
+				settlePromptKnown(settlementContext, true);
+				replayReleaseQuietly(replayFlight);
 				return;
 			}
 		}
@@ -544,6 +654,8 @@ public class ProxyController {
 						}
 						out.flush();
 						lineGuard.onStreamAbort("line_too_long");
+						settlePromptKnown(settlementContext, true);
+						replayReleaseQuietly(replayFlight);
 						return;
 					}
 					if (guarded.isEmpty()) {
@@ -563,6 +675,8 @@ public class ProxyController {
 							if (shingleTracker != null && shingleTracker.ingestChunk(delta)) {
 								MidStreamKillSwitch.terminate(out, lines, "system_prompt_exfiltration");
 								lineGuard.onStreamAbort("system_prompt_exfiltration");
+								settlePromptKnown(settlementContext, true);
+								replayReleaseQuietly(replayFlight);
 								return;
 							}
 							if (jsonPda != null) {
@@ -593,6 +707,8 @@ public class ProxyController {
 						out.write('\n');
 						if (flushHandle != null && servletOut != null) {
 							if (flushStrategy.onWrite(servletOut, bytes.length + 1)) {
+								settlePromptKnown(settlementContext, true);
+								replayReleaseQuietly(replayFlight);
 								return;
 							}
 						} else {
@@ -614,9 +730,13 @@ public class ProxyController {
 			// Body handler detected oversized line during byte decoding
 			writeSseError(out, ex.limitBytes(), ex.actualBytes(), ex.provider());
 			lineGuard.onStreamAbort("line_too_long");
+			settlePromptKnown(settlementContext, true);
+			replayReleaseQuietly(replayFlight);
 			return;
 		} catch (IOException ex) {
-			// Downstream client disconnected
+			// Downstream client disconnected: settle the input-known portion and re-arm the output hold.
+			settlePromptKnown(settlementContext, true);
+			replayReleaseQuietly(replayFlight);
 			return;
 		} finally {
 			if (vault != null) {
@@ -663,12 +783,20 @@ public class ProxyController {
 					uncachedPrompt, cacheRead, cacheWrite, reasoning,
 					costUsdMicros, costUsdMicros, null
 			));
+			// Stream completed with measured usage: true the hold up to actual spend.
+			settleQuietly(settlementContext, costUsdMicros, false);
 
-			if (cacheService != null && chatRequest != null) {
+			if ((cacheService != null || replayFlight != null) && chatRequest != null) {
 				int pt = (int) Math.min(Integer.MAX_VALUE, usage.promptTokens());
 				int ct = (int) Math.min(Integer.MAX_VALUE, usage.completionTokens());
 				String completionJson = buildCompletionJson(model, accumulatedContent.toString(), pt, ct);
-				cacheService.storeResponse(chatRequest, servletRequest, ownerId, completionJson, pt, ct);
+				if (cacheService != null) {
+					cacheService.storeResponse(chatRequest, servletRequest, ownerId, completionJson, pt, ct);
+				}
+				// Completed SSE stored re-framed (single data event + DONE on serve): identical content
+				// and usage, transport framing only.
+				replayStoreQuietly(replayFlight,
+						completionJson.getBytes(StandardCharsets.UTF_8), true);
 			}
 		}
 	}
@@ -757,7 +885,9 @@ public class ProxyController {
 			String requestedModel,
 			@Nullable OpenAiChatRequest chatRequest,
 			HttpServletRequest servletRequest,
-			OutputStream out
+			OutputStream out,
+			@Nullable SettlementContext settlementContext,
+			@Nullable ReplayFlight replayFlight
 	) throws IOException {
 		StringBuilder payload = new StringBuilder();
 		try (var lines = providerResponse.response().body()) {
@@ -771,13 +901,16 @@ public class ProxyController {
 			root = objectMapper.readTree(json);
 		} catch (JacksonException ex) {
 			log.warn("Upstream returned non-JSON 200 body from provider {}: {}", providerName, ex.getMessage());
+			// Usage unmeasurable: settle the input-known portion without the abort grace (completed response).
+			settlePromptKnown(settlementContext, false);
+			replayReleaseQuietly(replayFlight);
 			relayRawLine(out, json);
 			return;
 		}
 		JsonNode normalized = normalizeCompletion(root, requestedModel, providerName);
 		recordUsageAndCache(
 				normalized, root, chatRequest, providerType, providerName, requestedModel,
-				ownerId, requestId, servletRequest
+				ownerId, requestId, servletRequest, settlementContext, replayFlight
 		);
 		relayRawLine(out, objectMapper.writeValueAsString(normalized));
 	}
@@ -851,7 +984,9 @@ public class ProxyController {
 			String requestedModel,
 			@Nullable String ownerId,
 			UUID requestId,
-			HttpServletRequest servletRequest
+			HttpServletRequest servletRequest,
+			@Nullable SettlementContext settlementContext,
+			@Nullable ReplayFlight replayFlight
 	) {
 		try {
 			String normalizedJson = objectMapper.writeValueAsString(normalized);
@@ -869,6 +1004,10 @@ public class ProxyController {
 					promptTokens, 0L, 0L, 0L,
 					costUsdMicros, costUsdMicros, null
 			));
+			// Non-streaming completion measured: true the hold up to actual spend.
+			settleQuietly(settlementContext, costUsdMicros, false);
+			// Non-streaming payloads store byte-identical for exact re-delivery.
+			replayStoreQuietly(replayFlight, normalizedJson.getBytes(StandardCharsets.UTF_8), false);
 			if (cacheService != null && chatRequest != null) {
 				try {
 					int pt = (int) Math.min(Integer.MAX_VALUE, promptTokens);
@@ -924,18 +1063,77 @@ public class ProxyController {
 	}
 
 	/**
-	 * Enforces spend budgets for one cache-miss request. Returns a 429 entity when a cap denies, a 503 when the
-	 * budget service is unreachable (uniform fail-closed), or {@code null} to continue. Skipped (null) when no
-	 * enforcer is wired — the bean is unconditional in production, so a null enforcer only occurs in non-Spring
-	 * unit-test contexts; or when the key digest is absent (internal callers such as the semantic-cache warmer
-	 * have no key to charge). A malformed digest is internal corruption and fails closed with 503.
+	 * Wires the settlement orchestrator when present. Optional like the enforcer: unit-constructed controllers
+	 * keep working with hold-then-settle silently skipped (admission then charges the prompt-only estimate).
+	 *
+	 * @param budgetSettlement the settlement facade, if available
 	 */
-	private @Nullable ResponseEntity<StreamingResponseBody> checkBudgetOrNull(
+	@Autowired(required = false)
+	public void setBudgetSettlement(BudgetSettlement budgetSettlement) {
+		this.budgetSettlement = budgetSettlement;
+	}
+
+	/**
+	 * Wires the replay service when present. Optional like the settlement facade: unit-constructed
+	 * controllers keep working with idempotent replay silently skipped (retries re-proxy; the budget
+	 * dedupe still prevents double-charge).
+	 *
+	 * @param replayService the replay service, if available
+	 */
+	@Autowired(required = false)
+	public void setReplayService(ReplayService replayService) {
+		this.replayService = replayService;
+	}
+
+	/**
+	 * An owned replay fill: this request won the claim and will store (or release) it. {@code null} when
+	 * replay is unavailable, the key is absent, or another flight owns the key.
+	 */
+	private record ReplayFlight(String key, String bodyHash) {
+	}
+
+	/**
+	 * Settlement state carried from admission to stream end on one request. {@code null} throughout when
+	 * settlement is unavailable — every settle call site null-guards, so the response path never depends on
+	 * bookkeeping.
+	 */
+	private record SettlementContext(
+			String holdId,
+			String keyHex,
+			@Nullable String ownerId,
+			String origMonth,
+			long holdMicros,
+			int promptTokens,
+			ProviderType budgetType,
+			String model
+	) {
+	}
+
+	/**
+	 * Admission verdict plus settlement state. {@code denied} is non-null on 429/503 (return it); otherwise
+	 * {@code context} carries the hold for stream-end settlement (possibly {@code null} when no hold exists).
+	 */
+	private record BudgetAdmission(
+			@Nullable ResponseEntity<StreamingResponseBody> denied,
+			@Nullable SettlementContext context
+	) {
+	}
+
+	/**
+	 * Enforces spend budgets for one cache-miss request. Returns a {@link BudgetAdmission} carrying a 429/503
+	 * entity when a cap denies or the budget service is unreachable (uniform fail-closed), or an allow with the
+	 * settlement context for stream-end true-up. Skipped (allow, no context) when no enforcer is wired — the bean
+	 * is unconditional in production, so a null enforcer only occurs in non-Spring unit-test contexts; or when
+	 * the key digest is absent (internal callers such as the semantic-cache warmer have no key to charge).
+	 * A malformed digest is internal corruption and fails closed with 503.
+	 */
+	private BudgetAdmission admitWithBudget(
 			ModelAlias alias, String model, @Nullable String ownerId, String trimmed,
+			@Nullable OpenAiChatRequest chatRequest, UUID requestId,
 			@Nullable String keyHashHex, @Nullable String idempotencyKey) {
 		BudgetEnforcer enforcer = this.budgetEnforcer;
 		if (enforcer == null || keyHashHex == null || keyHashHex.isBlank()) {
-			return null;
+			return new BudgetAdmission(null, null);
 		}
 		ProviderType budgetType;
 		try {
@@ -949,14 +1147,27 @@ public class ProxyController {
 		try {
 			keyHash = SHA256Hash.fromHex(keyHashHex);
 		} catch (IllegalArgumentException malformed) {
-			return errorResponse(HttpStatus.SERVICE_UNAVAILABLE, "Budget service unavailable");
+			return new BudgetAdmission(
+					errorResponse(HttpStatus.SERVICE_UNAVAILABLE, "Budget service unavailable"), null);
 		}
+		int promptTokens = BudgetEnforcer.estimatePromptTokens(trimmed.length());
+		Integer maxTokens = chatRequest == null ? null : chatRequest.effectiveMaxTokens();
 		final BudgetDecision decision;
+		final BudgetEnforcer.HoldAuthorization auth;
+		BudgetSettlement settlement = this.budgetSettlement;
 		try {
-			decision = enforcer.checkBudget(keyHash, ownerId, budgetType, model,
-					BudgetEnforcer.estimatePromptTokens(trimmed.length()), idempotencyKey);
+			if (settlement != null) {
+				auth = settlement.authorize(
+						keyHash, ownerId, budgetType, model, trimmed.length(), maxTokens, idempotencyKey);
+				decision = auth.decision();
+			} else {
+				decision = enforcer.checkBudget(
+						keyHash, ownerId, budgetType, model, promptTokens, idempotencyKey);
+				auth = null;
+			}
 		} catch (RateLimitUnavailableException unavailable) {
-			return errorResponse(HttpStatus.SERVICE_UNAVAILABLE, "Budget service unavailable");
+			return new BudgetAdmission(
+					errorResponse(HttpStatus.SERVICE_UNAVAILABLE, "Budget service unavailable"), null);
 		}
 		if (decision instanceof BudgetDecision.Denied denied) {
 			long retryAfter = Math.max(1L, denied.retryAfterSeconds());
@@ -969,10 +1180,56 @@ public class ProxyController {
 			denyHeaders.set("X-Budget-Window", denied.window());
 			String denyBody = "{\"error\":{\"message\":\"budget exhausted (" + denied.level() + " "
 					+ denied.window() + ")\"}}";
-			return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).headers(denyHeaders)
-					.body(out -> out.write(denyBody.getBytes(StandardCharsets.UTF_8)));
+			return new BudgetAdmission(ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).headers(denyHeaders)
+					.body(out -> out.write(denyBody.getBytes(StandardCharsets.UTF_8))), null);
 		}
-		return null;
+		SettlementContext context = null;
+		// auth is non-null whenever settlement is (the try above either assigns it or returns).
+		if (settlement != null && auth.holdMicros() >= 0) {
+			boolean held = settlement.createHold(
+					requestId.toString(), keyHash.hex(), ownerId, auth);
+			if (held) {
+				context = new SettlementContext(requestId.toString(), keyHash.hex(), ownerId,
+						auth.holdMonth(), auth.holdMicros(), promptTokens, budgetType, model);
+			}
+		}
+		return new BudgetAdmission(null, context);
+	}
+
+	/**
+	 * Stream-end true-up that can never break the response: every failure is logged and absorbed (the hold H
+	 * stays counted — the safe over-count direction).
+	 */
+	private void settleQuietly(@Nullable SettlementContext context, long actualMicros, boolean abort) {
+		BudgetSettlement settlement = this.budgetSettlement;
+		if (settlement == null || context == null) {
+			return;
+		}
+		try {
+			settlement.settleStream(context.holdId(), context.keyHex(), context.ownerId(),
+					context.origMonth(), actualMicros, abort);
+		} catch (RuntimeException ex) {
+			log.warn("Stream-end settle failed for hold {}", context.holdId());
+		}
+	}
+
+	/**
+	 * Settles the input-known portion (prompt cost) on abort, failure, or unmeasurable usage. When even the
+	 * prompt cannot be priced, settles the hold value itself (no-op delta): no refund without proof.
+	 *
+	 * @param abort {@code true} for client aborts (re-arms the output hold for the grace window)
+	 */
+	private void settlePromptKnown(@Nullable SettlementContext context, boolean abort) {
+		if (context == null) {
+			return;
+		}
+		long actual;
+		try {
+			actual = costCalculator.calculate(context.budgetType(), context.model(), context.promptTokens(), 0);
+		} catch (RuntimeException ex) {
+			actual = context.holdMicros();
+		}
+		settleQuietly(context, Math.max(0L, actual), abort);
 	}
 
 	private ResponseEntity<StreamingResponseBody> errorResponse(HttpStatus status, String message) {
