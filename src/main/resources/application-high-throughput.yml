@@ -18,8 +18,8 @@ server:
   tomcat:
     # 50K SSE holds + short-request headroom (default 8192 rejects the target).
     max-connections: ${TOMCAT_MAX_CONNECTIONS:60000}
-    # OS accept queue once max-connections is hit (kernel somaxconn must cover it).
-    accept-count: ${TOMCAT_ACCEPT_COUNT:2000}
+    # OS accept queue once max-connections is hit (kernel somaxconn=8192 must cover it).
+    accept-count: ${TOMCAT_ACCEPT_COUNT:8192}
     threads:
       # Carriers stay small; virtual threads scale beyond (never raise to 1000s).
       max: ${TOMCAT_THREADS_MAX:200}
@@ -33,13 +33,8 @@ spring:
     hikari:
       maximum-pool-size: ${HIKARI_MAXIMUM_POOL_SIZE:16}
       minimum-idle: ${HIKARI_MINIMUM_IDLE:16}
-  data:
-    redis:
-      lettuce:
-        pool:
-          max-active: ${REDIS_POOL_MAX_ACTIVE:12}
-          max-idle: ${REDIS_POOL_MAX_IDLE:6}
-          min-idle: ${REDIS_POOL_MIN_IDLE:4}
+  # No lettuce pool keys on purpose (see application.yml): shared native
+  # connection on all tiers; pool keys would bind to nothing.
 
 gateway:
   ledger:

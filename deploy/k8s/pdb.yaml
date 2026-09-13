@@ -1,0 +1,13 @@
+# Sweeper/dispatcher single-flight rides PG advisory locks (session-scoped:
+# a dead pod releases implicitly), so eviction never wedges leadership.
+# maxUnavailable: 1 keeps one pod alive through voluntary disruptions.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: aegisgate
+  namespace: aegisgate
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: aegisgate

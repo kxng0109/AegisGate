@@ -57,7 +57,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Cross-pod single-flight via advisory lock; per-scope state in Redis hashes; decisions write an
   `alert_events` outbox (SHA-256 dedupe, `SKIP LOCKED` claims, poison ceiling) that `AlertDispatcher` POSTs to
   Alertmanager v2 (Full-Jitter backoff honoring `Retry-After`; log-only mode when unconfigured). Compose adds
-  `prom/alertmanager:v0.34.0`; Prometheus `alerting:` stanza wired.
+   `prom/alertmanager:v0.34.0`; Prometheus `alerting:` stanza wired.
+- **Admission-gate tripwires:** `GateThroughputSmokeTest` replays 2,000 `budget_limit.lua` decisions against
+  real Redis (floor 200 decisions/s, 5s slowest-single-call ceiling); k6 `01-gate-smoke.js` (60s @100rps
+  gate-only local-404 probe) and `02-gate-burst.js` (3m @500rps measurement) pin gateway latency
+  independently of upstream health. Full `verify` 1,589 green, branch 0.9505.
+- **Greenfield K8s manifests (`deploy/k8s/`):** share-nothing Deployment (2vCPU/2Gi floor), ClusterIP
+  Service, workload-metric HPA, PDB, default-deny + allow NetworkPolicies, kustomization; secrets are
+  operator-supplied (`aegisgate-secrets`) and never committed. Render-validated only (`kustomize` clean) —
+  no live cluster has applied them yet.
+- **systemd unit for non-Docker deploys (`docs/high-throughput/aegisgate.service`):** `LimitNOFILE=131072`
+  (systemd ignores `limits.conf`), parallelism=4 flags, 2vCPU/2GB floor variant documented in comments.
 - **Track 3 — Opt-in alert delivery (V12–V14):** `notification_preferences` (email / Teams / Slack / webhook,
   secrets referenced by env var name, never stored), `notification_bounces` (hard-bounce suppression),
   `notification_dedupe` (per-alert per-channel claim), `notification_log` (send audit). `NotificationFanout`
@@ -121,8 +131,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   any instance via `SKIP LOCKED` claims (disjoint batches, per-row
   transactions, exponential backoff, poison parking, retention purge); listener
   failures stage first and fall back to the per-pod file only on total PG
-  outage. Redis memory alert corrected to the real 256MB-cap ratio. Full
-  `verify` 1,274 green.
+   outage. Redis memory alert corrected to the real 256MB-cap ratio. Full
+   `verify` 1,274 green.
+- **Tomcat accept queue sized to the kernel (HT profile):** `accept-count` 2000→8192, matching
+  `99-aegisgate-highconc.conf` `somaxconn=8192`; `TOMCAT_ACCEPT_COUNT`/`TOMCAT_MAX_CONNECTIONS` passthrough
+  plus an empty-by-default `JAVA_TOOL_OPTIONS` harness for carrier A/B runs (Dockerfile `parallelism=4`
+  rules unless overridden).
+- **Dead Lettuce pool keys removed (no behavior change):** the app defines its own
+  `LettuceConnectionFactory` beans (single shared native connection, optimal for sub-ms Lua), so Boot's
+  pool auto-configuration backs off and `spring.data.redis.lettuce.pool.*` / `REDIS_POOL_*` bound to
+  nothing — deleted from both profiles, compose, and both `.env.example` files with explanatory comments.
+- **Carrier A/B short verdict (recorded, not a change):** 3m/500rps bursts show no meaningful parallelism
+  4-vs-8 gap (both p95 <5ms); **kept 4**. Differentiating saturation run deferred to the P3 distributed
+  harness; see `docs/high-throughput/gate-checklist.md`.
 
 ## [1.7.0] - 2026-09-10
 

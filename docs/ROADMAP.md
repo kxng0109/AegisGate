@@ -1,12 +1,12 @@
 # AegisGate feature roadmap
 
 Live build: `1.7.0` (next minor: `1.8.0` — everything through budgets ships there; no `1.7.x` line).
-Full `verify`: 1,583 green, JaCoCo branch gate 0.95 (currently 0.9505 — every new branch needs a test).
+Full `verify`: 1,589 green, JaCoCo branch gate 0.95 (currently 0.9505 — every new branch needs a test).
 
 ## Shipped (Phase 2 → budgets)
 
 - Ollama-first local stack (iGPU-served, zero-cost); pricing V5; semantic L2 cache with dynamic dims.
-- k6 proof suite (`00-smoke`, `10-flood`, `20-burst`, `30-sse-smoke`, `31-xk6`, `32-overload-ramp`, `33-knees`,
+- k6 proof suite (`00-smoke`, `01-gate-smoke`, `02-gate-burst`, `10-flood`, `20-burst`, `30-sse-smoke`, `31-xk6`, `32-overload-ramp`, `33-knees`,
   `34-witness-60s`); chaos trims (Redis/PG kills, 19K dead-letter replays).
 - JVM memory bundle (2G app limit, ZGC tuning); overload hunt (weak-spot order: generator → queueing, never
   memory); knees hunt (6.4K served req/s host vs 1.36K containerized; front-door refusals, app idle).
@@ -33,8 +33,11 @@ measured before/after (flood p95, burst p95, RSS, `usec_per_call` on `evalsha`) 
    with `REDIS_ARGS` folded into `command:`, `FT.INFO` backfill check, Testcontainers re-pinned (kept
    `RedisContainer` type for `@ServiceConnection`, image string only). No backup taken (cache/ledger disposable;
    PG is source of truth). ACL hardening deferred — compose runs without an ACL user.
-2. **Carriers A/B + Path A re-hunt**: thread-carrier sizing, Lettuce/Hikari sizing, keep-alive/backlog/`somaxconn`,
-   ECDSA check; 2→4→8 goodput sweep to re-baseline the per-instance ceiling.
+2. **Carriers A/B + Path A re-hunt** (short A/B DONE 2026-09-13: 3m/500rps bursts, parallelism 4 vs 8
+   within noise, both p95 <5ms — **kept 4**, see `gate-checklist.md`; poller knob proven dead since Tomcat 9,
+   accept-count 8192, dead Lettuce pool keys removed): thread-carrier sizing, Lettuce/Hikari sizing,
+   keep-alive/backlog/`somaxconn`, ECDSA check; saturation-grade 4→8 sweep deferred to the P3 distributed
+   harness to re-baseline the per-instance ceiling.
 3. **Budget Lua fast-path**: single-RTT consolidation audit, presence-cache TTL/miss-cost measurement, epoch-fencing
    follow-up; per-request Redis command accounting (target: budget gate adds ~0 measurable p99).
 4. **Anomaly/forecast job** ✅ SHIPPED (`BudgetDetector` 1-min cadence: static 50/90/100 + hysteresis, EWMA

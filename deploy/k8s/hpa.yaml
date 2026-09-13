@@ -1,0 +1,45 @@
+# HPA on workload metrics, NOT CPU (SSE holds are I/O-bound; CPU stays low
+# while connections are the constraint). Requires Prometheus Adapter serving
+# custom.metrics.k8s.io (see R3 research): map pods/admission_rps and
+# pods/p99_latency_seconds via adapter rules before this HPA can act.
+# Scale-down keeps the 300s default stabilization (pinned streams drain).
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: aegisgate
+  namespace: aegisgate
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: aegisgate
+  minReplicas: 2
+  maxReplicas: 20
+  metrics:
+    - type: Pods
+      pods:
+        metric:
+          name: admission_rps
+        target:
+          type: AverageValue
+          averageValue: 25k
+    - type: Pods
+      pods:
+        metric:
+          name: p99_latency_seconds
+        target:
+          type: AverageValue
+          averageValue: 100m
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15

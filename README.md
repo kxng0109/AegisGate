@@ -331,8 +331,11 @@ The Lua script that implements the atomic RPM and TPM counters lives in `src/mai
 
 - Java 25 LTS with virtual threads enabled
 - Spring Boot 4.1 and Spring MVC
-- Redis 8 via Spring Data Redis and Lettuce, with a connection pool (Query Engine vector search, JSON,
-  TimeSeries, and Bloom ship in the server binary; compose pins `redis:8.10.1-alpine3.23`) — two tiers: an
+- Redis 8 via Spring Data Redis and Lettuce over a single shared native connection per tier (no
+  client-side pool: the app defines its own `LettuceConnectionFactory` beans, so Boot's pool
+  auto-configuration backs off and `spring.data.redis.lettuce.pool.*` keys are intentionally absent).
+  Query Engine vector search, JSON,
+  TimeSeries, and Bloom ship in the server binary; compose pins `redis:8.10.1-alpine3.23` — two tiers: an
   accounting instance (`noeviction`, rate/budget/hold/dedupe/breaker keys) and a cache instance
   (`allkeys-lru`, L1/L2/replay-hot)
 - PostgreSQL via Spring Data JPA and Hibernate, with Flyway owning the schema
@@ -421,7 +424,8 @@ All configuration lives in `src/main/resources/application.yml`. The most import
 
 - `gateway.providers` describes every upstream provider with its dialect, URL, key, and per request timeout.
 - `gateway.aliases` maps each client facing model name to a provider chain and a strategy. A step can pin its upstream model with `model-override`.
-- `spring.data.redis.*` controls the Redis connection and the Lettuce pool.
+- `spring.data.redis.*` controls the Redis connection (host/port/topology selection only — there is
+  no Lettuce pool; each custom factory shares one native connection).
 - `spring.data.redis.sentinel.*`, `spring.data.redis.cluster.*`, and `spring.data.redis.masterreplica.*` switch the Redis connection used by the rate limiter and the circuit breaker to Sentinel, Cluster, or master/replica topology; the factories in `proxy/failover/CircuitBreakerConfig.java` derive the topology the same way Boot's auto-configuration does. Without any of these the gateway connects to a single host and port.
 - `gateway.circuit-breaker.redis-timeout` bounds how long the breaker waits on Redis before it fails closed to the local mirror. The default is 250ms. Setting `spring.application.instance-id` gives each instance a stable name used to arbitrate the single probe.
 - `spring.datasource.*` controls the PostgreSQL connection that backs the usage ledger and pricing catalog.
@@ -451,6 +455,19 @@ All configuration lives in `src/main/resources/application.yml`. The most import
   `safety-margin-percent` (default 10%), `action` (`REJECT_LINE_AND_CLOSE` or `REJECT_LINE_CONTINUE`), `per-provider`
   (overrides for `OPENAI`, `ANTHROPIC`, `OLLAMA`), `write-timeout` (default 30s), `write-timeout-check-interval`
   (default 5s), and `reload-interval` (default 30s).
+- `server.tomcat.accept-count` (high-throughput profile default `8192`, matching kernel `somaxconn`) sizes the
+  OS accept queue once `max-connections` is hit; `TOMCAT_ACCEPT_COUNT` / `TOMCAT_MAX_CONNECTIONS` override both
+  per environment (empty default = profile value rules).
+- `JAVA_TOOL_OPTIONS` passes JVM flags into the compose app container (e.g.
+  `-Djdk.virtualThreadScheduler.parallelism=8` for carrier A/B runs); empty by default, so the Dockerfile
+  flags (`parallelism=4`) rule.
+- Kubernetes lives in `deploy/k8s/` (`kubectl kustomize` / `kubectl apply -k`): share-nothing Deployment
+  (2vCPU/2Gi floor), ClusterIP Service, workload-metric HPA, PDB, default-deny + allow NetworkPolicies.
+  Secrets are operator-supplied (`aegisgate-secrets`) and never committed; manifests are render-validated
+  only until a live cluster proves them.
+- Bare-metal/VM deploys use `docs/high-throughput/aegisgate.service` (`LimitNOFILE=131072` — systemd ignores
+  `limits.conf`); the ops guide (`docs/high-throughput/README.md`) and proof gate (`gate-checklist.md`) cover
+  sysctl, Redis/PG references, and ceiling sign-off.
 
 The per provider `request-timeout` bounds the time to the first byte of the response for that attempt. It is the failover timer; it does not limit a long lived SSE stream. Per provider `connect-timeout` bounds connection establishment. The shared `HttpClient` in `proxy/config/HttpClientConfig.java` applies a conservative connect timeout and never follows redirects.
 
@@ -625,7 +642,7 @@ Run the full suite with coverage and the packaging step:
 ./mvnw clean verify
 ```
 
-The suite currently has 1,583 tests (100% passing):
+The suite currently has 1,589 tests (100% passing):
 
 JaCoCo coverage gates (BUNDLE, `target/site/jacoco/jacoco.xml` is single-session honest via
 `<append>false</append>` on `prepare-agent`): INSTRUCTION/BRANCH/LINE/METHOD/CLASS ≥ 95%, COMPLEXITY ≥ 90%.
@@ -718,9 +735,15 @@ JaCoCo coverage gates (BUNDLE, `target/site/jacoco/jacoco.xml` is single-session
 - A Testcontainers integration test in `security/ratelimit/RateLimitIntegrationTest.java` that runs the whole application against a real Redis container and exercises authentication, both limits, the model allow list, the failover path, and the fail closed behavior.
 - A Testcontainers integration test in `ledger/UsageLedgerIntegrationTest.java` that runs the ledger against a real PostgreSQL container and verifies async persistence, duplicate request handling, the seeded prices, and a pricing refresh.
 - A context load test that verifies the application starts without a live Redis or PostgreSQL.
+- A gate-throughput tripwire in `budget/GateThroughputSmokeTest.java` that replays 2,000 `budget_limit.lua`
+  decisions against real Redis (floor 200 decisions/s, 5s slowest-single-call ceiling) to catch
+  order-of-magnitude hot-path regressions; the 200K ceiling itself needs the distributed k6 harness.
+- Gate-only k6 tripwires in `loadtest/k6/`: `01-gate-smoke.js` (60s @100rps local-404 probe that measures
+  gateway latency, never upstream health) and `02-gate-burst.js` (3m @500rps measurement feeding the carrier
+  A/B and the P3 bottleneck order).
 
 JaCoCo enforces a minimum coverage of 95 percent on every counter at the bundle level. The current gate passes at
-**INSTRUCTION 98.97%, BRANCH 95.64%, LINE 98.63%, COMPLEXITY 94.46%, METHOD 100%, and CLASS 100%** (1,250 tests). The
+**INSTRUCTION 98.70%, BRANCH 95.05%, LINE 98.09%, COMPLEXITY 93.72%, METHOD 99.56%** (1,589 tests). The
 circuit breaker and orchestrator retry and race coordination branches are excluded from the gate because they cannot be
 reached deterministically; the state transitions and failover semantics themselves are fully covered. The Mockito inline
 mock maker is attached as a Java agent through the `argLine` Maven property, so the suite is future proof against the

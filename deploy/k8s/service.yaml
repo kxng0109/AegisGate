@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: aegisgate
+  namespace: aegisgate
+  labels:
+    app.kubernetes.io/name: aegisgate
+spec:
+  type: ClusterIP
+  # Single ClusterIP (NOT headless): pods never call each other directly.
+  selector:
+    app.kubernetes.io/name: aegisgate
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

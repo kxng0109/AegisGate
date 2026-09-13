@@ -51,3 +51,25 @@ sysctl/ulimit captures, exact commit + profile + seed dataset + warmup log).
 
 - [ ] Second run by a different operator within +-5% RPS/p99, or gate is void
 - [ ] README capacity note updated with the proven tuple (N+2 derated)
+
+## P2 carrier A/B note (2026-09-13, app cpus 2.0, 02-gate-burst 500rps/3m)
+
+- A (parallelism=4): 89,422 it @ 496.8/s, 579 dropped (0.6%), p50 2.65ms /
+  p95 4.40ms / max 1.18s, 3 fast non-404 of 89K (99.997% gate-correct).
+- B (parallelism=8, after 60s smoke warmup): 90,001 it @ 500.0/s, zero
+  dropped, p50 2.64ms / p95 3.92ms / max 48ms, 180002/180002 checks.
+- Verdict: KEEP 4. No meaningful difference at 500rps (both p95 < 5ms);
+  B's edge is inside noise + warmup asymmetry (A ran cold, B warmed).
+  Carriers do not bind at this load — consistent with the I/O-bound model.
+  Differentiating run needs saturation-level load: deferred to P3
+  distributed harness. jvm_threads_virtual gauges absent from Prometheus;
+  JFR pinning audit needs a JDK (runtime is JRE-only) — also P3.
+
+  Transient-noise note (2026-09-13): one 60s smoke showed 7 fast non-404 of
+  6000 (99.94%, still above the 0.99 tripwire); server-side Prometheus showed
+  5995/5995 POST /v1/chat/completions as correct 404, zero 5xx, zero
+  fail-closed — the 7 never completed server-side (client-observed drops,
+  consistent with accept-backlog RST microbursts on the default profile's
+  accept-count=100). Immediate rerun: 12000/12000, server max 79.75ms,
+  mean 2.56ms. Verdict: transient, not systematic; burst validation of the
+  backlog belongs to P3 with kernel counters (ListenOverflows).

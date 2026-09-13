@@ -19,11 +19,20 @@
 | File                         | Purpose                                                                                                                       |
 |------------------------------|-------------------------------------------------------------------------------------------------------------------------------|
 | `redis.conf`                 | Two-tier reference (accounting 384MB `noeviction` AOF-everysec, cache 512MB `allkeys-lru`, `io-threads 1`, buffer caps) |
+| `aegisgate.service`          | systemd unit for non-Docker deploys (`LimitNOFILE=131072`; limits.conf is ignored by systemd) |
 | `postgresql.conf`            | Ledger primary reference (shared 2.5GB, async ledger scope, checkpoints, autovacuum, replication senders)                     |
 | `99-aegisgate-highconc.conf` | sysctl for 50K concurrent connections + systemd `LimitNOFILE` notes                                                           |
 | `jvm.options.zgc`            | Java 25 Generational ZGC flags (8g heap, direct-memory cap, vthread scheduler) + 8GB-floor variant                            |
 | `replicas.md`                | Redis + PostgreSQL read-replica topology, routing rules, lag monitoring, failover                                             |
 | `gate-checklist.md`          | Proof-harness pass/fail criteria for signing off a ceiling                                                                    |
+
+## Admission-gate tripwires (P1.0/P2)
+
+- JUnit: `src/test/java/io/github/kxng0109/aegisgate/budget/GateThroughputSmokeTest.java`
+  (2,000 `budget_limit.lua` decisions vs real Redis; floor + single-call ceiling).
+- k6: `loadtest/k6/01-gate-smoke.js` (60s gate-only tripwire) + `02-gate-burst.js` (3m measurement).
+- Short carrier A/B verdict (keep parallelism 4) + transient-noise analysis: the P2 note in
+  `gate-checklist.md`. No capacity tuple is claimed until the P3 distributed proof signs off.
 
 ## RAM budget that closes (16GB)
 

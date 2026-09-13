@@ -8,13 +8,10 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
-      lettuce:
-        pool:
-          enabled: true
-          max-active: ${REDIS_POOL_MAX_ACTIVE:20}
-          max-idle: ${REDIS_POOL_MAX_IDLE:10}
-          min-idle: ${REDIS_POOL_MIN_IDLE:2}
-          max-wait: ${REDIS_POOL_MAX_WAIT:2s}
+      # No lettuce pool keys on purpose: the app defines its own
+      # LettuceConnectionFactory beans, which use a single shared native
+      # connection (optimal for sub-ms Lua gates). Boot's pool auto-config
+      # backs off, so spring.data.redis.lettuce.pool.* would bind to nothing.
   datasource:
     url: ${POSTGRES_URL:jdbc:postgresql://localhost:5432/aegisgate}
     username: ${POSTGRES_USER:aegisgate}

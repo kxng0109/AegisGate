@@ -1,0 +1,56 @@
+# Explicit egress: DNS (mandatory under default-deny), both Redis tiers,
+# PostgreSQL. Ingress: only from the ingress controller namespace.
+# Adjust the ingress namespaceSelector to your controller's labels.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: aegisgate-allow
+  namespace: aegisgate
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: aegisgate
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+          # ingress-nginx MUST be >= 1.15.1 (CVE-2026-4342 annotation RCE).
+      ports:
+        - port: 8080
+  egress:
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - port: 6379
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis-cache
+      ports:
+        - port: 6379
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres
+      ports:
+        - port: 5432
+    # Upstream LLM providers (OpenAI/OpenRouter/Anthropic) over 443.
+    - ports:
+        - port: 443
+          protocol: TCP

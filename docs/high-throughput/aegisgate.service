@@ -1,0 +1,45 @@
+# ================================================================================
+# AegisGate systemd unit — bare-metal / VM deploys (non-Docker).
+# Copy to /etc/systemd/system/aegisgate.service, then:
+#   systemctl daemon-reload && systemctl enable --now aegisgate
+# The LimitNOFILE line is load-bearing: systemd IGNORES limits.conf, and the
+# 50K-stream target needs ~50K sockets + upstream/Redis/PG fds. Without it the
+# process dies with EMFILE near 1024 connections while CPU sits idle.
+# ================================================================================
+[Unit]
+Description=AegisGate AI Gateway
+After=network-online.target postgresql.service redis-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=aegisgate
+Group=aegisgate
+WorkingDirectory=/opt/aegisgate
+EnvironmentFile=-/etc/aegisgate/aegisgate.env
+ExecStart=/usr/bin/java \
+  -XX:+UseZGC -XX:+ZGenerational \
+  -Xms8g -Xmx8g \
+  -Djdk.virtualThreadScheduler.parallelism=4 \
+  -Djdk.virtualThreadScheduler.maxPoolSize=256 \
+  -jar /opt/aegisgate/aegisgate.jar \
+  --spring.profiles.active=high-throughput
+# 2vCPU/2GB floor variant: -Xms1536m -Xmx1536m, parallelism=4, default profile.
+Restart=on-failure
+RestartSec=5
+# File descriptors: 50K streams + headroom (4x rule). Compose sets the same via
+# ulimits.nofile; THIS unit is the equivalent for non-Docker deploys.
+LimitNOFILE=131072
+LimitNPROC=8192
+# Memory accounting keeps a runaway stream-holder from taking the box.
+MemoryMax=12G
+MemoryHigh=10G
+# Hardening.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/aegisgate/logs /var/lib/aegisgate
+
+[Install]
+WantedBy=multi-user.target

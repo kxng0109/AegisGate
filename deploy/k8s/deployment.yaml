@@ -1,0 +1,101 @@
+# AegisGate gateway — 2vCPU/2G floor mirrored from docker-compose (app service).
+# Share-nothing pods: no headless service, no pod-to-pod calls (coordination
+# rides Redis + PG). Any pod serves/aborts/settles any stream by holdId.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aegisgate
+  namespace: aegisgate
+  labels:
+    app.kubernetes.io/name: aegisgate
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: aegisgate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: aegisgate
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: aegisgate
+      containers:
+        - name: aegisgate
+          image: aegisgate:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: default
+            - name: REDIS_HOST
+              value: redis
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_CACHE_HOST
+              value: redis-cache
+            - name: REDIS_CACHE_PORT
+              value: "6379"
+            - name: POSTGRES_URL
+              valueFrom:
+                secretKeyRef:
+                  name: aegisgate-secrets
+                  key: postgres-url
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: aegisgate-secrets
+                  key: postgres-user
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: aegisgate-secrets
+                  key: postgres-password
+                  optional: false
+            # P1: accept backlog matched to somaxconn (HT default 8192).
+            - name: TOMCAT_ACCEPT_COUNT
+              value: "8192"
+          resources:
+            requests:
+              cpu: "1"
+              memory: 768Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          lifecycle:
+            # Drain discipline: grace countdown INCLUDES preStop. Sleep covers
+            # LB endpoint-removal race; SIGTERM after lets in-flight streams
+            # settle; sweeper gap-rows cover anything cut mid-flight.
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 30"]
+      # 60s+ streams need drain headroom: 30s preStop + 60s SIGTERM + margin.
+      terminationGracePeriodSeconds: 120

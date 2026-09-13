@@ -197,9 +197,6 @@ services:
       REDIS_CACHE_HOST: redis-cache
       REDIS_CACHE_PORT: 6379
       GATEWAY_BUDGET_DETECTION_ALERTMANAGER_URL: http://alertmanager:9093
-      REDIS_POOL_MAX_ACTIVE: ${REDIS_POOL_MAX_ACTIVE:-20}
-      REDIS_POOL_MAX_IDLE: ${REDIS_POOL_MAX_IDLE:-10}
-      REDIS_POOL_MIN_IDLE: ${REDIS_POOL_MIN_IDLE:-2}
       POSTGRES_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-aegisgate}
       POSTGRES_USER: ${POSTGRES_USER:-aegisgate}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aegisgate_secret}
@@ -243,6 +240,10 @@ services:
       GATEWAY_CACHE_SEMANTIC_EMBEDDING_MODEL: ${GATEWAY_CACHE_SEMANTIC_EMBEDDING_MODEL:-local-embed}
       TOMCAT_MAX_CONNECTIONS: ${TOMCAT_MAX_CONNECTIONS:-}
       TOMCAT_ACCEPT_COUNT: ${TOMCAT_ACCEPT_COUNT:-}
+      # Carrier A/B harness: JVM honors JAVA_TOOL_OPTIONS, e.g.
+      # JAVA_TOOL_OPTIONS="-Djdk.virtualThreadScheduler.parallelism=8".
+      # Empty default = Dockerfile flags rule (parallelism=4).
+      JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:-}
 
       # Virtual Bootstrap Key for local testing
       GATEWAY_BOOTSTRAPKEYS_0_OWNERID: ${GATEWAY_BOOTSTRAPKEYS_0_OWNERID:-local}
