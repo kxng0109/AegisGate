@@ -332,7 +332,7 @@ The Lua script that implements the atomic RPM and TPM counters lives in `src/mai
 - Java 25 LTS with virtual threads enabled
 - Spring Boot 4.1 and Spring MVC
 - Redis 8 via Spring Data Redis and Lettuce, with a connection pool (Query Engine vector search, JSON,
-  TimeSeries, and Bloom ship in the server binary; compose pins `redis:8.8.2-alpine3.23`) — two tiers: an
+  TimeSeries, and Bloom ship in the server binary; compose pins `redis:8.10.1-alpine3.23`) — two tiers: an
   accounting instance (`noeviction`, rate/budget/hold/dedupe/breaker keys) and a cache instance
   (`allkeys-lru`, L1/L2/replay-hot)
 - PostgreSQL via Spring Data JPA and Hibernate, with Flyway owning the schema
@@ -346,7 +346,7 @@ Dependency versions are managed by the Spring Boot 4.1 BOM. See `pom.xml`.
 ## Prerequisites
 
 - JDK 25
-- Redis 8 (`redis:8.8.2-alpine3.23` in compose; 8.x required for the built-in Query Engine index used by
+- Redis 8 (`redis:8.10.1-alpine3.23` in compose; 8.x required for the built-in Query Engine index used by
   the L2 semantic cache), reachable at `localhost:6379` by default. Redis is also required for the distributed circuit breaker, which fails closed when Redis is unreachable.
 - PostgreSQL, reachable at `localhost:5432` by default. The gateway starts without it, but the ledger and pricing table need it.
 - Docker, only if you want to run the Testcontainers integration tests
@@ -387,7 +387,7 @@ POSTGRES_EXPORTER_PASSWORD=<a real value in your .env>
 If you prefer starting containers individually:
 
 ```bash
-docker run -d --name aegisgate-redis -p 6379:6379 redis:7-alpine
+docker run -d --name aegisgate-redis -p 6379:6379 redis:8.10.1-alpine3.23
 docker run -d --name aegisgate-postgres -p 5432:5432 -e POSTGRES_USER=aegisgate -e POSTGRES_PASSWORD=<your-password> -e POSTGRES_DB=aegisgate postgres:16-alpine
 ```
 

@@ -8,12 +8,13 @@ services:
   # never a tuning knob: size maxmemory for the accounting working set +20%.
   # ---------------------------------------------------------------------------
   redis:
-    image: redis:8.8.2-alpine3.23
+    image: redis:8.10.1-alpine3.23
     container_name: aegisgate-redis
     restart: unless-stopped
     command: >
       redis-server
       --appendonly yes
+      --appendfsync everysec
       --save 60 1
       --maxmemory 384mb
       --maxmemory-policy noeviction
@@ -55,7 +56,7 @@ services:
   # accounting corruption. Separate persistence volume; loss is recoverable.
   # ---------------------------------------------------------------------------
   redis-cache:
-    image: redis:8.8.2-alpine3.23
+    image: redis:8.10.1-alpine3.23
     container_name: aegisgate-redis-cache
     restart: unless-stopped
     command: >

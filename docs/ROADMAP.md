@@ -28,7 +28,7 @@ measured before/after (flood p95, burst p95, RSS, `usec_per_call` on `evalsha`) 
 
 ### Committed, in order
 
-1. **Redis 8 cutover** ✅ SHIPPED (`redis:8.8.2-alpine3.23`; all 5 modules verified live; RDB index restored;
+1. **Redis 8 cutover** ✅ SHIPPED (`redis:8.10.1-alpine3.23`; all 5 modules verified live; RDB index restored;
    L2 HIT 16.5ms vs 458ms fresh; flood 43,200/43,200, 0 dropped, p95 9.57ms; `verify` 1,320 green): compose swap
    with `REDIS_ARGS` folded into `command:`, `FT.INFO` backfill check, Testcontainers re-pinned (kept
    `RedisContainer` type for `@ServiceConnection`, image string only). No backup taken (cache/ledger disposable;

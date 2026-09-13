@@ -37,7 +37,7 @@ class SettleLuaIntegrationTest {
 
 	@Container
 	static final RedisContainer REDIS =
-			new RedisContainer(parse("redis:8.8.2-alpine3.23"));
+			new RedisContainer(parse("redis:8.10.1-alpine3.23"));
 
 	private static StringRedisTemplate sharedTemplate;
 

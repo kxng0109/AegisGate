@@ -18,7 +18,7 @@
 
 | File                         | Purpose                                                                                                                       |
 |------------------------------|-------------------------------------------------------------------------------------------------------------------------------|
-| `redis.conf`                 | Single-instance reference (3GB, `volatile-lru`, persistence OFF + re-seed runbook, `io-threads 2`, per-key TTL+jitter matrix) |
+| `redis.conf`                 | Two-tier reference (accounting 384MB `noeviction` AOF-everysec, cache 512MB `allkeys-lru`, `io-threads 1`, buffer caps) |
 | `postgresql.conf`            | Ledger primary reference (shared 2.5GB, async ledger scope, checkpoints, autovacuum, replication senders)                     |
 | `99-aegisgate-highconc.conf` | sysctl for 50K concurrent connections + systemd `LimitNOFILE` notes                                                           |
 | `jvm.options.zgc`            | Java 25 Generational ZGC flags (8g heap, direct-memory cap, vthread scheduler) + 8GB-floor variant                            |
@@ -33,9 +33,13 @@ SSE caps at 8KiB, OTel off-box, ZGC headroom violated → cap concurrency, do no
 
 ## Durability tradeoffs (stated plainly)
 
-- Redis persistence OFF: rate windows (60s), cache, HITL pending (300s) are reconstructible;
-  API keys re-seed from `GATEWAY_BOOTSTRAPKEYS_*`; HITL loss fails closed (deny resume).
-  NEVER auto-restart the master (empty restart wipes replicas).
+- Accounting tier is durable: AOF `everysec` + RDB snapshots (≤1s crash-loss
+  window, gate path unblocked — fsync runs in the BIO thread). NEVER
+  `appendfsync always` (~15K TPS cap). NEVER auto-restart the master
+  (empty restart wipes replicas).
+- Cache tier, rate windows (60s), and HITL pending (300s) are reconstructible;
+  API keys re-seed from `GATEWAY_BOOTSTRAPKEYS_*`; HITL loss fails closed
+  (deny resume).
 - `synchronous_commit=off` scoped to ledger writes only: ≤600ms loss window on PG crash,
   covered by the app spillway WAL replay. Pricing/migrations stay synchronous.
 - UNLOGGED staging vanishes on crash by design; spillway file/Redis journal is the backstop.
@@ -45,8 +49,8 @@ SSE caps at 8KiB, OTel off-box, ZGC headroom violated → cap concurrency, do no
 - `{tag}` every multi-key group: `ratelimit:{hex}:rpm|:tpm` (single-slot Lua).
 - Prefixes: `ratelimit:` / `apikey:` / `admin:keys` / `aegis:cache:exact:` /
   `aegis:cache:vec:` / `mcp:hitl:` / `circuit:`.
-- All cache/vector/HITL keys carry TTL (volatile-evictable); `apikey:*` and
-  `admin:keys` carry none (protected under `volatile-lru`).
+- All cache/vector/HITL keys carry TTL (`allkeys-lru`-evictable); `apikey:*` and
+  `admin:keys` live on the accounting tier (protected under `noeviction`).
 
 ## SSE reconnect + retry contract (client-facing)
 

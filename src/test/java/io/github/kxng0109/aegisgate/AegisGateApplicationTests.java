@@ -21,7 +21,7 @@ class AegisGateApplicationTests {
 	@Container
 	@ServiceConnection
 	static final RedisContainer REDIS =
-			new RedisContainer(DockerImageName.parse("redis:8.8.2-alpine3.23"));
+			new RedisContainer(DockerImageName.parse("redis:8.10.1-alpine3.23"));
 
 	@Test
 	void contextLoads() {
