@@ -28,7 +28,7 @@ class SseFlushAutoConfigTest {
 	@Container
 	@ServiceConnection
 	static final PostgreSQLContainer POSTGRES =
-			new PostgreSQLContainer(DockerImageName.parse("postgres:16-alpine"));
+			new PostgreSQLContainer(DockerImageName.parse("postgres:16.15-alpine"));
 
 	@Container
 	@ServiceConnection

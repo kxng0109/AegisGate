@@ -62,7 +62,13 @@ public class DatabaseMigrator {
 		migrate();
 	}
 
-	void migrate() {
+	/**
+	 * Attempts the migration, at most once successfully. The method is synchronized so the
+	 * {@code ApplicationReadyEvent} listener and the retry scheduler cannot interleave: without mutual exclusion both
+	 * threads could pass the {@code migrated} check and run Flyway concurrently, doubling validation work and log
+	 * output on every boot.
+	 */
+	synchronized void migrate() {
 		if (!enabled || migrated.get()) {
 			return;
 		}

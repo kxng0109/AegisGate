@@ -36,7 +36,7 @@ class AlertOutboxIT {
 
 	@Container
 	static final PostgreSQLContainer POSTGRES =
-			new PostgreSQLContainer(DockerImageName.parse("postgres:16-alpine"));
+			new PostgreSQLContainer(DockerImageName.parse("postgres:16.15-alpine"));
 
 	private SimpleJpaRepository<AlertEvent, UUID> repository;
 

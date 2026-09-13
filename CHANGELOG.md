@@ -83,6 +83,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **HeaderWriterFilter/MimeHeaders race (spring-security#15510):** security headers are now written eagerly on the
+  dispatch thread, closing the async double-write race that corrupted Tomcat's recycled `MimeHeaders` with
+  `NullPointerException`s and poisoned keep-alive connections. Local-accounts seam (`DelegatedUserDetailsService`,
+  fail-closed v1) suppresses Boot's generated development password; `DatabaseMigrator` is single-flight;
+  PostgreSQL pin `16-alpine` → `16.15-alpine` (compose, tests, docs). Full `verify` 1,637 green.
 - **SSE tail-drop race:** `BoundedLineBodyHandler` set its `eof` flag before flushing the buffered tail line, so a
   consumer draining concurrently could observe completion before data and lose an unterminated final line
   (e.g. `data: [DONE]`). The terminal sentinel is now the sole end-of-stream signal (JDK `HttpResponseInputStream`

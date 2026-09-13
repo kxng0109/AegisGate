@@ -391,7 +391,7 @@ If you prefer starting containers individually:
 
 ```bash
 docker run -d --name aegisgate-redis -p 6379:6379 redis:8.10.1-alpine3.23
-docker run -d --name aegisgate-postgres -p 5432:5432 -e POSTGRES_USER=aegisgate -e POSTGRES_PASSWORD=<your-password> -e POSTGRES_DB=aegisgate postgres:16-alpine
+docker run -d --name aegisgate-postgres -p 5432:5432 -e POSTGRES_USER=aegisgate -e POSTGRES_PASSWORD=<your-password> -e POSTGRES_DB=aegisgate postgres:16.15-alpine
 ```
 
 Provide your provider keys and, optionally, a bootstrap key for local testing:

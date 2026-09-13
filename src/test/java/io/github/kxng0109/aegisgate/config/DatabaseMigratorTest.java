@@ -6,8 +6,16 @@ import org.junit.jupiter.api.Test;
 
 import javax.sql.DataSource;
 import java.lang.reflect.Field;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.mockito.Mockito.*;
 
@@ -103,6 +111,38 @@ class DatabaseMigratorTest {
 		// createFlyway invocation
 		DatabaseMigrator realMigrator = new DatabaseMigrator(dataSource, true, "classpath:db/migration");
 		assertDoesNotThrow(realMigrator::createFlyway);
+	}
+
+	@Test
+	@DisplayName("concurrent ready and scheduled attempts migrate exactly once")
+	void concurrentAttemptsMigrateOnce() throws Exception {
+		DataSource dataSource = mock(DataSource.class);
+		Flyway flyway = mock(Flyway.class);
+		AtomicInteger creations = new AtomicInteger();
+		DatabaseMigrator migrator = new DatabaseMigrator(dataSource, true, "classpath:db/migration") {
+			@Override
+			Flyway createFlyway() {
+				creations.incrementAndGet();
+				return flyway;
+			}
+		};
+
+		int threads = 8;
+		ExecutorService pool = Executors.newFixedThreadPool(threads);
+		try {
+			List<Future<?>> futures = new ArrayList<>();
+			for (int i = 0; i < threads; i++) {
+				futures.add(pool.submit(migrator::migrateOnReady));
+			}
+			for (Future<?> future : futures) {
+				future.get(30, TimeUnit.SECONDS);
+			}
+		} finally {
+			pool.shutdownNow();
+		}
+
+		assertThat(creations.get()).isEqualTo(1);
+		verify(flyway, times(1)).migrate();
 	}
 }
 

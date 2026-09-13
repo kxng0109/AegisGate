@@ -20,6 +20,12 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.fail;
@@ -51,7 +57,7 @@ class SecurityDenyAllBoundaryTest {
 	@Container
 	@ServiceConnection
 	static final PostgreSQLContainer POSTGRES =
-			new PostgreSQLContainer(DockerImageName.parse("postgres:16-alpine"));
+			new PostgreSQLContainer(DockerImageName.parse("postgres:16.15-alpine"));
 
 	@Container
 	static final RedisContainer REDIS =
@@ -104,15 +110,54 @@ class SecurityDenyAllBoundaryTest {
 		assertThat(status("GET", "/v1/brand-new")).isEqualTo(403);
 	}
 
+	@Test
+	@DisplayName("default security headers are written on refused routes")
+	void securityHeadersPresent() throws Exception {
+		// Guards the HeaderWriterFilter wiring (including eager writing): if headers are ever disabled, the
+		// hardening posture silently regresses while every status assertion above still passes.
+		HttpResponse<Void> response = response("GET", "/v1/unknown-route");
+		assertThat(response.statusCode()).isEqualTo(403);
+		assertThat(response.headers().firstValue("X-Content-Type-Options")).hasValue("nosniff");
+		assertThat(response.headers().firstValue("Cache-Control")).isPresent();
+		assertThat(response.headers().firstValue("X-Frame-Options")).hasValue("DENY");
+	}
+
+	@Test
+	@DisplayName("concurrent refusals never poison keep-alive connections")
+	void concurrentRefusalsDoNotPoisonConnections() throws Exception {
+		// Regression net for the HeaderWriterFilter/MimeHeaders race (spring-security#15510): concurrent writes to
+		// one response used to corrupt Tomcat's recycled MimeHeaders, turning later requests on the same
+		// connections into 500s. Every refusal must stay a 403, and a follow-up request must still be refused
+		// rather than fail.
+		int requests = 32;
+		ExecutorService pool = Executors.newVirtualThreadPerTaskExecutor();
+		try {
+			List<Future<Integer>> futures = new ArrayList<>();
+			for (int i = 0; i < requests; i++) {
+				futures.add(pool.submit(() -> status("GET", "/v1/unknown-route")));
+			}
+			for (Future<Integer> future : futures) {
+				assertThat(future.get(30, TimeUnit.SECONDS)).isEqualTo(403);
+			}
+		} finally {
+			pool.shutdownNow();
+		}
+		assertThat(status("GET", "/v1/unknown-route")).isEqualTo(403);
+	}
+
 
 
 
 	private int status(String method, String path) throws Exception {
+		return response(method, path).statusCode();
+	}
+
+	private HttpResponse<Void> response(String method, String path) throws Exception {
 		HttpRequest request = HttpRequest.newBuilder()
 		                                 .uri(URI.create("http://localhost:" + port + path))
 		                                 .method(method, HttpRequest.BodyPublishers.noBody())
 		                                 .build();
-		return HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.discarding()).statusCode();
+		return HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.discarding());
 	}
 
 	/**

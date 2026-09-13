@@ -66,7 +66,7 @@ class UsageLedgerIntegrationTest {
 	@Container
 	@ServiceConnection
 	static final PostgreSQLContainer POSTGRES =
-			new PostgreSQLContainer("postgres:16-alpine");
+			new PostgreSQLContainer("postgres:16.15-alpine");
 
 	@DynamicPropertySource
 	static void pricingSource(DynamicPropertyRegistry registry) {

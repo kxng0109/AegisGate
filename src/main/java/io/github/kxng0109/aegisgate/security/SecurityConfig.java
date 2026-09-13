@@ -2,11 +2,13 @@ package io.github.kxng0109.aegisgate.security;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.ObjectPostProcessor;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.header.HeaderWriterFilter;
 
 /**
  * Fail-closed authorization boundary for the gateway.
@@ -47,11 +49,19 @@ import org.springframework.security.web.SecurityFilterChain;
  * <ul>
  *   <li>CSRF disabled  -  the API is stateless bearer-token; CSRF tokens have no
  *       meaning and would only break legitimate clients.</li>
- *   <li>Session creation forced to {@code STATELESS}  -  no session state is held,
+ * <li>Session creation forced to {@code STATELESS}  -  no session state is held,
  *       so there is no session to hijack or fixate.</li>
+ *   <li>Security headers are written eagerly (see spring-security#15510): {@code HeaderWriterFilter} otherwise writes
+ *       headers both in its {@code finally} block and on response commit, and concurrent writes to Tomcat's
+ *       non-thread-safe {@code MimeHeaders} corrupt the recycled response with {@code NullPointerException}s. Eager
+ *       writing commits the headers on the dispatch thread before any async handoff.</li>
  *   <li>Default-deny is fail-closed: an unmatched route is refused, never passed
  *       through.</li>
  * </ul>
+ *
+ * <p>Human authentication (login UI, SSO) attaches later without touching this chain: local accounts arrive as an
+ * implementation of {@link DelegatedUserDetailsService}, external providers as additional chains. This bean only
+ * declares the seam and suppresses Boot's generated-password {@code UserDetailsService}.</p>
  *
  * @since 1.8.0
  */
@@ -81,7 +91,14 @@ public class SecurityConfig {
 						.anyRequest().denyAll()
 				)
 				.csrf(AbstractHttpConfigurer::disable)
-				.sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
+				.sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+				.headers(headers -> headers.withObjectPostProcessor(new ObjectPostProcessor<HeaderWriterFilter>() {
+					@Override
+					public HeaderWriterFilter postProcess(HeaderWriterFilter filter) {
+						filter.setShouldWriteHeadersEagerly(true);
+						return filter;
+					}
+				}));
 		return http.build();
 	}
 }

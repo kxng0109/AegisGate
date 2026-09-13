@@ -101,7 +101,7 @@ services:
   # PostgreSQL 16 - Usage & Cost Ledger and Model Pricing Catalog
   # ---------------------------------------------------------------------------
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16.15-alpine
     container_name: aegisgate-postgres
     restart: unless-stopped
     # pg_stat_statements needs shared_preload_libraries (restart to apply);
