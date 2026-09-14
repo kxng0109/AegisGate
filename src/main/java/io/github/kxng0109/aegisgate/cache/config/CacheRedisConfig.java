@@ -35,6 +35,24 @@ public class CacheRedisConfig {
 	}
 
 	/**
+	 * Isolated native connection for RediSearch module commands ({@code FT.*}).
+	 *
+	 * <p>Module-command traffic shares nothing with the data path: each factory owns its own native Lettuce
+	 * connection, so a multiplex desync on the vector channel (integer reply misrouted to a search slot after a
+	 * slow query expires) can only affect vector lookups, never cache reads/writes. One extra TCP connection per
+	 * pod is trivial against {@code maxclients}.</p>
+	 *
+	 * @return factory holding the vector channel to the cache-tier instance
+	 */
+	@Bean
+	public LettuceConnectionFactory vectorRedisConnectionFactory(CacheRedisProperties properties) {
+		LettuceConnectionFactory factory =
+				new LettuceConnectionFactory(properties.host(), properties.port());
+		factory.afterPropertiesSet();
+		return factory;
+	}
+
+	/**
 	 * @return template for cache-tier keys (L1/L2/replay-hot)
 	 */
 	@Bean

@@ -1,32 +1,64 @@
 package io.github.kxng0109.aegisgate.cache.engine.l2;
 
 import io.github.kxng0109.aegisgate.proxy.embeddings.VectorEncodingUtils;
-import lombok.RequiredArgsConstructor;
+import io.lettuce.core.RedisConnectionException;
+import io.lettuce.core.codec.ByteArrayCodec;
+import io.lettuce.core.output.NestedMultiOutput;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import lombok.extern.slf4j.Slf4j;
+import org.jspecify.annotations.Nullable;
 import org.springframework.dao.DataAccessException;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.connection.lettuce.LettuceConnection;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Low-level client for RediSearch / Redis Vector Similarity Search (VSS) module commands.
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class RediSearchVectorClient {
+
+	/** Server-side query bound in ms (server default is 500): slow queries return, never cascade. */
+	private static final long SEARCH_TIMEOUT_MILLIS = 2000;
+
+	/** Retry-budget cap: refill one token per ten successes, so retries stay near a 10% ratio. */
+	private static final long MAX_RETRY_TOKENS = 1000;
+
+	/** Warn every Nth consecutive failure after the initial burst so logs never flood. */
+	private static final long WARN_EVERY_FAILURES = 100;
 
 	private static final byte[] FT_CREATE = "FT.CREATE".getBytes(StandardCharsets.UTF_8);
 	private static final byte[] FT_SEARCH = "FT.SEARCH".getBytes(StandardCharsets.UTF_8);
 	private static final byte[] FT_DROPINDEX = "FT.DROPINDEX".getBytes(StandardCharsets.UTF_8);
 
-	@Qualifier("cacheRedisConnectionFactory")
+	@Qualifier("vectorRedisConnectionFactory")
 	private final RedisConnectionFactory redisConnectionFactory;
+
+	private final MeterRegistry meterRegistry;
+
+	private final AtomicLong failureCount = new AtomicLong();
+
+	private final AtomicLong successCount = new AtomicLong();
+
+	private final AtomicLong retryTokens = new AtomicLong(50);
+
+	public RediSearchVectorClient(
+			@Qualifier("vectorRedisConnectionFactory") RedisConnectionFactory redisConnectionFactory,
+			@Nullable MeterRegistry meterRegistry) {
+		this.redisConnectionFactory = redisConnectionFactory;
+		this.meterRegistry = meterRegistry != null ? meterRegistry : new SimpleMeterRegistry();
+	}
 
 	/**
 	 * Escapes special punctuation characters reserved by the RediSearch query parser.
@@ -107,31 +139,238 @@ public class RediSearchVectorClient {
 	 */
 	public List<VectorSearchResult> searchKnn(String indexName, String filterQuery, float[] queryVector, int k) {
 		byte[] vectorBytes = VectorEncodingUtils.floatsToLittleEndianBytes(queryVector);
-		String queryStr = "(" + filterQuery + ")=>[KNN " + k + " @embedding $vec_blob AS score]";
+		// No AS-alias and no SORTBY: KNN rows arrive best-first by construction, and aliasing the
+		// score (AS score + SORTBY score) makes RediSearch return the literal score "nan" for every
+		// row. WITHSCORES alone attaches the numeric distance positionally.
+		String queryStr = "(" + filterQuery + ")=>[KNN " + k + " @embedding $vec_blob]";
+		byte[][] args = new byte[][]{
+				indexName.getBytes(StandardCharsets.UTF_8),
+				queryStr.getBytes(StandardCharsets.UTF_8),
+				"PARAMS".getBytes(StandardCharsets.UTF_8),
+				"2".getBytes(StandardCharsets.UTF_8),
+				"vec_blob".getBytes(StandardCharsets.UTF_8),
+				vectorBytes,
+				"LIMIT".getBytes(StandardCharsets.UTF_8),
+				"0".getBytes(StandardCharsets.UTF_8),
+				String.valueOf(k).getBytes(StandardCharsets.UTF_8),
+				"TIMEOUT".getBytes(StandardCharsets.UTF_8),
+				String.valueOf(SEARCH_TIMEOUT_MILLIS).getBytes(StandardCharsets.UTF_8),
+				"DIALECT".getBytes(StandardCharsets.UTF_8),
+				"2".getBytes(StandardCharsets.UTF_8),
+				"WITHSCORES".getBytes(StandardCharsets.UTF_8)
+		};
 
-		try (RedisConnection connection = redisConnectionFactory.getConnection()) {
-			byte[][] args = new byte[][]{
-					indexName.getBytes(StandardCharsets.UTF_8),
-					queryStr.getBytes(StandardCharsets.UTF_8),
-					"PARAMS".getBytes(StandardCharsets.UTF_8),
-					"2".getBytes(StandardCharsets.UTF_8),
-					"vec_blob".getBytes(StandardCharsets.UTF_8),
-					vectorBytes,
-					"SORTBY".getBytes(StandardCharsets.UTF_8),
-					"score".getBytes(StandardCharsets.UTF_8),
-					"ASC".getBytes(StandardCharsets.UTF_8),
-					"LIMIT".getBytes(StandardCharsets.UTF_8),
-					"0".getBytes(StandardCharsets.UTF_8),
-					String.valueOf(k).getBytes(StandardCharsets.UTF_8),
-					"DIALECT".getBytes(StandardCharsets.UTF_8),
-					"2".getBytes(StandardCharsets.UTF_8)
-			};
-
-			Object rawResult = connection.execute("FT.SEARCH", args);
-			return parseSearchResults(rawResult);
+		try {
+			return attemptSearch(args);
 		} catch (Exception ex) {
-			log.warn("RediSearch KNN search failed on index '{}': {}", indexName, ex.getMessage());
+			if (!isRetryableDesync(ex) || !takeRetryToken()) {
+				return failClosed(indexName, ex);
+			}
+			recordRetry(causeClassName(ex));
+			try {
+				return attemptSearch(args);
+			} catch (Exception retryEx) {
+				return failClosed(indexName, retryEx);
+			}
+		}
+	}
+
+	private List<VectorSearchResult> attemptSearch(byte[][] args) {
+		// NestedMultiOutput decodes integers, doubles and bulk strings without ever throwing on
+		// unexpected element types, under both RESP2 arrays and RESP3 flattened maps (multiMap
+		// delegates to multi). Score interpretation stays in mapResults below, where a non-numeric
+		// score degrades its row instead of the reply.
+		try (RedisConnection connection = redisConnectionFactory.getConnection()) {
+			Object rawResult = ((LettuceConnection) connection)
+					.execute("FT.SEARCH", new NestedMultiOutput<>(ByteArrayCodec.INSTANCE), args);
+			refillRetryBudget();
+			return parseRawResults(rawResult);
+		}
+	}
+
+	/**
+	 * Maps a raw {@code FT.SEARCH} reply defensively, accepting both wire shapes:
+	 *
+	 * <ul>
+	 *   <li>RESP2 array: {@code [count, id, score, [fields], ...]} (WITHSCORES rows).</li>
+	 *   <li>RESP3 map flattened by {@code NestedMultiOutput}: {@code [attributes, [...], results,
+	 *       [[id, score, extra_attributes, [fields]], ...], total_results, N, ...]}.</li>
+	 * </ul>
+	 *
+	 * <p>Rows whose score is missing or non-numeric (RediSearch emits the literal {@code nan} for undefined
+	 * distances, which Lettuce's own parser chokes on) are skipped instead of poisoning the reply.</p>
+	 */
+	private List<VectorSearchResult> parseRawResults(Object rawResult) {
+		if (!(rawResult instanceof List<?> list) || list.isEmpty()) {
 			return Collections.emptyList();
+		}
+		if (list.getFirst() instanceof Number) {
+			return parseResp2Rows(list);
+		}
+		return parseResp3Map(list);
+	}
+
+	private List<VectorSearchResult> parseResp2Rows(List<?> list) {
+		List<VectorSearchResult> results = new ArrayList<>();
+		// Element 0 is the total count; rows follow as id, score, fields triples (WITHSCORES).
+		for (int i = 1; i + 2 < list.size(); i += 3) {
+			String docKey = toUtf8String(list.get(i));
+			Map<String, String> fieldMap = readFields(list.get(i + 2));
+			double distance = resolveDistance(fieldMap, list.get(i + 1), docKey);
+			if (Double.isNaN(distance)) {
+				continue;
+			}
+			results.add(new VectorSearchResult(docKey, distance, fieldMap));
+		}
+		return results;
+	}
+
+	private List<VectorSearchResult> parseResp3Map(List<?> list) {
+		for (int i = 0; i + 1 < list.size(); i += 2) {
+			if ("results".equals(toUtf8String(list.get(i))) && list.get(i + 1) instanceof List<?> rows) {
+				List<VectorSearchResult> results = new ArrayList<>();
+				for (Object row : rows) {
+					if (row instanceof List<?> cells && !cells.isEmpty()) {
+						String docKey = toUtf8String(cells.get(0));
+						Map<String, String> fieldMap = readResp3Fields(cells);
+						Object positional = cells.size() > 1 ? cells.get(1) : null;
+						double distance = resolveDistance(fieldMap, positional, docKey);
+						if (Double.isNaN(distance)) {
+							continue;
+						}
+						results.add(new VectorSearchResult(docKey, distance, fieldMap));
+					}
+				}
+				return results;
+			}
+		}
+		return Collections.emptyList();
+	}
+
+	private Map<String, String> readFields(Object fieldsObj) {
+		Map<String, String> fieldMap = new HashMap<>();
+		if (fieldsObj instanceof List<?> attrList) {
+			for (int j = 0; j + 1 < attrList.size(); j += 2) {
+				String name = toUtf8String(attrList.get(j));
+				Object value = attrList.get(j + 1);
+				fieldMap.put(name, value == null ? "" : toUtf8String(value));
+			}
+		}
+		return fieldMap;
+	}
+
+	private Map<String, String> readResp3Fields(List<?> cells) {
+		for (int i = 0; i + 1 < cells.size(); i++) {
+			if ("extra_attributes".equals(toUtf8String(cells.get(i)))) {
+				return readFields(cells.get(i + 1));
+			}
+		}
+		return new HashMap<>();
+	}
+
+	private double resolveDistance(Map<String, String> fieldMap, Object positionalScore, String docKey) {
+		// RediSearch projects the KNN vector distance into the __embedding_score field; the positional
+		// WITHSCORES value is the text-search score, which is nan for pure-vector queries. Prefer the
+		// vector distance, falling back to the positional value for backward compatibility.
+		String vectorScore = fieldMap.get("__embedding_score");
+		if (vectorScore != null) {
+			return parseScore(vectorScore, docKey);
+		}
+		return parseScore(positionalScore, docKey);
+	}
+
+	private double parseScore(Object scoreObj, String docKey) {
+		if (scoreObj == null) {
+			return Double.NaN;
+		}
+		try {
+			double parsed = Double.parseDouble(toUtf8String(scoreObj));
+			return Double.isNaN(parsed) ? Double.NaN : parsed;
+		} catch (NumberFormatException ex) {
+			try {
+				Counter.builder("aegis.cache.vector.search.nan_scores")
+				       .tag("key", docKey)
+				       .register(meterRegistry)
+				       .increment();
+			} catch (Exception ignored) {
+			}
+			return Double.NaN;
+		}
+	}
+
+	/**
+	 * Retries only connection/desync transients: multiplex misrouting, timeouts, dropped connections. Deterministic
+	 * server replies (OOM, WRONGTYPE, unknown index, syntax) fail identically on retry and are never retried.
+	 */
+	private static boolean isRetryableDesync(Throwable ex) {
+		boolean sawTransient = false;
+		for (Throwable current = ex; current != null; current = current.getCause()) {
+			String message = current.getMessage();
+			if (message != null && (message.contains("OOM") || message.contains("WRONGTYPE")
+					|| message.contains("no such index") || message.contains("syntax error")
+					|| message.contains("NOSCRIPT"))) {
+				return false;
+			}
+			if (current instanceof UnsupportedOperationException || current instanceof TimeoutException
+					|| current instanceof RedisConnectionException) {
+				sawTransient = true;
+			}
+		}
+		return sawTransient;
+	}
+
+	private boolean takeRetryToken() {
+		return retryTokens.getAndUpdate(tokens -> tokens > 0 ? tokens - 1 : tokens) > 0;
+	}
+
+	private void refillRetryBudget() {
+		if (successCount.incrementAndGet() % 10 == 0) {
+			retryTokens.updateAndGet(tokens -> Math.min(MAX_RETRY_TOKENS, tokens + 1));
+		}
+	}
+
+	private static String causeClassName(Throwable ex) {
+		Throwable cause = ex.getCause();
+		return cause == null ? "none" : cause.getClass().getName();
+	}
+
+	private void recordFailure(String causeClass) {
+		try {
+			Counter.builder("aegis.cache.vector.search.failures")
+			       .tag("cause", causeClass)
+			       .register(meterRegistry)
+			       .increment();
+		} catch (Exception ignored) {
+		}
+	}
+
+	private void recordRetry(String causeClass) {
+		try {
+			Counter.builder("aegis.cache.vector.search.retries")
+			       .tag("cause", causeClass)
+			       .register(meterRegistry)
+			       .increment();
+		} catch (Exception ignored) {
+		}
+	}
+
+	private List<VectorSearchResult> failClosed(String indexName, Exception ex) {
+		String causeClass = causeClassName(ex);
+		recordFailure(causeClass);
+		logFailure(indexName, ex, causeClass);
+		return Collections.emptyList();
+	}
+
+	private void logFailure(String indexName, Exception ex, String causeClass) {
+		long failures = failureCount.incrementAndGet();
+		if (failures <= 3 || failures % WARN_EVERY_FAILURES == 0) {
+			// Spring Data Redis translates unrecognized failures to RedisSystemException("Unknown redis
+			// exception"); the real signal is the cause chain, so log the classes, not just the message.
+			log.warn("RediSearch KNN search failed on index '{}' (failure #{}): class={} message={} causeClass={} causeMessage={}",
+					indexName, failures, ex.getClass().getName(), ex.getMessage(),
+					causeClass, ex.getCause() == null ? "none" : ex.getCause().getMessage());
+		} else {
+			log.debug("RediSearch KNN search failure detail on index '{}'", indexName, ex);
 		}
 	}
 
@@ -145,6 +384,17 @@ public class RediSearchVectorClient {
 	public void saveVectorDocument(String docKey, Map<byte[], byte[]> fields, Duration ttl) {
 		byte[] rawKey = docKey.getBytes(StandardCharsets.UTF_8);
 		try (RedisConnection connection = redisConnectionFactory.getConnection()) {
+			if (isZeroNormVector(fields)) {
+				try {
+					Counter.builder("aegis.cache.vector.store.zero_norm_rejected")
+					       .register(meterRegistry)
+					       .increment();
+				} catch (Exception ignored) {
+				}
+				log.warn("Refusing to store zero-norm vector document '{}': cosine distance is undefined",
+						docKey);
+				return;
+			}
 			connection.hashCommands().hMSet(rawKey, fields);
 			if (ttl != null && !ttl.isNegative() && !ttl.isZero()) {
 				connection.keyCommands().expire(rawKey, ttl.toSeconds());
@@ -152,6 +402,30 @@ public class RediSearchVectorClient {
 		} catch (DataAccessException ex) {
 			log.warn("Failed to save vector document '{}': {}", docKey, ex.getMessage());
 		}
+	}
+
+	/**
+	 * Zero-norm embeddings make every cosine distance undefined (division by zero surfaces as {@code nan}
+	 * scores that poison KNN replies), so they are rejected at the door rather than indexed.
+	 */
+	private static boolean isZeroNormVector(Map<byte[], byte[]> fields) {
+		for (Map.Entry<byte[], byte[]> entry : fields.entrySet()) {
+			if ("embedding".equals(toUtf8String(entry.getKey()))) {
+				byte[] blob = entry.getValue();
+				if (blob == null || blob.length == 0 || blob.length % 4 != 0) {
+					return true;
+				}
+				for (int i = 0; i < blob.length; i += 4) {
+					int bits = (blob[i] & 0xFF) | ((blob[i + 1] & 0xFF) << 8)
+							| ((blob[i + 2] & 0xFF) << 16) | ((blob[i + 3] & 0xFF) << 24);
+					if (Float.intBitsToFloat(bits) != 0.0f) {
+						return false;
+					}
+				}
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**
@@ -198,7 +472,14 @@ public class RediSearchVectorClient {
 	 */
 	public int vectorDimensionOf(String indexName) {
 		try (RedisConnection connection = redisConnectionFactory.getConnection()) {
-			Object info = connection.execute("FT.INFO", indexName.getBytes(StandardCharsets.UTF_8));
+			// NestedMultiOutput decodes integers, doubles and bulk strings, so the mixed FT.INFO array
+			// survives under both RESP2 and RESP3 (maps flatten to key/value sequences via multiMap).
+			// The default ByteArrayOutput cannot represent numeric elements and fails every call, which
+			// previously made dimension detection always return -1 and disabled index reconciliation.
+			// Both factories are Lettuce-only by construction, so the cast is safe.
+			Object info = ((LettuceConnection) connection).execute("FT.INFO",
+					new NestedMultiOutput<>(ByteArrayCodec.INSTANCE),
+					new byte[][]{indexName.getBytes(StandardCharsets.UTF_8)});
 			return parseVectorDimension(info);
 		} catch (Exception ex) {
 			log.debug("Could not read vector dimension for '{}': {}", indexName, ex.getMessage());
@@ -216,6 +497,8 @@ public class RediSearchVectorClient {
 		// [identifier, owner_id, attribute, owner_id, type, TAG, ...,
 		//  identifier, embedding, attribute, embedding, type, VECTOR, algorithm, HNSW,
 		//  data_type, FLOAT32, dim, 1536, distance_metric, COSINE, ...]]
+		// Under RESP3 the same content arrives as a flattened map (key/value pairs inline), so the
+		// attribute section is located first and then scanned recursively for the VECTOR dim.
 		int attributesIdx = -1;
 		for (int i = 0; i < list.size(); i++) {
 			if ("attributes".equals(toUtf8String(list.get(i)))) {
@@ -226,72 +509,26 @@ public class RediSearchVectorClient {
 		if (attributesIdx < 0 || attributesIdx >= list.size()) {
 			return -1;
 		}
-		Object attrsObj = list.get(attributesIdx);
-		if (!(attrsObj instanceof List<?> attrList)) {
+		return scanVectorDim(list.get(attributesIdx));
+	}
+
+	private static int scanVectorDim(Object node) {
+		if (!(node instanceof List<?> list)) {
 			return -1;
 		}
-		for (int j = 0; j < attrList.size(); j++) {
-			String attrName = toUtf8String(attrList.get(j));
-			if ("embedding".equals(attrName) && j + 5 < attrList.size()
-					&& "VECTOR".equals(toUtf8String(attrList.get(j + 4)))) {
-				for (int k = j + 5; k < attrList.size(); k++) {
-					String token = toUtf8String(attrList.get(k));
-					if ("dim".equals(token) && k + 1 < attrList.size()) {
-						Object dimObj = attrList.get(k + 1);
-						return (dimObj instanceof Number num) ? num.intValue() : -1;
-					}
-				}
+		// Only VECTOR fields carry a dim; TAG/TEXT/NUMERIC sections never do, so the first
+		// dim+Number pair inside the attribute section is the embedding dimension.
+		for (int i = 0; i < list.size(); i++) {
+			if ("dim".equals(toUtf8String(list.get(i))) && i + 1 < list.size()
+					&& list.get(i + 1) instanceof Number num) {
+				return num.intValue();
+			}
+			int nested = scanVectorDim(list.get(i));
+			if (nested > 0) {
+				return nested;
 			}
 		}
 		return -1;
-	}
-
-	@SuppressWarnings("unchecked")
-	private List<VectorSearchResult> parseSearchResults(Object rawResult) {
-		if (!(rawResult instanceof List<?> list) || list.isEmpty()) {
-			return Collections.emptyList();
-		}
-
-		Object countObj = list.getFirst();
-		long totalCount = (countObj instanceof Number num) ? num.longValue() : 0L;
-		if (totalCount <= 0) {
-			return Collections.emptyList();
-		}
-
-		List<VectorSearchResult> results = new ArrayList<>();
-		// Results format: [total_count, doc_key_1, [attr1, val1, attr2, val2, ...], doc_key_2, ...]
-		for (int i = 1; i < list.size(); i += 2) {
-			if (i + 1 >= list.size()) {
-				break;
-			}
-			String docKey = toUtf8String(list.get(i));
-			Object attrsObj = list.get(i + 1);
-
-			Map<String, String> fieldMap = new HashMap<>();
-			double distance = 1.0;
-
-			if (attrsObj instanceof List<?> attrList) {
-				for (int j = 0; j < attrList.size(); j += 2) {
-					if (j + 1 >= attrList.size()) {
-						break;
-					}
-					String attrName = toUtf8String(attrList.get(j));
-					String attrVal = toUtf8String(attrList.get(j + 1));
-					fieldMap.put(attrName, attrVal);
-
-					if ("score".equalsIgnoreCase(attrName) || "dist".equalsIgnoreCase(attrName)) {
-						try {
-							distance = Double.parseDouble(attrVal);
-						} catch (NumberFormatException ignored) {
-						}
-					}
-				}
-			}
-
-			results.add(new VectorSearchResult(docKey, distance, fieldMap));
-		}
-
-		return results;
 	}
 
 	private static String toUtf8String(Object obj) {

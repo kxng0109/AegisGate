@@ -49,23 +49,47 @@ public class RedisSemanticVectorCache {
 	 */
 	public void initializeIndex() {
 		try {
-			int dimensions = resolveDimensions();
 			int existing = vectorClient.vectorDimensionOf(INDEX_NAME);
-			if (existing > 0 && existing != dimensions) {
-				log.warn(
-						"RediSearch index '{}' is at dimension {} but the configured embedding model "
-								+ "produces {}; dropping and recreating the index",
-						INDEX_NAME, existing, dimensions
+			float[] probed = probeDimension();
+			if (probed != null && probed.length > 0) {
+				// Authoritative path: the live model declares its dimension, so a mismatch is real
+				// drift and the stale index (with its incompatible vectors) is rebuilt.
+				int dimensions = probed.length;
+				if (existing > 0 && existing != dimensions) {
+					log.warn(
+							"RediSearch index '{}' is at dimension {} but the configured embedding model "
+							+ "produces {}; dropping and recreating the index",
+							INDEX_NAME, existing, dimensions
+					);
+					vectorClient.dropIndex(INDEX_NAME, true);
+				}
+				boolean created = vectorClient.createIndexIfNotExists(INDEX_NAME, PREFIX, dimensions);
+				log.info(
+						"RediSearch vector index '{}' {} at dimension {}",
+						INDEX_NAME,
+						created ? "initialized" : "already present",
+						dimensions
 				);
-				vectorClient.dropIndex(INDEX_NAME, true);
+				return;
 			}
-			boolean created = vectorClient.createIndexIfNotExists(INDEX_NAME, PREFIX, dimensions);
-			log.info(
-					"RediSearch vector index '{}' {} at dimension {}",
-					INDEX_NAME,
-					created ? "initialized" : "already present",
-					dimensions
-			);
+			// Probe unavailable: the resolved dimension is a guess (verified map, then safe default),
+			// and guessing must never destroy a live index. Create only when absent.
+			int dimensions = resolveFallbackDimensions();
+			if (existing <= 0) {
+				boolean created = vectorClient.createIndexIfNotExists(INDEX_NAME, PREFIX, dimensions);
+				log.info(
+						"RediSearch vector index '{}' {} at dimension {} (probe unavailable; unverified)",
+						INDEX_NAME,
+						created ? "initialized" : "already present",
+						dimensions
+				);
+			} else {
+				log.warn(
+						"RediSearch index '{}' kept at dimension {}: dimension probe unavailable, refusing to "
+						+ "reconcile on an unverified guess",
+						INDEX_NAME, existing
+				);
+			}
 		} catch (Exception ex) {
 			log.warn("Non-fatal RediSearch index initialization warning: {}", ex.getMessage());
 		}
@@ -84,11 +108,7 @@ public class RedisSemanticVectorCache {
 	 *   <li><b>Safe default</b> — 1536, preserving prior behavior for unknown models.</li>
 	 * </ol>
 	 */
-	private int resolveDimensions() {
-		float[] probed = probeDimension();
-		if (probed != null && probed.length > 0) {
-			return probed.length;
-		}
+	private int resolveFallbackDimensions() {
 		String model = properties.getSemantic().getEmbeddingModel();
 		int mapped = EmbeddingDimensionMap.dimensionOf(model);
 		if (mapped != EmbeddingDimensionMap.UNKNOWN) {

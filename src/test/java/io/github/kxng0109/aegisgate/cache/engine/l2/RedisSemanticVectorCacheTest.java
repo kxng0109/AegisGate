@@ -317,6 +317,21 @@ class RedisSemanticVectorCacheTest {
 	}
 
 	@Test
+	@DisplayName("initializeIndex never drops a live index when the probe is unavailable")
+	void initializeIndexKeepsLiveIndexWhenProbeUnavailable() {
+		// Probe down + unknown model would resolve the 1536 fallback: a live 768 index must survive,
+		// and no create-if-absent call may run against the guessed dimension either.
+		properties.getSemantic().setEmbeddingModel("totally-unknown-model");
+		when(embeddingService.processEmbedding(any(), eq("system")))
+				.thenThrow(new RuntimeException("Upstream embedding provider returned HTTP 401"));
+		when(vectorClient.vectorDimensionOf(RedisSemanticVectorCache.INDEX_NAME)).thenReturn(768);
+
+		cache.initializeIndex();
+
+		verify(vectorClient, never()).dropIndex(anyString(), anyBoolean());
+		verify(vectorClient, never()).createIndexIfNotExists(anyString(), anyString(), anyInt());
+	}
+	@Test
 	@DisplayName("initializeIndex leaves a matching index alone (no drop, no recreate)")
 	void initializeIndexKeepsMatchingIndex() {
 		EmbeddingResponse probe = new EmbeddingResponse(

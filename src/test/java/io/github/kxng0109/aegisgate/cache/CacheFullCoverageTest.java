@@ -16,6 +16,8 @@ import io.github.kxng0109.aegisgate.proxy.embeddings.EmbeddingService;
 import io.github.kxng0109.aegisgate.proxy.embeddings.dto.EmbeddingData;
 import io.github.kxng0109.aegisgate.proxy.embeddings.dto.EmbeddingResponse;
 import io.github.kxng0109.aegisgate.proxy.protocol.OpenAiChatRequest;
+import io.lettuce.core.output.NestedMultiOutput;
+import io.lettuce.core.search.SearchReply;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -23,12 +25,15 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.connection.lettuce.LettuceConnection;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.mock.web.MockHttpServletRequest;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -201,9 +206,9 @@ class CacheFullCoverageTest {
 
 		// 4. RediSearchVectorClient string conversions and odd list boundaries
 		RedisConnectionFactory factory = mock(RedisConnectionFactory.class);
-		RedisConnection conn = mock(RedisConnection.class);
+		LettuceConnection conn = mock(LettuceConnection.class);
 		when(factory.getConnection()).thenReturn(conn);
-		RediSearchVectorClient client = new RediSearchVectorClient(factory);
+		RediSearchVectorClient client = new RediSearchVectorClient(factory, null);
 
 		// BUSYKEY and already exists exception on create, plus null message exception
 		when(conn.execute(eq("FT.CREATE"), any(byte[][].class))).thenThrow(new RuntimeException(
@@ -213,17 +218,25 @@ class CacheFullCoverageTest {
 		when(conn.execute(eq("FT.CREATE"), any(byte[][].class))).thenThrow(new RuntimeException((String) null));
 		assertThat(client.createIndexIfNotExists("idx", "doc:", 1536)).isFalse();
 
-		// Trailing odd doc key without attributes
-		List<Object> oddDocList = List.of(1L, "docKeyWithoutAttrs".getBytes());
-		when(conn.execute(eq("FT.SEARCH"), any(byte[][].class))).thenReturn(oddDocList);
+		// Raw reply mapping: row without a score triple is skipped safely
+		when(conn.execute(eq("FT.SEARCH"), any(NestedMultiOutput.class),
+				any(byte[][].class))).thenReturn(List.of(1L));
 		assertThat(client.searchKnn("idx", "@tag:{1}", new float[]{0.1f}, 1)).isEmpty();
 
-		// parseSearchResults with non-byte-array doc key
-		List<Object> nonByteDocList = List.of(1L, 99999, List.of("score".getBytes(), "0.01".getBytes()));
-		when(conn.execute(eq("FT.SEARCH"), any(byte[][].class))).thenReturn(nonByteDocList);
+		// Raw reply mapping: fields land in the result map
+		List<Object> attrs = new ArrayList<>();
+		attrs.add("score".getBytes());
+		attrs.add("0.01".getBytes());
+		List<Object> rawReply = new ArrayList<>();
+		rawReply.add(1L);
+		rawReply.add("doc1".getBytes());
+		rawReply.add("0.03".getBytes());
+		rawReply.add(attrs);
+		when(conn.execute(eq("FT.SEARCH"), any(NestedMultiOutput.class),
+				any(byte[][].class))).thenReturn(rawReply);
 		List<VectorSearchResult> parsedNonBytes = client.searchKnn("idx", "@tag:{1}", new float[]{0.1f}, 1);
 		assertThat(parsedNonBytes).hasSize(1);
-		assertThat(parsedNonBytes.getFirst().docKey()).isEqualTo("99999");
+		assertThat(parsedNonBytes.getFirst().docKey()).isEqualTo("doc1");
 
 		// parseInt branches in RedisSemanticVectorCache
 		VectorSearchResult matchWithNullFields = new VectorSearchResult(

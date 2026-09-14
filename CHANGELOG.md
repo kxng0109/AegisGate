@@ -83,6 +83,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **RediSearch KNN desync (live-captured):** `FT.SEARCH` multiplex failures now surface their cause chain
+  (`UnsupportedOperationException` misrouting on the shared Lettuce connection) instead of the opaque
+  `Unknown redis exception`. Module commands run on an isolated native connection, desync-signature failures get
+  one classified retry under a token-budget cap (never OOM/WRONGTYPE/syntax), queries carry an explicit
+  `TIMEOUT 2000`, and failure WARNs are budgeted with per-cause counters.
+- **RediSearch KNN root cause (protocol evidence):** the desync theory was falsified — every `FT.SEARCH` through
+  Spring's `RedisConnection.execute` fails deterministically because the connection negotiates RESP3 while that
+  path decodes with `ByteArrayOutput`, which cannot represent the integer elements of a search response. The L2
+  semantic path had never served a hit. `searchKnn` now uses Lettuce's native `ftSearch` API (correct output for
+  any negotiated protocol) over an isolated native connection, keeping the retry budget, `TIMEOUT 2000` bound,
+  warn budget and per-cause counters.
+- **RediSearch KNN score semantics (live-server proof):** the positional WITHSCORES value is the text-search
+  score (`nan` for pure-vector queries); the true KNN distance rides in the `__embedding_score` field (the
+  `AS score` alias + `SORTBY` combination corrupts the positional slot). The parser prefers the vector field
+  with positional fallback, skips `nan` rows, and `FT.INFO` dimension reads use a numeric-capable output so
+  index reconciliation actually fires. A fail-safe guard stops destructive reconciles on unverified fallback
+  dimensions, and zero-norm vectors are rejected at store time. First live `hit_l2` verified end to end.
 - **HeaderWriterFilter/MimeHeaders race (spring-security#15510):** security headers are now written eagerly on the
   dispatch thread, closing the async double-write race that corrupted Tomcat's recycled `MimeHeaders` with
   `NullPointerException`s and poisoned keep-alive connections. Local-accounts seam (`DelegatedUserDetailsService`,
