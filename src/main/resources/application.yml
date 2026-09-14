@@ -8,6 +8,13 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+      # No Redis repositories exist by design (boot logs prove 0 Redis
+      # repository interfaces): all Redis access goes through the qualified
+      # templates on the custom LettuceConnectionFactory beans. Disabling the
+      # repository scan silences the per-candidate "could not safely identify
+      # store assignment" INFOs without touching templates or connections.
+      repositories:
+        enabled: false
       # No lettuce pool keys on purpose: the app defines its own
       # LettuceConnectionFactory beans, which use a single shared native
       # connection (optimal for sub-ms Lua gates). Boot's pool auto-config
