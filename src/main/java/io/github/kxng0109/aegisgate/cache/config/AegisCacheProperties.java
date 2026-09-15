@@ -75,7 +75,7 @@ public class AegisCacheProperties {
 		/**
 		 * Minimum cosine similarity threshold required for an L2 semantic hit (0.00 - 1.00).
 		 */
-		private double similarityThreshold = 0.90;
+		private double similarityThreshold = 0.80;
 
 		/**
 		 * Maximum number of prior turns included in prefix hashing for multi-turn conversations.

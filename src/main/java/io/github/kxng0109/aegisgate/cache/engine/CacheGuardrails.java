@@ -19,7 +19,8 @@ public class CacheGuardrails {
 	private static final Set<String> COMMON_STOP_WORDS = Set.of(
 			"THE", "WHAT", "HOW", "CAN", "TELL", "PLEASE", "WHY", "WHEN", "WHERE", "WHO",
 			"WHICH", "COULD", "WOULD", "SHOULD", "THERE", "HERE", "THIS", "THAT", "THESE", "THOSE",
-			"CALCULATE", "IS", "ARE", "WAS", "WERE", "DO", "DOES", "DID", "EXPLAIN", "SHOW", "GIVE"
+			"ANY", "CALCULATE", "IS", "ARE", "WAS", "WERE", "DO", "DOES", "DID", "EXPLAIN", "DESCRIBE",
+			"SHOW", "GIVE"
 	);
 
 	private static final List<PolarityPair> POLARITY_PAIRS = List.of(

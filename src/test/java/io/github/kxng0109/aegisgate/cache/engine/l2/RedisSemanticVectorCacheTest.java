@@ -59,7 +59,7 @@ class RedisSemanticVectorCacheTest {
 						"total_tokens", "30"
 				)
 		);
-		when(vectorClient.searchKnn(anyString(), anyString(), any(), eq(1))).thenReturn(List.of(match));
+		when(vectorClient.searchKnn(anyString(), anyString(), any(), eq(2))).thenReturn(List.of(match));
 
 		CacheEntry entry = cache.findSemanticMatch(key);
 		assertThat(entry).isNotNull();
@@ -85,7 +85,7 @@ class RedisSemanticVectorCacheTest {
 				0.25, // Distance = 0.25 -> Sim = 0.75 < 0.90
 				Map.of("prompt_text", "What is Java?", "response_json", "{}")
 		);
-		when(vectorClient.searchKnn(anyString(), anyString(), any(), eq(1))).thenReturn(List.of(lowMatch));
+		when(vectorClient.searchKnn(anyString(), anyString(), any(), eq(2))).thenReturn(List.of(lowMatch));
 
 		CacheEntry entry = cache.findSemanticMatch(key);
 		assertThat(entry).isNull();
@@ -136,7 +136,7 @@ class RedisSemanticVectorCacheTest {
 						"2026-09-01T12:00:00Z"
 				)
 		);
-		when(vectorClient.searchKnn(anyString(), anyString(), any(), eq(1))).thenReturn(List.of(match));
+		when(vectorClient.searchKnn(anyString(), anyString(), any(), eq(2))).thenReturn(List.of(match));
 
 		CacheEntry entry = cache.findSemanticMatch(key);
 		assertThat(entry).isNotNull();
@@ -182,7 +182,7 @@ class RedisSemanticVectorCacheTest {
 						"completion_tokens", "not-int"
 				)
 		);
-		when(vectorClient.searchKnn(anyString(), contains("prefix_hash"), any(), eq(1))).thenReturn(List.of(match));
+		when(vectorClient.searchKnn(anyString(), contains("prefix_hash"), any(), eq(2))).thenReturn(List.of(match));
 
 		CacheEntry entry = cache.findSemanticMatch(fullKey);
 		assertThat(entry).isNotNull();
@@ -208,7 +208,7 @@ class RedisSemanticVectorCacheTest {
 		assertThat(cache.findSemanticMatch(blankKey)).isNull();
 
 		// Empty results
-		when(vectorClient.searchKnn(anyString(), anyString(), any(), eq(1))).thenReturn(List.of());
+		when(vectorClient.searchKnn(anyString(), anyString(), any(), eq(2))).thenReturn(List.of());
 		assertThat(cache.findSemanticMatch(key)).isNull();
 
 		// Guardrail mismatch (e.g. enable vs disable)
@@ -220,7 +220,7 @@ class RedisSemanticVectorCacheTest {
 		);
 		when(embeddingService.processEmbedding(any(), eq("tenant1"))).thenReturn(mockEmbedding);
 		VectorSearchResult mismatch = new VectorSearchResult("doc2", 0.01, Map.of("prompt_text", "How to disable 2FA"));
-		when(vectorClient.searchKnn(anyString(), anyString(), any(), eq(1))).thenReturn(List.of(mismatch));
+		when(vectorClient.searchKnn(anyString(), anyString(), any(), eq(2))).thenReturn(List.of(mismatch));
 		assertThat(cache.findSemanticMatch(enableKey)).isNull();
 	}
 

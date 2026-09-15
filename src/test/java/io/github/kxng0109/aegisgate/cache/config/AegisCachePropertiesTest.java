@@ -53,4 +53,14 @@ class AegisCachePropertiesTest {
 		assertThat(props.getSemantic().isEntityGuardEnabled()).isFalse();
 		assertThat(props.getSemantic().getTemperatureFloor()).isEqualTo(0.2);
 	}
+
+	@Test
+	@DisplayName("semantic cache defaults carry the calibrated similarity threshold")
+	void semanticDefaults() {
+		AegisCacheProperties props = new AegisCacheProperties();
+
+		assertThat(props.getSemantic().getSimilarityThreshold()).isEqualTo(0.80);
+		assertThat(props.getSemantic().isPolarityGuardEnabled()).isTrue();
+		assertThat(props.getSemantic().isEntityGuardEnabled()).isTrue();
+	}
 }

@@ -243,7 +243,7 @@ class CacheFullCoverageTest {
 				"doc1", 0.01,
 				Map.of("prompt_text", "p") // prompt_tokens and completion_tokens are null
 		);
-		when(vectorClient.searchKnn(anyString(), anyString(), any(), eq(1))).thenReturn(List.of(matchWithNullFields));
+		when(vectorClient.searchKnn(anyString(), anyString(), any(), eq(2))).thenReturn(List.of(matchWithNullFields));
 		when(embeddingService.processEmbedding(any(), eq("t1"))).thenReturn(
 				new EmbeddingResponse(
 						"list",

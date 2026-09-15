@@ -101,7 +101,7 @@ class TemperatureIsolationTest {
 				eq(RedisSemanticVectorCache.INDEX_NAME),
 				firstFilter.capture(),
 				any(),
-				eq(1)
+				eq(2)
 		);
 		assertThat(firstFilter.getValue()).contains("@temperature:{");
 		assertThat(firstFilter.getValue()).contains(RediSearchVectorClient.escapeTag("0.0"));
@@ -112,7 +112,7 @@ class TemperatureIsolationTest {
 				eq(RedisSemanticVectorCache.INDEX_NAME),
 				secondFilter.capture(),
 				any(),
-				eq(1)
+				eq(2)
 		);
 		assertThat(secondFilter.getValue()).doesNotContain("@temperature:{");
 	}

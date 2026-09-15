@@ -24,7 +24,7 @@ public record CacheStatsResponse(
 		@Schema(description = "Default multi-tenant isolation scope", example = "TENANT")
 		String defaultScope,
 
-		@Schema(description = "Cosine similarity threshold for L2 semantic vector matches", example = "0.90")
+		@Schema(description = "Cosine similarity threshold for L2 semantic vector matches", example = "0.80")
 		double similarityThreshold,
 
 		@Schema(description = "Embedding model alias used for vector caching", example = "text-embedding-3-small")

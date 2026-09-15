@@ -67,7 +67,7 @@ public class AdminCacheController {
 											{
 											  "enabled": true,
 											  "defaultScope": "TENANT",
-											  "similarityThreshold": 0.90,
+											  "similarityThreshold": 0.80,
 											  "embeddingModel": "text-embedding-3-small",
 											  "l0InMemorySize": 50000,
 											  "l0InMemoryTtlSeconds": 60,

@@ -39,7 +39,7 @@ class AdminCacheControllerTest {
 		CacheStatsResponse stats = response.getBody();
 		assertThat(stats).isNotNull();
 		assertThat(stats.enabled()).isTrue();
-		assertThat(stats.similarityThreshold()).isEqualTo(0.90);
+		assertThat(stats.similarityThreshold()).isEqualTo(0.80);
 		assertThat(stats.embeddingModel()).isEqualTo("text-embedding-3-small");
 	}
 

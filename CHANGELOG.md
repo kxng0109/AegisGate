@@ -115,6 +115,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   re-pinned to the same image. Verified: module list, `FT.CREATE`/`FT._LIST`/`FT.INFO` canary, pre-existing vector
   index restored from RDB, L2 semantic HIT 16.5ms vs 458ms fresh, flood re-proof 43,200/43,200 checks with 0
   dropped and p95 9.57ms. Full `verify` 1,320 green, branch 0.9503.
+- **Sentence-initial entity false-rejects:** a leading capitalized verb/adverb (e.g. "Describe ...", "Any ...")
+  emitted a start-of-text `"":ENT` slot, so any two such prompts sharing no other slot contradicted and rejected
+  a valid hit. `ANY` and `DESCRIBE` join `COMMON_STOP_WORDS` (alongside the existing imperative verbs);
+  entity swaps behind the leading word still reject. Pinned by `sentenceInitialVerbsAreNotEntities`.
+- **L2 score/gap observability:** `findSemanticMatch` fetches K=2 and logs `score/threshold/gap` at debug for
+  above- and below-threshold candidates, so the cosine band can be calibrated from production distributions
+  instead of assumption. Decision logic unchanged (best match only).
 
 ### Changed
 
@@ -166,6 +173,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Carrier A/B short verdict (recorded, not a change):** 3m/500rps bursts show no meaningful parallelism
   4-vs-8 gap (both p95 <5ms); **kept 4**. Differentiating saturation run deferred to the P3 distributed
   harness; see `docs/high-throughput/gate-checklist.md`.
+- **Semantic threshold 0.90→0.80 (measured):** 57-pair fixture-derived eval (production nomic embeddings,
+  Ettin-17m local) showed 0.90 stranding paraphrases at 0.80–0.899 (recall 0.48); guardrails hold precision
+  ≈0.95 down to 0.70, so 0.80 recovers recall to 0.74 with precision 0.95 (F1 0.83; candidate 0.75 at F1 0.90
+  held for follow-up once production score logs confirm). Same eval falsified the Ettin in-band gate
+  (F1 0.857 < status-quo 0.902 — relevance-reranker is negation-blind), so no model was added. Default,
+  admin example payloads, and fallback asserts updated; per-request header override unchanged.
 
 ## [1.7.0] - 2026-09-10
 

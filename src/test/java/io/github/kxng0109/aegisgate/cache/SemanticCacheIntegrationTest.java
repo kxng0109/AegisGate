@@ -86,7 +86,7 @@ class SemanticCacheIntegrationTest {
 						"total_tokens", "25"
 				)
 		);
-		when(vectorClient.searchKnn(anyString(), anyString(), any(), eq(1))).thenReturn(List.of(match));
+		when(vectorClient.searchKnn(anyString(), anyString(), any(), eq(2))).thenReturn(List.of(match));
 
 		// 1. First evaluation: Hits L2 Semantic tier
 		CacheLookupResult res1 = cacheService.evaluateCache(request, httpReq, "tenant1");
@@ -112,7 +112,7 @@ class SemanticCacheIntegrationTest {
 		MockHttpServletRequest httpReq = new MockHttpServletRequest();
 
 		// When querying for Tenant B, RediSearch receives @owner_id:{tenantB} and returns empty
-		when(vectorClient.searchKnn(anyString(), contains("tenantB"), any(), eq(1))).thenReturn(List.of());
+		when(vectorClient.searchKnn(anyString(), contains("tenantB"), any(), eq(2))).thenReturn(List.of());
 
 		CacheLookupResult res = cacheService.evaluateCache(request, httpReq, "tenantB");
 		assertThat(res.isHit()).isFalse();

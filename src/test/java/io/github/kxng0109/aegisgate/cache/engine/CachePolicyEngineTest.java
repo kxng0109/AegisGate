@@ -104,7 +104,7 @@ class CachePolicyEngineTest {
 		// Out of range upper threshold (> 1.00)
 		MockHttpServletRequest highThreshReq = new MockHttpServletRequest();
 		highThreshReq.addHeader("X-Aegis-Semantic-Threshold", "1.50");
-		assertThat(policyEngine.resolveSimilarityThreshold(highThreshReq)).isEqualTo(0.90);
+		assertThat(policyEngine.resolveSimilarityThreshold(highThreshReq)).isEqualTo(0.80);
 
 		// High temperature (0.7 > 0.1) without stochastic override -> bypass
 		OpenAiChatRequest highTempReq = new OpenAiChatRequest(
@@ -172,10 +172,10 @@ class CachePolicyEngineTest {
 		invalidReq.addHeader("X-Aegis-Cache-Scope", "INVALID_SCOPE");
 		invalidReq.addHeader("X-Aegis-Semantic-Threshold", "0.20"); // below 0.50 min
 		assertThat(policyEngine.resolveScope(invalidReq)).isEqualTo(CacheScope.TENANT);
-		assertThat(policyEngine.resolveSimilarityThreshold(invalidReq)).isEqualTo(0.90);
+		assertThat(policyEngine.resolveSimilarityThreshold(invalidReq)).isEqualTo(0.80);
 
 		MockHttpServletRequest malformedReq = new MockHttpServletRequest();
 		malformedReq.addHeader("X-Aegis-Semantic-Threshold", "abc");
-		assertThat(policyEngine.resolveSimilarityThreshold(malformedReq)).isEqualTo(0.90);
+		assertThat(policyEngine.resolveSimilarityThreshold(malformedReq)).isEqualTo(0.80);
 	}
 }

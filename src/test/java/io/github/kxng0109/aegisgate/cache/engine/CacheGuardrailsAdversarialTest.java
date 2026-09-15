@@ -83,4 +83,20 @@ class CacheGuardrailsAdversarialTest {
 		assertThat(guardrails.checkEntityMatch(
 				"Explain photosynthesis in Paris", "Tell me about Docker")).isTrue();
 	}
+
+	@Test
+	@DisplayName("sentence-initial verbs are not entities: ANY and DESCRIBE carry no start-of-text slot")
+	void sentenceInitialVerbsAreNotEntities() {
+		assertThat(guardrails.checkEntityMatch(
+				"Describe the process", "Explain the process")).isTrue();
+		assertThat(guardrails.checkEntityMatch(
+				"Any tips for Docker?", "Any guide for Docker?")).isTrue();
+		assertThat(guardrails.validateSemanticMatch(
+				"Describe quantum computing", "Explain quantum computing", true, true)).isTrue();
+		// Entity detection behind the leading verb still rejects genuine swaps.
+		assertThat(guardrails.checkEntityMatch(
+				"Any tips for AWS", "Any tips for Azure")).isFalse();
+		assertThat(guardrails.checkEntityMatch(
+				"Describe the Apple workflow", "Describe the Microsoft workflow")).isFalse();
+	}
 }

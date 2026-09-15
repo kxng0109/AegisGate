@@ -178,7 +178,7 @@ public class RedisSemanticVectorCache {
 		}
 
 		String filterQuery = buildFilterQuery(key, temperature);
-		List<VectorSearchResult> results = vectorClient.searchKnn(INDEX_NAME, filterQuery, queryVector, 1);
+		List<VectorSearchResult> results = vectorClient.searchKnn(INDEX_NAME, filterQuery, queryVector, 2);
 		if (results.isEmpty()) {
 			return null;
 		}
@@ -186,11 +186,13 @@ public class RedisSemanticVectorCache {
 		VectorSearchResult bestMatch = results.getFirst();
 		float score = bestMatch.similarityScore();
 		double threshold = properties.getSemantic().getSimilarityThreshold();
+		double gap = results.size() > 1 ? (double) score - results.get(1).similarityScore() : Double.NaN;
 
 		if (score < threshold) {
-			log.debug("L2 semantic candidate below threshold: score={}, threshold={}", score, threshold);
+			log.debug("L2 semantic candidate below threshold: score={}, threshold={}, gap={}", score, threshold, gap);
 			return null;
 		}
+		log.debug("L2 semantic candidate above threshold: score={}, threshold={}, gap={}", score, threshold, gap);
 
 		String cachedPrompt = bestMatch.fields().getOrDefault("prompt_text", "");
 		boolean passed = guardrails.validateSemanticMatch(
